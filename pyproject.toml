@@ -3,6 +3,8 @@ name = "youtube-tools"
 version = "0.1.0"
 description = "Browse a YouTube channel's latest videos and generate watching guides from their subtitles"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = [
     "pydantic>=2.14.0",
