@@ -1,5 +1,6 @@
 """Command-line entry point for youtube-tools."""
 
+import time
 from pathlib import Path
 from typing import Annotated
 
@@ -22,7 +23,8 @@ from .firefox import (
     discover_all_profiles,
     cookies_from_browser_spec,
 )
-from .youtube import verify_login, resolve_channel
+from .youtube import VideoSummary, verify_login, resolve_channel, list_latest_videos
+from .formatting import format_age, format_duration
 
 APP = typer.Typer(no_args_is_help=True, help="Browse YouTube channels and generate watching guides.")
 CONFIG_APP = typer.Typer(no_args_is_help=True, help="Create and edit the configuration file.")
@@ -75,17 +77,22 @@ def _load(config_path: Path) -> AppConfig:
         raise _fail(str(exc)) from exc
 
 
-def _make_ytdlp(config: AppConfig) -> YtDlp:
-    """Build a yt-dlp runner that uses the configured Firefox profile's cookies.
+def _make_ytdlp(config: AppConfig, *, with_cookies: bool) -> YtDlp:
+    """Build a yt-dlp runner, optionally using the configured Firefox profile's cookies.
+
+    Cookies are only needed to download members-only content. Leave them out otherwise, to keep automated traffic
+    tied to the account low.
 
     Args:
         config (AppConfig): The configuration.
+        with_cookies (bool): Pass the profile's cookies to yt-dlp.
 
     Returns:
         YtDlp: The runner. It runs without cookies when no profile is configured.
     """
     profile = config.auth.firefox_profile
-    return YtDlp(config.ytdlp_command, cookies_from_browser_spec(profile) if profile else None)
+    cookies_spec = cookies_from_browser_spec(profile) if with_cookies and profile else None
+    return YtDlp(config.ytdlp_command, cookies_spec)
 
 
 def _pick_profile() -> FirefoxProfile:
@@ -193,7 +200,7 @@ def config_add_channel(
     """
     config = _load(config_path)
     try:
-        resolved = resolve_channel(channel, _make_ytdlp(config))
+        resolved = resolve_channel(channel, _make_ytdlp(config, with_cookies=False))
     except (ValueError, YtDlpError) as exc:
         raise _fail(str(exc)) from exc
     resolved.members = members
@@ -275,12 +282,80 @@ def config_check(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     config = _load(config_path)
     if config.auth.firefox_profile is None:
         raise _fail("No Firefox profile configured. Run `youtube-tools config profile`.")
-    if not verify_login(_make_ytdlp(config)):
+    if not verify_login(_make_ytdlp(config, with_cookies=True)):
         raise _fail(
             "YouTube did not accept the cookies. Sign in with the Firefox profile "
             f"{config.auth.firefox_profile}, or choose another with `youtube-tools config profile`."
         )
     CONSOLE.print("[green]Signed in:[/green] YouTube accepted the profile's cookies.")
+
+
+def _videos_table(title: str, videos: list[VideoSummary], now: float) -> Table:
+    """Build a table of videos for display.
+
+    Args:
+        title (str): The table title.
+        videos (list[VideoSummary]): The videos, newest first.
+        now (float): The current Unix time, for the age column.
+
+    Returns:
+        Table: The table.
+    """
+    table = Table(title=title)
+    table.add_column("#", justify="right")
+    table.add_column("Published", justify="right")
+    table.add_column("Length", justify="right")
+    table.add_column("Type")
+    table.add_column("Title")
+    table.add_column("ID")
+    for index, video in enumerate(videos, start=1):
+        kinds = (["[magenta]members[/magenta]"] if video.members_only else []) + (
+            ["stream"] if video.live_status == "was_live" else []
+        )
+        table.add_row(
+            str(index),
+            format_age(video.timestamp, now),
+            format_duration(video.duration),
+            " ".join(kinds),
+            video.title,
+            video.id,
+        )
+    return table
+
+
+@APP.command("list")
+def list_videos(
+    channel: Annotated[str, typer.Argument(help="Channel name or ID from the configuration.")],
+    limit: Annotated[int, typer.Option("--limit", "-n", min=1, help="Maximum number of videos to show.")] = 20,
+    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
+) -> None:
+    """List a configured channel's latest videos and livestream replays, newest first.
+
+    Args:
+        channel (str): Channel name (case-insensitive) or channel ID from the configuration.
+        limit (int): Maximum number of videos to show.
+        config_path (Path): Path of the configuration file.
+
+    Returns:
+        None
+
+    Raises:
+        typer.Exit: If the channel is not configured or yt-dlp fails.
+    """
+    config = _load(config_path)
+    found = config.find_channel(channel)
+    if found is None:
+        names = ", ".join(c.name for c in config.channels) or "none, add one with `youtube-tools config add-channel`"
+        raise _fail(f"No channel named {channel!r} in the configuration. Configured channels: {names}.")
+    try:
+        with CONSOLE.status(f"Fetching the latest videos of {found.name}..."):
+            videos = list_latest_videos(found, _make_ytdlp(config, with_cookies=False), limit)
+    except YtDlpError as exc:
+        raise _fail(str(exc)) from exc
+    if not videos:
+        CONSOLE.print(f"No videos found for {found.name}.")
+        return
+    CONSOLE.print(_videos_table(f"Latest videos of {found.name}", videos, time.time()))
 
 
 if __name__ == "__main__":

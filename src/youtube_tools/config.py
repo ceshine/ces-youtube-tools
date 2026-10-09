@@ -48,7 +48,8 @@ class ChannelConfig(BaseModel):
         name (str): Display name of the channel.
         url (str): Canonical channel URL, e.g. `https://www.youtube.com/@handle`.
         channel_id (str): YouTube channel ID (starts with `UC`).
-        members (bool): Whether to also list members-only videos.
+        members (bool): Whether listings include members-only videos. Turn on only for channels you are a member of,
+            since members-only videos cannot be downloaded otherwise.
     """
 
     name: str

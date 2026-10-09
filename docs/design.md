@@ -77,9 +77,8 @@ model = "opus"
 - `ytdlp_command` defaults to `uvx ... @latest` because YouTube changes often break older yt-dlp releases.
 - `channel_id` is resolved once by `config add-channel`. It is the stable key for a channel (handles can change) and
   gives the `UUMO<id without "UC">` members-only playlist if that is ever needed.
-- `members` filters the listing. The `/videos` tab already includes members-only videos (`availability:
-  subscriber_only`). `members = false` hides them, because they cannot be downloaded without a membership.
-  `members = true` shows everything.
+- `members` decides whether the listing includes members-only uploads (the `UUMF` and `UUMV` playlists). Leave it
+  off for channels you are not a member of, because their members-only videos cannot be downloaded.
 - `prompt_template` is a user-editable file. A default template ships with the package and is copied there on
   `config init`.
 
@@ -114,11 +113,25 @@ claude -p --tools "" --no-session-persistence --output-format text [--model MODE
 `~/.cache/youtube-tools/<video_id>/` holds `info.json`, the raw subtitle file and `transcript.json`. A rerun with a
 different generator reuses them, and a failed step is the only one repeated.
 
+## Video listing
+
+`list_latest_videos` fetches the channel's upload playlists without cookies, in parallel, and merges them newest
+first:
+
+- `UULF` (long-form videos) and `UULV` (livestream replays), plus `UUMF` and `UUMV` (members-only videos and replays)
+  when `members = true`.
+- `UU` (all uploads) is not used because it includes Shorts, which cannot be told apart in flat listings.
+- `--extractor-args youtubetab:approximate_date` gives each entry an approximate timestamp. The merge uses it only to
+  interleave playlists and keeps each playlist's own order, because old entries share coarse timestamps.
+- A playlist the channel does not have counts as empty. Entries that are live now or upcoming are dropped.
+- Unlisted perk videos linked only from the `/membership` tab are not listed.
+
+Details and recheck commands are in [implementation_notes.md](implementation_notes.md).
+
 ## Build order
 
 1. Config: models, load/save, Firefox profile discovery and picker, `config` commands. (Done.)
-2. Video listing: `--flat-playlist` on `/videos` without cookies, filtered by `members`. Check whether `/streams`
-   is needed for livestream replays first. `config add-channel` should also stop passing cookies.
+2. Video listing: `youtube-tools list CHANNEL`. (Done.) See "Video listing" below.
 3. Transcript: yt-dlp subtitle provider, VTT parser with duplicate removal, work-directory cache.
 4. Guide: prompt template and builder, `ClaudeCliGenerator`, `guide URL` command.
 5. `browse`: interactive channel and video menus on top of steps 1–4. Choose the prompt library here, because the

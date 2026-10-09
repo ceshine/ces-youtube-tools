@@ -36,21 +36,67 @@ $Y --write-auto-subs --sub-langs en-orig --skip-download https://www.youtube.com
 $Y --cookies-from-browser "$CK" --write-auto-subs --sub-langs en-orig --skip-download <same URL>             # works
 ```
 
-### Livestream replays may be missing from `/videos` (not yet verified)
+### Channel upload playlists split uploads by kind
 
-The `/membership` tab also listed roughly 3-hour `[MEMBERS] The Young Turks & Bonus Episode!` entries that did not
-appear in the first `/videos` entries, and their `availability` was `None` despite being members-only. They are
-probably livestream replays, which YouTube lists under `/streams`. Until this is checked, do not rely on `availability`
-alone to detect members-only streams.
+Each channel has upload playlists named `<prefix><channel id without "UC">`
+(`https://www.youtube.com/playlist?list=...`). Checked with `@TheYoungTurks` and `@3blue1brown`:
 
-Recheck: compare `$Y --flat-playlist --playlist-end 10 -J <channel>/streams` with the `/membership` tab.
+| Prefix | Contents | Shorts |
+| --- | --- | --- |
+| `UU` | All public uploads: videos and livestream replays | **Included** |
+| `UULF` | Public long-form videos | No |
+| `UULV` | Public livestream replays (`live_status: was_live`) | No |
+| `UUMO` | All members-only uploads: videos and livestream replays | Not checked |
+| `UUMF` | Members-only videos | No |
+| `UUMV` | Members-only livestream replays | No |
 
-### Flat listings have no upload date
+- Public and members-only playlists do not overlap. `UULF`/`UULV` hold no members-only entries.
+- Entries in `UUMF`/`UUMV` have `availability: subscriber_only`.
+- A playlist the channel does not have (no livestreams, no memberships) fails with
+  `ERROR: ... YouTube said: The playlist does not exist.` and exit status 1. Treat that as an empty list.
+- Shorts cannot be filtered out of `UU`: their entries have normal `watch?v=` URLs, and durations (44 to 100 seconds
+  seen) overlap with short regular videos. `list_latest_videos` therefore merges `UULF` + `UULV` (+ `UUMF` + `UUMV`).
+- A livestream that is live right now appears in the `/streams` tab with `live_status: is_live` but was not in `UULV`.
+  The listing drops `is_live` and `is_upcoming` entries anyway, since they have no finished subtitles.
+
+Recheck:
+
+```sh
+ID=1yBKRuGpC1tSM73A0ZjYjQ   # @TheYoungTurks without "UC"
+for P in UU UULF UULV UUMO UUMF UUMV; do
+  $Y --flat-playlist --playlist-end 5 --print "$P %(id)s %(live_status)s %(availability)s %(title)s" \
+    "https://www.youtube.com/playlist?list=$P$ID"
+done
+$Y --flat-playlist --playlist-end 5 --print id "https://www.youtube.com/playlist?list=UUSH$ID"  # Shorts; find them in UU
+```
+
+### The membership tab also links unlisted perk videos
+
+The `/membership` tab (cookies needed) listed roughly 3-hour `[MEMBERS] The Young Turks & Bonus Episode!` replays
+that appear in none of the upload playlists. A full extraction shows `availability: unlisted` and
+`live_status: was_live`. They play without cookies, and had no `en-orig` automatic captions. They are left out of
+listings for now.
+
+Recheck: `$Y --skip-download --print "%(availability)s %(live_status)s" https://www.youtube.com/watch?v=ColFp8utld8`
+
+### Flat listings have no upload date unless `approximate_date` is set
 
 With `--flat-playlist`, `timestamp` and `upload_date` are empty. Entries come newest first, and `duration`,
-`view_count` and `title` are present. Exact dates need a full (non-flat) extraction per video.
+`view_count` and `title` are present.
 
-Recheck: `$Y --flat-playlist --playlist-end 3 -J https://www.youtube.com/@3blue1brown/videos`
+`--extractor-args youtubetab:approximate_date` fills `timestamp` from the "3 hours ago" text, for playlists
+(`UU…`), but `upload_date` stays empty. Channel tabs (`/videos`, `/streams`) were not checked. Precision drops with
+age: recent entries are accurate to the hour, while 3Blue1Brown's 2020 livestreams all share one timestamp. Use it to
+interleave playlists, not to order entries within one. `merge_newest_first` keeps each playlist's own order.
+
+Recheck:
+`$Y --extractor-args youtubetab:approximate_date --flat-playlist --playlist-end 3 -J "https://www.youtube.com/playlist?list=UULF$ID"`
+
+### Titles differ between listings
+
+The same video can have different titles in different listings, and between runs. `bg4f_7W_Rr0` appeared as "How A
+German Official Got CAUGHT Spying For Israel" in `/videos` and as "German Official BUSTED Spying For ISRAEL" in
+`UULF`, probably because YouTube tests several titles. Identify videos by ID, never by title.
 
 ### Handles can point at unexpected channels
 
