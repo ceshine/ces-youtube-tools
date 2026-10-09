@@ -1,7 +1,8 @@
 # Plan: HTML watching guides with an embedded player
 
-Status: planned, not started. When this is implemented, move the decisions into [design.md](design.md) and keep this
-file only as a record of the steps.
+Status: steps 1-6 are implemented (as of 2026-10-09); step 7 (moving the decisions into [design.md](design.md) and
+the README) remains. Where this plan and the code differ, the code and `design.md` win. When step 7 is done, keep
+this file only as a record of the steps.
 
 ## Goal
 

@@ -222,8 +222,7 @@ is one, `q` quits with status 0, and anything else repeats the question with a h
 ## HTML pages and `serve`
 
 A guide can be turned into a standalone HTML page that embeds the video's player, so that clicking a timestamp moves
-the player instead of opening YouTube. The full plan, including the part not built yet (the `--html` flag on
-`guide` and `browse`), is in [html_guides_plan.md](html_guides_plan.md). What is built:
+the player instead of opening YouTube. The full plan is in [html_guides_plan.md](html_guides_plan.md). What is built:
 
 - `youtube-tools html PATH... [--overwrite]` (`guide_html.py`). A path is a Markdown file or a folder (its `.md`
   files, not its subfolders). Each page is written next to its guide, as `<same name>.html`; there is no output
@@ -234,6 +233,11 @@ the player instead of opening YouTube. The full plan, including the part not bui
   must be shown as text. The video is found from the guide's own links (the most common `v=` value), and
   `render_guide_page` rejects any ID that is not 11 characters of `A-Za-z0-9_-`, because the template puts the ID in a
   URL and a JavaScript string without escaping.
+- `guide --html` and `browse --html` write the page next to the new guide, after the guide is written, from the
+  corrected Markdown. The page is replaced whenever the guide is written (a new guide, `guide --force`, or an
+  overwrite confirmed in `browse`), so it never lags behind the guide. When `browse` keeps an existing guide, the
+  page is written only if missing; an existing page is kept with a warning (`html --overwrite` regenerates it). If
+  the page fails, the Markdown guide stays and the exit status is 1.
 - `youtube-tools serve [DIR] [--port 8765] [--no-open]` (`serve.py`) exists because YouTube refuses to play an
   embedded video on a page opened from disk (Error 153; see "The embedded player refuses `file://` pages" in
   [implementation_notes.md](implementation_notes.md), checked 2026-10-09). The player works from `localhost`.

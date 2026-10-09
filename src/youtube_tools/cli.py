@@ -539,6 +539,7 @@ def make_guide(
     ] = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite an existing guide file.")] = False,
     refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcript.")] = False,
+    html: Annotated[bool, typer.Option("--html", help="Also write an HTML page with the video embedded.")] = False,
     config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
 ) -> None:
     """Generate a watching guide for a video and write it as Markdown.
@@ -550,6 +551,7 @@ def make_guide(
         output_dir (Path | None): Directory for the guide file.
         force (bool): Overwrite an existing guide file.
         refresh (bool): Ignore cached metadata and transcript.
+        html (bool): Also write an HTML page next to the guide, replacing an existing one.
         config_path (Path): Path of the configuration file.
 
     Returns:
@@ -563,7 +565,9 @@ def make_guide(
         video_id = parse_video_id(video)
     except ValueError as exc:
         raise _fail(str(exc)) from exc
-    _run_guide(config, video_id, output_dir or config.guide.output_dir or Path.cwd(), force=force, refresh=refresh)
+    _run_guide(
+        config, video_id, output_dir or config.guide.output_dir or Path.cwd(), force=force, refresh=refresh, html=html
+    )
 
 
 @command(APP, "html")
@@ -661,7 +665,14 @@ def serve_guides(
 
 
 def _run_guide(
-    config: AppConfig, video_id: str, target_dir: Path, *, force: bool, refresh: bool, ask_to_overwrite: bool = False
+    config: AppConfig,
+    video_id: str,
+    target_dir: Path,
+    *,
+    force: bool,
+    refresh: bool,
+    ask_to_overwrite: bool = False,
+    html: bool = False,
 ) -> None:
     """Fetch a video's transcript, generate its guide, write it and report the result.
 
@@ -672,12 +683,14 @@ def _run_guide(
         force (bool): Overwrite an existing guide file.
         refresh (bool): Ignore cached metadata and transcript.
         ask_to_overwrite (bool): If the guide file exists, ask whether to overwrite it instead of failing.
+        html (bool): Also write the HTML page next to the guide. The page is replaced when the guide is written, and
+            kept (with a warning) when an existing guide is kept.
 
     Returns:
         None
 
     Raises:
-        typer.Exit: If any step fails.
+        typer.Exit: If any step fails. The Markdown guide stays written if only the HTML page fails.
     """
     try:
         ytdlp = _make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
@@ -698,6 +711,8 @@ def _run_guide(
         if ask_to_overwrite and not force and existing.exists():
             if not typer.confirm(f"{existing} already exists. Overwrite it?", default=False):
                 CONSOLE.print("Kept the existing guide.")
+                if html:
+                    _write_page(existing, info.id, overwrite=False)
                 return
             force = True
         with STDERR.status("Fetching transcript..."):
@@ -724,6 +739,36 @@ def _run_guide(
         STDERR.print(f"[yellow]Warning:[/yellow] links past the end of the video: {times}. Check those parts.")
     if links.links == 0:
         STDERR.print("[yellow]Warning:[/yellow] the guide has no timestamp links. Check the prompt template.")
+    if html:
+        _write_page(result.path, info.id, overwrite=True)
+
+
+def _write_page(markdown_path: Path, video_id: str, *, overwrite: bool) -> None:
+    """Write the HTML page of a guide that is already on disk and report the result.
+
+    Args:
+        markdown_path (Path): The guide.
+        video_id (str): The video the guide is about.
+        overwrite (bool): Replace an existing page. If False, an existing page is kept with a warning.
+
+    Returns:
+        None
+
+    Raises:
+        typer.Exit: If the page cannot be written.
+    """
+    try:
+        target = write_guide_page(markdown_path, video_id, overwrite=overwrite)
+    except PageExistsError as exc:
+        STDERR.print(
+            f"[yellow]Warning:[/yellow] {escape(str(exc))}, kept. Use `youtube-tools html --overwrite` to replace it.",
+            highlight=False,
+            soft_wrap=True,
+        )
+        return
+    except GuideHtmlError as exc:
+        raise _fail(escape(str(exc))) from exc
+    CONSOLE.print(f"Wrote {target}", markup=False, highlight=False)
 
 
 def _channels_table(channels: list[ChannelConfig]) -> Table:
@@ -753,6 +798,7 @@ def browse(
         Path | None, typer.Option("--output-dir", "-o", help="Where to write the guide. Overrides the config.")
     ] = None,
     refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcript.")] = False,
+    html: Annotated[bool, typer.Option("--html", help="Also write an HTML page with the video embedded.")] = False,
     config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
 ) -> None:
     """Pick a channel and one of its latest videos, then generate the video's watching guide.
@@ -762,6 +808,7 @@ def browse(
         limit (int): Number of videos to show.
         output_dir (Path | None): Directory for the guide file.
         refresh (bool): Ignore cached metadata and transcript.
+        html (bool): Also write an HTML page next to the guide. A kept guide still gets a page if it has none.
         config_path (Path): Path of the configuration file.
 
     Returns:
@@ -802,6 +849,7 @@ def browse(
         force=False,
         refresh=refresh,
         ask_to_overwrite=True,
+        html=html,
     )
 
 
