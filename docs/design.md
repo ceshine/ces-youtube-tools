@@ -219,6 +219,31 @@ Menus are typed for now (`menu.parse_choice`): a number picks an item, an empty 
 is one, `q` quits with status 0, and anything else repeats the question with a hint. The Firefox profile picker in
 `config init` / `config profile` uses the same helper.
 
+## HTML pages and `serve`
+
+A guide can be turned into a standalone HTML page that embeds the video's player, so that clicking a timestamp moves
+the player instead of opening YouTube. The full plan, including the part not built yet (the `--html` flag on
+`guide` and `browse`), is in [html_guides_plan.md](html_guides_plan.md). What is built:
+
+- `youtube-tools html PATH... [--overwrite]` (`guide_html.py`). A path is a Markdown file or a folder (its `.md`
+  files, not its subfolders). Each page is written next to its guide, as `<same name>.html`; there is no output
+  directory option, so two guides can never write the same page. An existing page is kept with a warning unless
+  `--overwrite` is given. Files that are not `.md` are ignored, but a run that leaves no `.md` file is an error. A
+  guide that cannot be converted (for example, no video link) is reported and makes the exit status 1.
+- Conversion uses `markdown-it-py` with raw HTML disabled, because a guide is model output and a `<script>` in it
+  must be shown as text. The video is found from the guide's own links (the most common `v=` value), and
+  `render_guide_page` rejects any ID that is not 11 characters of `A-Za-z0-9_-`, because the template puts the ID in a
+  URL and a JavaScript string without escaping.
+- `youtube-tools serve [DIR] [--port 8765] [--no-open]` (`serve.py`) exists because YouTube refuses to play an
+  embedded video on a page opened from disk (Error 153; see "The embedded player refuses `file://` pages" in
+  [implementation_notes.md](implementation_notes.md), checked 2026-10-09). The player works from `localhost`.
+  - It binds to `127.0.0.1` only, so the guides are not reachable from other machines.
+  - It answers 403 when the `Host` header is not `127.0.0.1:<port>` or `localhost:<port>`. Without this, a web page
+    could point its own domain at `127.0.0.1` (DNS rebinding) and read the folder through the browser.
+  - `DIR` defaults to `guide.output_dir`, never to the current directory, which may hold browser cookie copies or
+    `claude` session logs.
+  - The default port is fixed, because `localStorage` is kept per origin and the origin includes the port.
+
 ## CLI conventions
 
 - Register commands with `@command(APP, "name")` / `@command(CONFIG_APP, "name")` from `cli.py`, not

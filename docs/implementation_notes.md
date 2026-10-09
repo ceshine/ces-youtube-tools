@@ -129,6 +129,9 @@ Checked on 2026-10-09 with headless Google Chrome and the HTML guide page templa
   disk, it is still readable and its timestamp links open YouTube.
 - Firefox: not yet verified (headless Firefox did not start while the user's Firefox was running).
 - Members-only videos in the embedded player: not yet verified.
+- `youtube-tools serve` (added after this check) is tested only with Python's `http.client` against a local server
+  and a mocked browser opener, not with a real browser and video through the command: not yet verified end to end.
+  Recheck: `uv run youtube-tools html DIR && uv run youtube-tools serve DIR`, open a page and click a timestamp.
 
 Recheck: write a page with the template, then compare
 `google-chrome --headless=new --virtual-time-budget=6000 --screenshot=file.png file://$PWD/page.html` with the same

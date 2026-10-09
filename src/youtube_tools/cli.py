@@ -4,6 +4,7 @@ import re
 import time
 import inspect
 import datetime
+import webbrowser
 from pathlib import Path
 from collections.abc import Callable
 from typing import Any, TypeVar, Annotated
@@ -15,6 +16,7 @@ from rich.console import Console
 
 from .menu import QuitMenu, parse_choice
 from .guide import GuideError, guide_filename, default_template
+from .serve import ServeError, make_server, DEFAULT_PORT
 from .video import parse_video_id
 from .ytdlp import YtDlp, YtDlpError
 from .config import ChannelConfig
@@ -610,6 +612,52 @@ def make_html(
     CONSOLE.print(f"{written} written, {skipped} skipped.")
     if failed:
         raise typer.Exit(code=1)
+
+
+@command(APP, "serve")
+def serve_guides(
+    directory: Annotated[
+        Path | None, typer.Argument(help="Folder to serve. Default: the configured guide.output_dir.")
+    ] = None,
+    port: Annotated[int, typer.Option("--port", help="Port to listen on.")] = DEFAULT_PORT,
+    no_open: Annotated[bool, typer.Option("--no-open", help="Do not open the browser.")] = False,
+    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
+) -> None:
+    """Serve a folder of guide pages on localhost, so their embedded players work.
+
+    YouTube refuses to play an embedded video on a page opened from disk. The server listens on 127.0.0.1 only, and
+    runs until Ctrl+C.
+
+    Args:
+        directory (Path | None): Folder to serve.
+        port (int): Port to listen on.
+        no_open (bool): Do not open the browser.
+        config_path (Path): Path of the configuration file.
+
+    Returns:
+        None
+
+    Raises:
+        typer.Exit: If there is no folder to serve or the server cannot start.
+    """
+    if directory is None:
+        directory = _load(config_path).guide.output_dir
+        if directory is None:
+            raise _fail("No folder given and guide.output_dir is not set. Pass the folder to serve.")
+    try:
+        server = make_server(directory, port)
+    except ServeError as exc:
+        raise _fail(str(exc)) from exc
+    url = f"http://localhost:{server.server_address[1]}/"
+    CONSOLE.print(f"Serving {directory} at {url} (Ctrl+C to stop)", markup=False, highlight=False)
+    if not no_open:
+        _ = webbrowser.open(url)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        CONSOLE.print("Stopped.")
+    finally:
+        server.server_close()
 
 
 def _run_guide(
