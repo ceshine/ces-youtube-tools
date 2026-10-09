@@ -9,7 +9,7 @@ Turn a Markdown watching guide into a standalone HTML page. The page embeds the 
 a timestamp link moves that player to that moment instead of opening YouTube. Reading the guide and watching the
 video then happen on one page.
 
-- `youtube-tools html PATH...` converts existing guides. A path can be a file or a wildcard pattern.
+- `youtube-tools html PATH...` converts existing guides. A path can be a file or a folder.
 - `youtube-tools guide --html` and `youtube-tools browse --html` write the HTML page next to the new Markdown guide.
 - `youtube-tools serve [DIR]` serves a folder of pages on `localhost`, because YouTube's embedded player does not
   work on a page opened from disk.
@@ -126,20 +126,23 @@ youtube-tools serve [DIR] [--port 8765] [--no-open]
 ### `youtube-tools html` command
 
 ```
-youtube-tools html PATH... [-o DIR]
+youtube-tools html PATH... [--overwrite]
 ```
 
-- Each `PATH` is a file or a wildcard pattern (`*`, `?`, `[...]`, `**` for subfolders). The shell usually expands
-  unquoted patterns, but a quoted pattern (`"guides/**/*.md"`) is expanded by the command. This also covers fish,
-  which fails on an unquoted pattern with no matches before the command runs.
-- Expansion uses `pathlib`: split the pattern at its first wildcard part into a base directory and the rest, then
-  `base.glob(rest)`. (`Path.glob` does not accept absolute patterns, so the split also handles `/abs/path/*.md`.)
-- A pattern with no matches is an error that names the pattern. Duplicate matches are converted once. Non-`.md`
-  files are skipped with a warning.
-- Output: `<same name>.html` next to each Markdown file, or in `--output-dir`.
-- An existing HTML file is overwritten. It is generated from the Markdown file and holds no edits of its own, so
-  there is no `--force`.
-- Prints one line per written file, then a summary (`3 written, 1 skipped`). Exit status 1 if any file failed.
+- Each `PATH` is a Markdown file or a folder. A folder stands for the `.md` files directly inside it (not in its
+  subfolders). Files that are not `.md` are ignored completely (no warning, not counted). Duplicates are converted
+  once. A path that does not exist, a folder that cannot be read or has no `.md` file, or a run where no `.md` file is
+  left at all (for example `html notes.txt`) is an error, and nothing is written.
+- There is no wildcard handling in the command: the shell expands `*.md` itself, and folders cover the common case.
+- Output: `<same name>.html` in the same folder as each Markdown file. There is no `--output-dir`, so two guides can
+  never write the same page, and the pages stay next to the guides that `serve` lists.
+- An existing HTML file is kept: the guide is skipped with a warning that names the page and suggests
+  `--overwrite`. This is not a failure (exit status stays 0). `--overwrite` replaces existing pages. The page is
+  generated from the Markdown file and holds no edits of its own, but the default protects a page the user may have
+  changed by hand.
+- Prints one line per written file, then a summary (`3 written, 1 skipped`). Skipped counts both kept pages and guides
+  that cannot be converted. A guide that cannot be converted (for example, no video ID) is reported and makes the
+  exit status 1.
 
 ### `--html` flag on `guide` and `browse`
 
@@ -148,8 +151,12 @@ youtube-tools html PATH... [-o DIR]
   `check_timestamp_links`, so its link labels are the corrected ones.
 - If the HTML step fails, the Markdown guide is already written. Report the error and exit with status 1, but do
   not delete the Markdown file.
+- An existing page follows the guide: when the Markdown guide is written (a new one, `guide --force`, or an
+  overwrite confirmed in `browse`), the page is replaced too, so it never lags behind the guide. Neither command
+  gets an `--overwrite` option for this.
 - When `browse` keeps an existing guide ("Kept the existing guide."), `--html` still writes the HTML page from that
-  existing file. That way the flag can add a page to a guide written earlier.
+  existing file, so the flag can add a page to a guide written earlier. Here an existing page is kept, with the same
+  warning as `youtube-tools html`, because the guide did not change; `youtube-tools html --overwrite` regenerates it.
 - A config setting (`[guide] html = true`) would make the flag the default. Leave it out of the first version.
 
 ## Module layout
@@ -162,8 +169,8 @@ def markdown_to_html(markdown: str) -> str: ...  # body only, raw HTML disabled
 def find_video_id(markdown: str) -> str | None: ...  # most common v= in YouTube links
 def guide_title(markdown: str, fallback: str) -> str: ...
 def render_guide_page(markdown: str, video_id: str, fallback_title: str) -> str: ...  # full page
-def write_guide_page(markdown_path: Path, output_dir: Path | None, video_id: str | None = None) -> Path: ...
-def expand_paths(patterns: list[str], cwd: Path) -> list[Path]: ...  # files and wildcard patterns
+def write_guide_page(markdown_path: Path, video_id: str | None = None) -> Path: ...  # next to the guide
+def expand_paths(paths: list[str], cwd: Path) -> list[Path]: ...  # files and folders
 ```
 
 `write_guide_page` raises a `GuideHtmlError` (with the file path in its message) when no video ID is found. The CLI
@@ -183,15 +190,17 @@ Each step ends with `uvx ruff check .`, `uvx ruff format --line-length 120` and 
    hand in Firefox and Chrome (see "To verify" below), and record what was found in `implementation_notes.md`.
    (Template and checks in Chrome done on 2026-10-09.)
 4. **`html` command.** Add `expand_paths`, `write_guide_page` and the Typer command. Tests (in `tmp_path`): a single
-   file, a quoted `*` pattern, a `**` pattern, a pattern with no matches, a file without a video ID among valid
-   ones, `--output-dir`.
+   file, a folder (not recursive), other files ignored (an error if nothing else is left), a missing path, an
+   unreadable folder, a folder without Markdown files, an existing page with and without `--overwrite`, a file
+   without a video ID among valid ones.
 5. **`serve` command.** Tests: the handler serves files from the given folder (a server on port 0 in a thread,
    fetched with `urllib`), the server binds to `127.0.0.1`, a request with a foreign `Host` header gets 403, no
    `DIR` and no `guide.output_dir` gives a clear error, a port in use gives a clear error. `webbrowser.open` is
    mocked.
 6. **`--html` flag.** Add the flag to `guide` and `browse` and pass it through `_run_guide`. Tests using the
    existing mocked pipeline in `tests/test_cli.py`: the HTML file is written next to the guide; the "kept the
-   existing guide" path still writes it.
+   existing guide" path writes a missing page and keeps an existing one with a warning; `guide --force` replaces
+   an existing page.
 7. **Docs.** Move the decisions into `design.md` (workflow diagram, a new "HTML page" section), add the command and
    the flag to `README.md`, and delete or shorten this plan.
 

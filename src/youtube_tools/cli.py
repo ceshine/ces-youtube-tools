@@ -10,6 +10,7 @@ from typing import Any, TypeVar, Annotated
 
 import typer
 from rich.table import Table
+from rich.markup import escape
 from rich.console import Console
 
 from .menu import QuitMenu, parse_choice
@@ -35,6 +36,7 @@ from .youtube import VideoSummary, verify_login, resolve_channel, list_latest_vi
 from .pipeline import work_dir_for, load_transcript, load_video_info, make_transcript_provider
 from .pipeline import write_guide, load_prompt_template, make_guide_generator
 from .formatting import format_age, format_duration
+from .guide_html import expand_paths, GuideHtmlError, PageExistsError, write_guide_page
 from .transcript import TranscriptError
 
 APP = typer.Typer(no_args_is_help=True, help="Browse YouTube channels and generate watching guides.")
@@ -560,6 +562,54 @@ def make_guide(
     except ValueError as exc:
         raise _fail(str(exc)) from exc
     _run_guide(config, video_id, output_dir or config.guide.output_dir or Path.cwd(), force=force, refresh=refresh)
+
+
+@command(APP, "html")
+def make_html(
+    paths: Annotated[list[str], typer.Argument(help="Markdown guides, or folders that hold them.")],
+    overwrite: Annotated[bool, typer.Option("--overwrite", help="Replace pages that already exist.")] = False,
+) -> None:
+    """Convert Markdown watching guides into HTML pages with the video embedded.
+
+    Each page is written next to its guide. An existing page is kept, with a warning, unless `--overwrite` is given. A folder stands for the `.md` files directly
+    inside it, and other files are ignored. The page's player only works when served from localhost: see `serve`.
+
+    Args:
+        paths (list[str]): Markdown guides, or folders that hold them.
+        overwrite (bool): Replace pages that already exist.
+
+    Returns:
+        None
+
+    Raises:
+        typer.Exit: If a path does not exist or a guide cannot be converted.
+    """
+    try:
+        files = expand_paths(paths, Path.cwd())
+    except GuideHtmlError as exc:
+        raise _fail(str(exc)) from exc
+    written = skipped = failed = 0
+    for file in files:
+        try:
+            target = write_guide_page(file, overwrite=overwrite)
+        except PageExistsError as exc:
+            STDERR.print(
+                f"[yellow]Warning:[/yellow] {escape(str(exc))}, skipped. Use --overwrite to replace it.",
+                highlight=False,
+                soft_wrap=True,
+            )
+            skipped += 1
+            continue
+        except GuideHtmlError as exc:
+            STDERR.print(f"[red]Error:[/red] {escape(str(exc))}", highlight=False, soft_wrap=True)
+            skipped += 1
+            failed += 1
+            continue
+        CONSOLE.print(f"Wrote {target}", markup=False, highlight=False)
+        written += 1
+    CONSOLE.print(f"{written} written, {skipped} skipped.")
+    if failed:
+        raise typer.Exit(code=1)
 
 
 def _run_guide(
