@@ -115,19 +115,61 @@ resolved name and asks for confirmation.
 `$Y --flat-playlist --print channel_id <channel URL>` printed `NA`, because the field is read from each entry (here,
 the channel's tabs). Read playlist-level fields from `-J` output instead.
 
-### Auto-generated VTT subtitles repeat every line
+### Automatic captions repeat every line, human-made subtitles do not
 
-A `en-orig.vtt` file from auto-generated captions has:
+Checked on 2026-10-09 with `3i2C3IB3PaA` (TYT, members-only, automatic `en-orig`) and `GlYgs6v2YfU` (3Blue1Brown,
+human-made `en`).
 
-- A cue that shows the new line with word-level timing tags: `All<00:00:03.679><c> right.</c>`.
-- A filler cue about 10 ms long (`00:00:05.670 --> 00:00:05.680`).
-- The next cue repeating the previous line as plain text above the new one.
+**Automatic captions roll.** The 13.5-minute `en-orig.vtt` file had 725 cues of three kinds:
 
-Joining cue text as-is roughly doubles the transcript. The parser must strip the tags, drop the filler cues and
-remove the repeated lines.
+| Cue | Count | Lines | Example |
+| --- | --- | --- | --- |
+| New text with word timing | 352 | Previous line (plain), new line with `<00:00:05.920><c> will</c>` tags | `All right. Uh,` / `this<00:00:05.920><c> will</c>...` |
+| Filler, about 10 ms | 362 | The line just shown, then a line holding one space | `00:00:05.670 --> 00:00:05.680` |
+| New text without timing | 11 | Previous line, short final word(s) with no tags | `could make sure that they served Israel` / `100%.` |
 
-Do not commit real subtitles from members-only videos as test fixtures. Use a short synthetic file with the same
-structure.
+- The first cue's previous-line slot is a line holding one space, and so are many lines in filler cues. **Only
+  truly empty lines separate cues.** Splitting on whitespace-only lines tears cues apart.
+- Text contains HTML entities: `&gt;&gt;` is YouTube's speaker-change marker (`>>`). Sound tags look like `[music]`,
+  `[snorts]`.
+- Joining all cue text as-is roughly doubles the transcript.
+
+**Human-made subtitles** (576 cues) have one or more lines per cue, no timing tags and no repeats. Cues may have
+numeric identifiers, and timestamps may be `MM:SS.mmm`.
+
+**One rule handles both** (`vtt.parse_vtt`): strip tags, decode entities, drop empty lines, then drop the lines at the
+start of a cue that equal the line emitted last, and keep the rest. On the files above: 725 cues gave 363 segments,
+2,444 words (about 180 words per minute) with no repeated text, and all 576 human-made cues were kept. A rule like
+"take each cue's last line" would have dropped text from multi-line human-made cues.
+
+Do not commit real subtitles from members-only videos as test fixtures. Use short synthetic text with the same
+structure. Build the space-only lines in code (`tests/test_vtt.py`), because the `trailing-whitespace` pre-commit
+hook would turn them into empty lines in a fixture file.
+
+Recheck:
+`$Y --cookies-from-browser "$CK" --write-auto-subs --sub-langs en-orig --skip-download -o "%(id)s.%(ext)s" https://www.youtube.com/watch?v=3i2C3IB3PaA`,
+then inspect the cues, for example with `grep -c -- '-->' 3i2C3IB3PaA.en-orig.vtt`.
+
+### Video metadata for the transcript step
+
+Checked on 2026-10-09 with `$Y -J --skip-download <video URL>` (with cookies for the members-only video).
+
+- **Members-only videos need cookies for the full extraction too**, not only for the subtitle download.
+- `subtitles` lists human-made tracks (`en`, `es`, ...). For livestream replays it can also hold `live_chat`, which is
+  the chat replay, not subtitles. `automatic_captions` lists about 157 languages: `en-orig` is the original speech
+  recognition track and the others are machine translations.
+- Each track is offered in several formats (`json3`, `srv1`-`srv3`, `ttml`, `srt`, `vtt`). The provider requests
+  `--sub-format vtt`.
+- `chapters` (`start_time`, `end_time`, `title`) are present when the uploader set them. `GlYgs6v2YfU` had 10; the
+  members-only TYT video had none.
+- The output (about 580 KB, mostly format and caption URLs) contained no session cookies when run with cookies
+  (searched for `SAPISID`, `__Secure-3PSID`, `LOGIN_INFO`, `cookies`, `Cookie`). The cache stores only the
+  `VideoInfo` fields anyway, as `video.json`.
+- `--load-info-json` cannot download subtitles from a saved file whose `formats` were removed (`ERROR: No video
+  formats found!`), so the provider runs a second yt-dlp call for the chosen track instead of reusing saved output.
+  That costs one extra extraction (a few seconds) the first time; afterwards the transcript is cached.
+
+Recheck: `$Y -J --skip-download https://www.youtube.com/watch?v=GlYgs6v2YfU | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d['subtitles']), len(d['automatic_captions']), len(d.get('chapters') or []))"`
 
 ### The default command uses `@latest`
 

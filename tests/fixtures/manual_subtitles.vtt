@@ -1,0 +1,17 @@
+WEBVTT
+Kind: captions
+Language: en
+
+NOTE This file is synthetic test data.
+
+1
+00:00.000 --> 00:04.500
+The first line of a human-made subtitle,
+
+2
+00:04.500 --> 00:09.250
+and the second one,
+split over two lines.
+
+00:09.250 --> 01:00:00.000
+A cue that runs until one hour.

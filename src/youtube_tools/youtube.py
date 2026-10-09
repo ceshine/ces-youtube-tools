@@ -7,10 +7,10 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from .video import video_url, YOUTUBE_ORIGIN
 from .ytdlp import YtDlp, YtDlpError
 from .config import ChannelConfig
 
-YOUTUBE_ORIGIN = "https://www.youtube.com"
 SUBSCRIPTIONS_FEED_URL = f"{YOUTUBE_ORIGIN}/feed/subscriptions"
 _CHANNEL_URL_PATTERN = re.compile(
     r"^(?:https?://)?(?:www\.|m\.)?youtube\.com/(@[\w.-]+|channel/UC[\w-]{22}|c/[\w.-]+|user/[\w.-]+)(?:/.*)?$"
@@ -53,7 +53,7 @@ class VideoSummary(BaseModel):
         Returns:
             str: The URL.
         """
-        return f"{YOUTUBE_ORIGIN}/watch?v={self.id}"
+        return video_url(self.id)
 
 
 def normalize_channel_url(value: str) -> str:

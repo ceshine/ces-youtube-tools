@@ -70,3 +70,10 @@ def test_find_channel() -> None:
     assert config.find_channel("3blue1brown") is channel
     assert config.find_channel("UCx") is channel
     assert config.find_channel("other") is None
+
+
+def test_cache_dir_default_and_expansion(tmp_path: Path) -> None:
+    assert AppConfig().cache_dir == Path.home() / ".cache" / "youtube-tools"
+    path = tmp_path / "config.toml"
+    path.write_text('cache_dir = "~/somewhere"\n', encoding="utf-8")
+    assert load_config(path).cache_dir == Path.home() / "somewhere"

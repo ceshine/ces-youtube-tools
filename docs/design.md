@@ -52,6 +52,7 @@ passes cookies, because a video's availability is not always known in advance (s
 
 ```toml
 ytdlp_command = ["uvx", "--from", "yt-dlp[default,curl-cffi]@latest", "yt-dlp"]
+cache_dir = "~/.cache/youtube-tools"   # per-video work directories
 
 [auth]
 firefox_profile = "/home/<user>/.mozilla/firefox/xxxxxxxx.Profile 1"
@@ -111,8 +112,33 @@ claude -p --tools "" --no-session-persistence --output-format text [--model MODE
 
 ## Work directory
 
-`~/.cache/youtube-tools/<video_id>/` holds `info.json`, the raw subtitle file and `transcript.json`. A rerun with a
-different generator reuses them, and a failed step is the only one repeated.
+`<cache_dir>/<video_id>/` (default `~/.cache/youtube-tools/`) holds:
+
+- `video.json`: the `VideoInfo` fields (title, channel, chapters, available subtitle tracks, ...). Never yt-dlp's raw
+  output, which is large and holds signed media URLs.
+- `subtitles/`: the downloaded subtitle file.
+- `transcript.json`: the `Transcript`.
+
+A rerun with a different generator reuses them, and a failed step is the only one repeated. `--refresh` ignores the
+cache. An unreadable cache file is logged and rebuilt.
+
+## Transcript step
+
+`youtube-tools transcript VIDEO` prints a video's transcript (timestamped lines, or `--json`) to stdout, with status
+and errors on stderr.
+
+1. `load_video_info`: one full extraction (`yt-dlp -J`, with cookies, because members-only videos need them) gives
+   the `VideoInfo`.
+2. `choose_track`: human-made subtitles first, then automatic captions, each in the order of `transcript.languages`.
+   Human-made tracks match by region too (`en` matches `en-GB`); automatic captions match exactly, so `en-orig` (the
+   original speech recognition) is not confused with machine translations.
+3. A second yt-dlp call downloads that track as WebVTT, and `parse_vtt` turns it into segments, removing the repeated
+   lines of rolling automatic captions. Reusing the saved extraction with `--load-info-json` does not work, because
+   it needs the format list, which `video.json` leaves out.
+
+Videos without a matching track fail with a `TranscriptError` that lists the available tracks. The audio provider
+([asr_options.md](asr_options.md)) is the planned fallback for them. Details in
+[implementation_notes.md](implementation_notes.md).
 
 ## Video listing
 
@@ -133,7 +159,8 @@ Details and recheck commands are in [implementation_notes.md](implementation_not
 
 1. Config: models, load/save, Firefox profile discovery and picker, `config` commands. (Done.)
 2. Video listing: `youtube-tools list CHANNEL`. (Done.) See "Video listing" below.
-3. Transcript: yt-dlp subtitle provider, VTT parser with duplicate removal, work-directory cache.
+3. Transcript: yt-dlp subtitle provider, VTT parser with duplicate removal, work-directory cache,
+   `youtube-tools transcript VIDEO`. (Done.) See "Transcript step" above.
 4. Guide: prompt template and builder, `ClaudeCliGenerator`, `guide URL` command.
 5. `browse`: interactive channel and video menus on top of steps 1–4. Choose the prompt library here, because the
    interactive config session below uses the same one.

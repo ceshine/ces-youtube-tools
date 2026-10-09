@@ -10,6 +10,7 @@ from pydantic import Field, BaseModel, ValidationError, field_validator
 CONFIG_DIR = Path.home() / ".config" / "youtube-tools"
 DEFAULT_CONFIG_PATH = CONFIG_DIR / "config.toml"
 DEFAULT_PROMPT_TEMPLATE_PATH = CONFIG_DIR / "guide_prompt.md"
+DEFAULT_CACHE_DIR = Path.home() / ".cache" / "youtube-tools"
 DEFAULT_YTDLP_COMMAND = ["uvx", "--from", "yt-dlp[default,curl-cffi]@latest", "yt-dlp"]
 
 
@@ -93,6 +94,7 @@ class AppConfig(BaseModel):
 
     Attributes:
         ytdlp_command (list[str]): Command used to run yt-dlp.
+        cache_dir (Path): Root of the per-video work directories (metadata, subtitles, transcripts).
         auth (AuthConfig): Cookie source settings.
         channels (list[ChannelConfig]): Frequently used channels.
         transcript (TranscriptConfig): Transcript provider settings.
@@ -100,10 +102,13 @@ class AppConfig(BaseModel):
     """
 
     ytdlp_command: list[str] = Field(default_factory=lambda: list(DEFAULT_YTDLP_COMMAND))
+    cache_dir: Path = DEFAULT_CACHE_DIR
     auth: AuthConfig = Field(default_factory=AuthConfig)
     channels: list[ChannelConfig] = Field(default_factory=list)
     transcript: TranscriptConfig = Field(default_factory=TranscriptConfig)
     guide: GuideConfig = Field(default_factory=GuideConfig)
+
+    expand_paths = field_validator("cache_dir")(_expand_path)
 
     def find_channel(self, key: str) -> ChannelConfig | None:
         """Find a channel by name (case-insensitive) or channel ID.
