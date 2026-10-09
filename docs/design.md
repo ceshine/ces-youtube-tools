@@ -4,7 +4,8 @@ Browse the latest videos of a YouTube channel (including members-only videos whe
 and generate a Markdown watching guide from its transcript.
 
 Observed behavior of YouTube, yt-dlp, Firefox and the `claude` CLI, with recheck commands, is in
-[implementation_notes.md](implementation_notes.md).
+[implementation_notes.md](implementation_notes.md). Speech recognition options for the future audio transcript
+provider are surveyed in [asr_options.md](asr_options.md).
 
 ## Workflow
 

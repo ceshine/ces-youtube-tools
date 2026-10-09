@@ -192,3 +192,18 @@ Checked with Claude Code 2.1.295 (`claude --help`).
 - `--no-session-persistence` keeps runs out of saved sessions.
 - `--output-format text` (default), `json` or `stream-json`.
 - Pass the prompt on stdin. A long transcript is too large to pass safely as an argument.
+
+### Claude cannot transcribe audio
+
+Checked on 2026-10-09 against the Claude API reference bundled with Claude Code 2.1.295 (the `claude-api` skill).
+
+- Claude accepts text, images and documents (PDF or plain text) as input. There is no audio content block, so neither
+  the API nor `claude -p` can do speech recognition. The reference mentions audio only as an unsupported content type
+  (`UnsupportedMCPValueError` when converting MCP values).
+- With tools enabled, `claude` could run a local ASR program through Bash, but the program does the transcription.
+  The pipeline calls ASR directly instead and keeps `--tools ""` for the guide step.
+- Consequence: an audio transcript provider needs a separate ASR backend. It downloads audio with yt-dlp (with cookies
+  for members-only videos) and returns the same `Transcript` segments as the subtitle provider.
+
+Recheck: the input content types in the Messages API documentation (`shared/live-sources.md` in the `claude-api`
+skill), or `client.models.retrieve(<model>).capabilities` from the Models API.
