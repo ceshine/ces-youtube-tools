@@ -158,12 +158,12 @@ New module `src/youtube_tools/guide_html.py` (not `html.py`, which would shadow 
 some imports and in reading):
 
 ```python
-def markdown_to_html(markdown: str) -> str: ...                        # body only, raw HTML disabled
-def find_video_id(markdown: str) -> str | None: ...                     # most common v= in YouTube links
+def markdown_to_html(markdown: str) -> str: ...  # body only, raw HTML disabled
+def find_video_id(markdown: str) -> str | None: ...  # most common v= in YouTube links
 def guide_title(markdown: str, fallback: str) -> str: ...
 def render_guide_page(markdown: str, video_id: str, fallback_title: str) -> str: ...  # full page
 def write_guide_page(markdown_path: Path, output_dir: Path | None, video_id: str | None = None) -> Path: ...
-def expand_paths(patterns: list[str], cwd: Path) -> list[Path]: ...     # files and wildcard patterns
+def expand_paths(patterns: list[str], cwd: Path) -> list[Path]: ...  # files and wildcard patterns
 ```
 
 `write_guide_page` raises a `GuideHtmlError` (with the file path in its message) when no video ID is found. The CLI
