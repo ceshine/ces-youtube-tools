@@ -2,7 +2,13 @@ from pathlib import Path
 
 import pytest
 
-from youtube_tools.guide_html import guide_title, find_video_id, markdown_to_html
+from youtube_tools.guide_html import (
+    guide_title,
+    find_video_id,
+    GuideHtmlError,
+    markdown_to_html,
+    render_guide_page,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_guide.md"
 
@@ -73,3 +79,32 @@ def test_guide_title_ignores_headings_in_code_fences() -> None:
 def test_find_video_id_skips_malformed_links() -> None:
     markdown = "[x](https://[abc) [y](https://www.youtube.com/watch?v=abcdefghijk&t=5s)"
     assert find_video_id(markdown) == "abcdefghijk"
+
+
+def test_render_guide_page_fills_placeholders(guide: str) -> None:
+    page = render_guide_page(guide, "abcdefghijk", "fallback")
+    assert "$title" not in page and "$video_id" not in page and "$body" not in page
+    assert "<title>A &quot;short&quot; talk -- about testing</title>" in page
+    assert "<h2>Opening</h2>" in page
+
+
+def test_render_guide_page_puts_video_id_in_player(guide: str) -> None:
+    page = render_guide_page(guide, "abcdefghijk", "fallback")
+    assert "https://www.youtube.com/embed/abcdefghijk?enablejsapi=1" in page
+    assert 'var VIDEO_ID = "abcdefghijk";' in page
+
+
+def test_render_guide_page_escapes_title() -> None:
+    page = render_guide_page('# A <b> & "c"\n', "abcdefghijk", "fallback")
+    assert "<title>A &lt;b&gt; &amp; &quot;c&quot;</title>" in page
+
+
+def test_render_guide_page_uses_fallback_title() -> None:
+    page = render_guide_page("No heading.\n", "abcdefghijk", "My <file>")
+    assert "<title>My &lt;file&gt;</title>" in page
+
+
+@pytest.mark.parametrize("video_id", ['x"; alert(1); "', "short", "abcdefghijkl", ""])
+def test_render_guide_page_rejects_invalid_video_id(video_id: str) -> None:
+    with pytest.raises(GuideHtmlError):
+        render_guide_page("# Title\n", video_id, "fallback")

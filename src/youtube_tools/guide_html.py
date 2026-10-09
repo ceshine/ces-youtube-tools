@@ -2,7 +2,10 @@
 
 import re
 import logging
+from html import escape
+from string import Template
 from urllib.parse import parse_qs, urlparse
+from importlib import resources
 from collections import Counter
 
 from markdown_it import MarkdownIt
@@ -13,6 +16,10 @@ _TITLE_PREFIX = "Watching Guide:"
 _LINK_URL = re.compile(r"\]\((<[^>]*>|[^)\s]*)")
 _YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
 _VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}")
+
+
+class GuideHtmlError(Exception):
+    """Raised when a guide cannot be turned into an HTML page."""
 
 
 def markdown_to_html(markdown: str) -> str:
@@ -81,3 +88,28 @@ def guide_title(markdown: str, fallback: str) -> str:
                 title = title[len(_TITLE_PREFIX) :].strip()
             return title or fallback
     return fallback
+
+
+def render_guide_page(markdown: str, video_id: str, fallback_title: str) -> str:
+    """Build the full HTML page for a guide, with the video's player embedded.
+
+    Args:
+        markdown (str): The guide.
+        video_id (str): The YouTube video ID. It is put into a URL and a JavaScript string without escaping, so it
+            must be 11 characters from `A-Z`, `a-z`, `0-9`, `_` and `-`.
+        fallback_title (str): The page title to use when the guide has no level-one heading.
+
+    Returns:
+        str: The complete page.
+
+    Raises:
+        GuideHtmlError: If `video_id` is not a valid video ID.
+    """
+    if not _VIDEO_ID.fullmatch(video_id):
+        raise GuideHtmlError(f"Not a valid YouTube video ID: {video_id!r}")
+    template = Template(resources.files("youtube_tools").joinpath("templates/guide_page.html").read_text("utf-8"))
+    return template.substitute(
+        title=escape(guide_title(markdown, fallback_title)),
+        video_id=video_id,
+        body=markdown_to_html(markdown),
+    )
