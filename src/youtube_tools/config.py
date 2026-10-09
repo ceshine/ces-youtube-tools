@@ -7,7 +7,7 @@ from typing import Any
 import tomli_w
 from pydantic import Field, BaseModel, ValidationError, field_validator
 
-CONFIG_DIR = Path.home() / ".config" / "youtube-tools"
+CONFIG_DIR = Path.home() / ".config" / "ces-youtube-tools"
 DEFAULT_CONFIG_PATH = CONFIG_DIR / "config.toml"
 DEFAULT_PROMPT_TEMPLATE_PATH = CONFIG_DIR / "guide_prompt.md"
 DEFAULT_CACHE_DIR = Path.home() / ".cache" / "youtube-tools"

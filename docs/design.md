@@ -12,7 +12,7 @@ provider are surveyed in [asr_options.md](asr_options.md).
 ```
  youtube-tools config ...          (run once, edit occasionally)
    ├─ pick a Firefox profile  ──┐
-   └─ add/remove channels     ──┴──► ~/.config/youtube-tools/config.toml
+   └─ add/remove channels     ──┴──► ~/.config/ces-youtube-tools/config.toml
 
  youtube-tools browse [CHANNEL]    (everyday command)
    1. pick a channel from the config
@@ -48,7 +48,7 @@ passes cookies, because a video's availability is not always known in advance (s
 
 ## Configuration
 
-`~/.config/youtube-tools/config.toml`, read with `tomllib`, written with `tomli-w`, and validated with Pydantic.
+`~/.config/ces-youtube-tools/config.toml`, read with `tomllib`, written with `tomli-w`, and validated with Pydantic.
 
 ```toml
 ytdlp_command = ["uvx", "--from", "yt-dlp[default,curl-cffi]@latest", "yt-dlp"]
@@ -69,7 +69,7 @@ languages = ["en-orig", "en"]
 
 [guide]
 generator = "claude-cli"
-prompt_template = "~/.config/youtube-tools/guide_prompt.md"
+prompt_template = "~/.config/ces-youtube-tools/guide_prompt.md"
 # output_dir defaults to the directory the command is run from
 
 [guide.options.claude-cli]   # per-generator settings, keyed by generator name
@@ -254,7 +254,7 @@ Channel handle or URL: @TheYoungTurks
 Found The Young Turks (UC1yBKRuGpC1tSM73A0ZjYjQ). Add? [Y/n]
 Show members-only videos? [y/N]: y
 > s
-Saved ~/.config/youtube-tools/config.toml
+Saved ~/.config/ces-youtube-tools/config.toml
 ```
 
 - When the config is missing, the session runs the first-run steps (profile, then channels). Otherwise it opens the
