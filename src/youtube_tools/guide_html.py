@@ -17,6 +17,13 @@ _TITLE_PREFIX = "Watching Guide:"
 _LINK_URL = re.compile(r"\]\((<[^>]*>|[^)\s]*)")
 _YOUTUBE_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
 _VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}")
+# The embedded player treats a viewer whose browser blocks YouTube's cookies in the iframe as a non-member.
+_MEMBERS_HINT = (
+    '  <p class="members-hint">This is a members-only video. If the player asks you to join, your browser is not '
+    "sending your YouTube sign-in to it. In Firefox, turn off Enhanced Tracking Protection for this page (the shield "
+    "icon in the address bar); other browsers may need third-party cookies allowed for this site. Until then, "
+    "timestamps still open YouTube when you Ctrl+click them.</p>\n"
+)
 
 
 class GuideHtmlError(Exception):
@@ -95,7 +102,7 @@ def guide_title(markdown: str, fallback: str) -> str:
     return fallback
 
 
-def render_guide_page(markdown: str, video_id: str, fallback_title: str) -> str:
+def render_guide_page(markdown: str, video_id: str, fallback_title: str, members_only: bool = False) -> str:
     """Build the full HTML page for a guide, with the video's player embedded.
 
     Args:
@@ -103,6 +110,7 @@ def render_guide_page(markdown: str, video_id: str, fallback_title: str) -> str:
         video_id (str): The YouTube video ID. It is put into a URL and a JavaScript string without escaping, so it
             must be 11 characters from `A-Z`, `a-z`, `0-9`, `_` and `-`.
         fallback_title (str): The page title to use when the guide has no level-one heading.
+        members_only (bool): Add a hint under the player about letting the browser send the YouTube sign-in.
 
     Returns:
         str: The complete page.
@@ -117,16 +125,20 @@ def render_guide_page(markdown: str, video_id: str, fallback_title: str) -> str:
         title=escape(guide_title(markdown, fallback_title)),
         video_id=video_id,
         body=markdown_to_html(markdown),
+        members_hint=_MEMBERS_HINT if members_only else "",
     )
 
 
-def write_guide_page(markdown_path: Path, video_id: str | None = None, overwrite: bool = False) -> Path:
+def write_guide_page(
+    markdown_path: Path, video_id: str | None = None, overwrite: bool = False, members_only: bool = False
+) -> Path:
     """Convert a Markdown guide file to an HTML page file next to it.
 
     Args:
         markdown_path (Path): The guide.
         video_id (str | None): The video ID. None means to read it from the guide's links.
         overwrite (bool): Replace the page if it already exists.
+        members_only (bool): The video is members-only, so the page gets a hint about the player.
 
     Returns:
         Path: The page, named like the guide with an `.html` suffix.
@@ -147,7 +159,7 @@ def write_guide_page(markdown_path: Path, video_id: str | None = None, overwrite
     if video_id is None:
         raise GuideHtmlError(f"{markdown_path}: no YouTube video link found, so the video is unknown")
     try:
-        page = render_guide_page(markdown, video_id, markdown_path.stem)
+        page = render_guide_page(markdown, video_id, markdown_path.stem, members_only)
     except GuideHtmlError as exc:
         raise GuideHtmlError(f"{markdown_path}: {exc}") from exc
     try:

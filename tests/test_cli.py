@@ -465,7 +465,9 @@ def test_guide_force_html_replaces_the_existing_page(
 def test_guide_html_failure_keeps_the_guide_and_exits_1(
     guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fail(markdown_path: Path, video_id: str | None = None, overwrite: bool = False) -> Path:
+    def fail(
+        markdown_path: Path, video_id: str | None = None, overwrite: bool = False, members_only: bool = False
+    ) -> Path:
         raise cli.GuideHtmlError(f"{markdown_path}: cannot write the page")
 
     monkeypatch.setattr(cli, "write_guide_page", fail)
@@ -503,3 +505,20 @@ def test_browse_html_flag_replaces_the_page_when_the_guide_is_overwritten(
     result = RUNNER.invoke(APP, args, input="1\ny\n")
     assert result.exit_code == 0, result.output
     assert "<h1>" in (tmp_path / "Watching Guide A video.html").read_text(encoding="utf-8")
+
+
+def test_guide_html_members_only_video_gets_the_hint(
+    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def members_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
+        return VideoInfo(id=video_id, title="A video", duration=60, availability="subscriber_only")
+
+    page = tmp_path / "Watching Guide A video.html"
+    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--config", str(config_path)]
+    assert RUNNER.invoke(APP, args).exit_code == 0
+    assert '<p class="members-hint">' not in page.read_text(encoding="utf-8").split("<body>")[1]
+
+    monkeypatch.setattr(cli, "load_video_info", members_info)
+    result = RUNNER.invoke(APP, [*args, "--force"])
+    assert result.exit_code == 0, result.output
+    assert '<p class="members-hint">' in page.read_text(encoding="utf-8").split("<body>")[1]

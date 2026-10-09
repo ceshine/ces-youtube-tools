@@ -712,7 +712,7 @@ def _run_guide(
             if not typer.confirm(f"{existing} already exists. Overwrite it?", default=False):
                 CONSOLE.print("Kept the existing guide.")
                 if html:
-                    _write_page(existing, info.id, overwrite=False)
+                    _write_page(existing, info.id, overwrite=False, members_only=info.availability == "subscriber_only")
                 return
             force = True
         with STDERR.status("Fetching transcript..."):
@@ -740,16 +740,17 @@ def _run_guide(
     if links.links == 0:
         STDERR.print("[yellow]Warning:[/yellow] the guide has no timestamp links. Check the prompt template.")
     if html:
-        _write_page(result.path, info.id, overwrite=True)
+        _write_page(result.path, info.id, overwrite=True, members_only=info.availability == "subscriber_only")
 
 
-def _write_page(markdown_path: Path, video_id: str, *, overwrite: bool) -> None:
+def _write_page(markdown_path: Path, video_id: str, *, overwrite: bool, members_only: bool) -> None:
     """Write the HTML page of a guide that is already on disk and report the result.
 
     Args:
         markdown_path (Path): The guide.
         video_id (str): The video the guide is about.
         overwrite (bool): Replace an existing page. If False, an existing page is kept with a warning.
+        members_only (bool): The video is members-only, so the page gets a hint about the player.
 
     Returns:
         None
@@ -758,7 +759,7 @@ def _write_page(markdown_path: Path, video_id: str, *, overwrite: bool) -> None:
         typer.Exit: If the page cannot be written.
     """
     try:
-        target = write_guide_page(markdown_path, video_id, overwrite=overwrite)
+        target = write_guide_page(markdown_path, video_id, overwrite=overwrite, members_only=members_only)
     except PageExistsError as exc:
         STDERR.print(
             f"[yellow]Warning:[/yellow] {escape(str(exc))}, kept. Use `youtube-tools html --overwrite` to replace it.",

@@ -128,7 +128,18 @@ Checked on 2026-10-09 with headless Google Chrome and the HTML guide page templa
 - Consequence: an HTML guide must be served over HTTP, even from `localhost`, for the player to work. Opened from
   disk, it is still readable and its timestamp links open YouTube.
 - Firefox: not yet verified (headless Firefox did not start while the user's Firefox was running).
-- Members-only videos in the embedded player: not yet verified.
+- Members-only videos in the embedded player: on 2026-10-09 the user (Firefox, signed in as a member, page served
+  from `localhost`) saw YouTube's join prompt inside the player ("Members-only content. Become a member of this
+  channel to watch...") and no `onError`. Turning off Enhanced Tracking Protection for the page (the shield icon in
+  the address bar) made the video play. So the embed works, but the sign-in cookies are blocked for the third-party
+  iframe; the viewer is treated as a non-member, which is a valid state and not an error. The page cannot detect it:
+  headless Chrome (signed out) gave the same events (`onReady`, state 3, then -1) for a members-only and a public
+  video, and `getVideoData().title` and `getDuration()` are filled in for both. Opening
+  `https://www.youtube.com/embed/<video id>` directly is no test: it sends no referrer, so even a public video gives
+  Error 153 (checked by the user). Chrome with third-party cookies blocked: not yet verified. Recheck: serve a page
+  for a members-only video, then compare with tracking protection on and off for that site.
+  A full extraction of a members-only video also reports `availability: subscriber_only` (confirmed by the user on
+  2026-10-09, through the hint that `guide --html` adds to the page for such videos).
 - `youtube-tools serve` (added after this check) is tested only with Python's `http.client` against a local server
   and a mocked browser opener, not with a real browser and video through the command: not yet verified end to end.
   Recheck: `uv run youtube-tools html DIR && uv run youtube-tools serve DIR`, open a page and click a timestamp.

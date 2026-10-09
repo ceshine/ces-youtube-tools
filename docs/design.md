@@ -277,6 +277,10 @@ built:
 - On a `file://` page the player is hidden before the page is drawn and the `<iframe>` is removed so it stops
   loading; the note shows the folder from the page's URL (inserted as text, not HTML). If only the IFrame API script
   fails to load, the player stays visible (it may still play) and the note says timestamps open YouTube.
+- For a members-only video (yt-dlp `availability` is `subscriber_only`), `--html` adds a static hint under the player
+  (`$members_hint` in the template): if the player asks the viewer to join, the browser is not sending the YouTube
+  sign-in to the iframe, and in Firefox the fix is to turn off Enhanced Tracking Protection for the page. The hint is
+  hidden together with the player. `html PATH` does not know the availability, so its pages have no hint.
 - Light theme only. Fonts (Literata, Inter) come from Google Fonts with `display=swap`, so system fonts show at once
   when offline.
 - The code is in `guide_html.py`, not `html.py`, which would shadow the standard library's `html` in some imports and
@@ -312,7 +316,9 @@ built:
 5. `browse`: interactive channel and video menus on top of steps 1–4. (Done, with a typed menu.) See "Browse step"
    above. Revisit the prompt library together with the interactive config session below.
 6. HTML pages: `html`, `serve`, and the `--html` flag on `guide` and `browse`. (Done.) See "HTML pages and `serve`"
-   above. Still to check by hand: members-only videos, `youtube-nocookie.com` and Firefox (see the plan).
+   above. Members-only videos play in the embedded player only if the browser lets the iframe send YouTube's cookies
+   (verified in Firefox, see the implementation notes); the page cannot detect the case. Still to check by hand:
+   `youtube-nocookie.com`, Chrome cookie settings and embedding turned off (see the plan).
 
 ## Planned: interactive config session
 

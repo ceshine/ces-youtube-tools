@@ -108,3 +108,11 @@ def test_render_guide_page_uses_fallback_title() -> None:
 def test_render_guide_page_rejects_invalid_video_id(video_id: str) -> None:
     with pytest.raises(GuideHtmlError):
         render_guide_page("# Title\n", video_id, "fallback")
+
+
+def test_render_guide_page_members_hint_only_when_asked(guide: str) -> None:
+    assert "members-hint" not in render_guide_page(guide, "abcdefghijk", "fallback").split("<body>")[1]
+    page = render_guide_page(guide, "abcdefghijk", "fallback", members_only=True)
+    assert '<p class="members-hint">' in page.split("<body>")[1]
+    assert "Enhanced Tracking Protection" in page
+    assert "$members_hint" not in page

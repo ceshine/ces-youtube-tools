@@ -87,7 +87,15 @@ body {
 }
 .controls input { accent-color: var(--accent); }
 .player-note { color: var(--text); }
+.members-hint {
+  margin: 8px 0 0;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
 .no-player .player-frame,
+.no-player .members-hint,
 .no-player .scroll-toggle { display: none; }
 .no-player .player-note {
   padding: 10px 14px;
@@ -269,7 +277,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
     <label class="scroll-toggle"><input type="checkbox" id="scroll-to-player" checked> Scroll to the video when a timestamp is clicked</label>
     <span class="player-note" id="player-note" hidden></span>
   </div>
-</div>
+$members_hint</div>
 <main>
 $body
 </main>

@@ -104,6 +104,11 @@ youtube-tools serve ~/guides              # open them in the browser
 - YouTube refuses to play an embedded video on a page opened from disk (Error 153), so use `serve`. It listens on
   `127.0.0.1` only. Opened from disk, a page is still a readable guide whose timestamps open YouTube.
 - A page needs a network connection for the player and fonts.
+- **Members-only videos:** the player shows a "become a member" prompt unless your browser sends your YouTube sign-in
+  to the embedded player. In Firefox, turn off Enhanced Tracking Protection for the page (the shield icon in the
+  address bar); Firefox keeps the setting for `localhost`. Pages written by `guide --html` and `browse --html` for a
+  members-only video say this under the player. Chrome may need third-party cookies allowed for `localhost`
+  (not yet verified). Without that, the timestamps still work as links to YouTube in a new tab (Ctrl+click).
 
 ## Configuration
 

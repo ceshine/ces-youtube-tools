@@ -45,8 +45,8 @@ Record each result in `implementation_notes.md` with the date and a recheck comm
 - **Embedding from a `file://` page: confirmed broken** (2026-10-09, see "The embedded player refuses `file://`
   pages" in `implementation_notes.md`). Error 153 in headless Chrome and in the user's browser; served from
   `localhost` it plays. Hence the `serve` command and hiding the player on `file://` pages.
-- **Members-only videos.** Check whether the embedded player plays a members-only video for a signed-in member, or
-  shows an error. If it errors, `onError` makes the links open YouTube, which works with the browser's sign-in.
+- **Members-only videos: checked** (2026-10-09, Firefox). The player shows the join prompt unless Enhanced Tracking
+  Protection is off for the page; no `onError` fires. See the implementation notes. Chrome: not yet verified.
 - **`youtube-nocookie.com`.** Check whether `host: "https://www.youtube-nocookie.com"` works with the IFrame API
   and with members-only videos. Use it if it does, since it sets no cookies until playback.
 - **Videos with embedding turned off** by the uploader: confirm that `onError` fires (codes 101/150) and the
