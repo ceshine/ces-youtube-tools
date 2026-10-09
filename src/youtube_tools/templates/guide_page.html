@@ -1,0 +1,490 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="youtube-tools">
+<title>$title</title>
+<script>
+// YouTube's embedded player refuses pages opened from disk (Error 153), so hide it before it is drawn.
+if (window.location.protocol === "file:") {
+  document.documentElement.classList.add("no-player");
+}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400..700;1,7..72,400..700&amp;family=Inter:wght@400..700&amp;display=swap">
+<style>
+:root {
+  color-scheme: light;
+  --font-body: "Literata", Charter, "Iowan Old Style", Georgia, "DejaVu Serif", serif;
+  --font-ui: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --bg: #faf8f3;
+  --text: #24272c;
+  --muted: #6b707a;
+  --border: #e3ded3;
+  --surface: #f1ede3;
+  --accent: #1d6670;
+  --accent-soft: #e2eeee;
+  --pill-text: #134f58;
+  --rail: #c9dcdc;
+  --row-hover: #e8f0ef;
+  --zebra: #f6f3ec;
+  --flash: #f6d776;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 18px;
+  line-height: 1.65;
+  font-kerning: normal;
+  text-rendering: optimizeLegibility;
+}
+
+.player-area {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 16px 16px 0;
+}
+.player-frame {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 10px;
+  overflow: hidden;
+}
+.player-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  align-items: center;
+  margin: 10px 0 0;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+/* Author styles beat the browser's [hidden] rule, so restate it. The script shows the controls. */
+.controls[hidden] { display: none; }
+.controls label {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+}
+.controls input { accent-color: var(--accent); }
+.player-note { color: var(--text); }
+.no-player .player-frame,
+.no-player .scroll-toggle { display: none; }
+.no-player .player-note {
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+main {
+  max-width: calc(68ch + 32px);
+  margin: 0 auto;
+  padding: 8px 16px 80px;
+}
+
+h1, h2, h3 {
+  font-family: var(--font-ui);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+}
+h1 { font-size: 2.1rem; margin: 1.3em 0 0.4em; }
+h2 {
+  font-size: 1.4rem;
+  color: var(--accent);
+  margin: 2.4em 0 0.3em;
+}
+h3 { font-size: 1.15rem; margin: 1.8em 0 0.3em; }
+p, ul, ol, table { margin: 0 0 1em; }
+li { margin: 0.4em 0; }
+ul, ol { padding-left: 1.4em; }
+strong { font-weight: 650; }
+
+a { color: var(--accent); text-underline-offset: 2px; }
+
+/* Timestamp links: any link with a t= parameter. */
+a[href*="?t="],
+a[href*="&t="] {
+  display: inline-block;
+  padding: 0.05em 0.5em;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--pill-text);
+  font-family: var(--font-ui);
+  font-size: 0.8em;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.6;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s;
+}
+a[href*="?t="]:hover,
+a[href*="&t="]:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+a.flash { animation: flash 1.6s ease-out; }
+@keyframes flash {
+  from { background: var(--flash); color: var(--text); }
+}
+
+/* Classes set by the script below; without it these elements keep the plain styles. */
+
+/* A list item that starts with a timestamp: an aligned timeline row. */
+ul:has(> li.stamped) {
+  list-style: none;
+  margin-left: 0.3em;
+  padding-left: 0;
+  border-left: 2px solid var(--rail);
+}
+li.stamped {
+  position: relative;
+  padding-left: 5.2em;
+  padding-right: 0.4em;
+  border-radius: 0 6px 6px 0;
+  transition: background-color 0.15s;
+}
+li.stamped:hover { background: var(--row-hover); }
+/* Other items in such a list line up with the text column. */
+ul:has(> li.stamped) > li:not(.stamped) { padding-left: 5.2em; }
+li.stamped > a:first-child {
+  position: absolute;
+  left: 0.7em;
+  top: 0.2em;
+  min-width: 3.9em;
+  text-align: center;
+}
+
+/* A timestamp paragraph right under a heading: the segment's time range. */
+p.range {
+  margin: 0 0 0.9em;
+  font-family: var(--font-ui);
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+p.range a { font-size: 0.85em; }
+
+/* A paragraph that starts with a bold label, like "How to use this guide:". */
+p.labeled {
+  padding: 0.7em 1em;
+  border-left: 3px solid var(--accent);
+  border-radius: 0 8px 8px 0;
+  background: var(--surface);
+  font-size: 0.95em;
+}
+p.labeled + p.labeled { margin-top: -0.4em; }
+
+blockquote {
+  margin: 0 0 1em;
+  padding: 0 1em;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+}
+
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  background: var(--surface);
+  padding: 0.1em 0.3em;
+  border-radius: 4px;
+}
+pre {
+  overflow-x: auto;
+  background: var(--surface);
+  padding: 12px;
+  border-radius: 6px;
+}
+pre code { padding: 0; background: none; }
+
+.table-wrap { overflow-x: auto; margin: 0 0 1.2em; }
+table {
+  border-collapse: collapse;
+  font-family: var(--font-ui);
+  font-size: 0.88em;
+  line-height: 1.5;
+}
+.table-wrap table { margin: 0; }
+th, td {
+  border: 1px solid var(--border);
+  padding: 7px 12px;
+  text-align: left;
+  vertical-align: top;
+}
+th {
+  background: var(--surface);
+  font-weight: 700;
+  border-bottom: 2px solid var(--rail);
+}
+tbody tr:nth-child(even) td { background: var(--zebra); }
+
+hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  a.flash { animation: none; outline: 2px solid var(--flash); }
+  a[href*="?t="], a[href*="&t="], li.stamped { transition: none; }
+}
+
+@media print {
+  .player-area { display: none; }
+  body { background: #fff; color: #000; font-size: 11pt; }
+  main { max-width: none; padding: 0; }
+  a[href*="?t="], a[href*="&t="] { background: none; color: #000; padding: 0; }
+  p.labeled, tbody tr:nth-child(even) td { background: none; }
+}
+</style>
+</head>
+<body>
+<div class="player-area">
+  <div class="player-frame">
+    <iframe id="player"
+      src="https://www.youtube.com/embed/$video_id?enablejsapi=1&amp;rel=0"
+      title="YouTube video player"
+      allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allowfullscreen></iframe>
+  </div>
+  <div class="controls" id="controls" hidden>
+    <label class="scroll-toggle"><input type="checkbox" id="scroll-to-player" checked> Scroll to the video when a timestamp is clicked</label>
+    <span class="player-note" id="player-note" hidden></span>
+  </div>
+</div>
+<main>
+$body
+</main>
+<script>
+(function () {
+  "use strict";
+
+  var VIDEO_ID = "$video_id";
+  var STORAGE_KEY = "youtube-tools:scroll-to-player";
+  var player = null;
+  var playerReady = false;
+
+  var controls = document.getElementById("controls");
+  var toggle = document.getElementById("scroll-to-player");
+  var note = document.getElementById("player-note");
+  controls.hidden = false;
+
+  // Show a note made of text and {code: "..."} parts. Built with textContent, because the folder path comes from
+  // the page's URL.
+  function showNote(parts) {
+    note.textContent = "";
+    parts.forEach(function (part) {
+      if (typeof part === "string") {
+        note.appendChild(document.createTextNode(part));
+      } else {
+        var code = document.createElement("code");
+        code.textContent = part.code;
+        note.appendChild(code);
+      }
+    });
+    note.hidden = false;
+  }
+
+  function hidePlayer(parts) {
+    playerReady = false;
+    document.documentElement.classList.add("no-player");
+    showNote(parts);
+  }
+
+  function serveNote(prefix) {
+    var folder = "<folder of this page>";
+    if (window.location.protocol === "file:") {
+      var path = decodeURIComponent(window.location.pathname);
+      folder = path.slice(0, path.lastIndexOf("/")) || "/";
+    }
+    return [
+      prefix + " To use it, run ",
+      { code: "youtube-tools serve \"" + folder + "\"" },
+      " and open this page from the address it prints. Until then, timestamps open YouTube."
+    ];
+  }
+
+  function errorNote(code) {
+    if (code === 153) {
+      return serveNote("YouTube refused to load the player (error 153).");
+    }
+    if (code === 100 || code === 101 || code === 150) {
+      return [
+        "YouTube does not allow this video to be played here (it may be private, removed, or not allowed on other " +
+          "sites), so timestamps open YouTube."
+      ];
+    }
+    return ["The video player reported an error (code " + code + "), so timestamps open YouTube."];
+  }
+
+  try {
+    var saved = window.localStorage.getItem(STORAGE_KEY);
+    if (saved !== null) {
+      toggle.checked = saved === "1";
+    }
+  } catch (error) {
+    // Storage can be blocked, e.g. for file:// pages. The toggle still works for this visit.
+  }
+  toggle.addEventListener("change", function () {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, toggle.checked ? "1" : "0");
+    } catch (error) {
+      // See above.
+    }
+  });
+
+  // Wrap tables so wide ones scroll on their own instead of widening the page.
+  Array.prototype.forEach.call(document.querySelectorAll("main table"), function (table) {
+    var wrap = document.createElement("div");
+    wrap.className = "table-wrap";
+    table.parentNode.insertBefore(wrap, table);
+    wrap.appendChild(table);
+  });
+
+  // Style hints. They look only at how a paragraph or list item starts, so a guide written differently keeps the
+  // plain styles. CSS cannot do this: :first-child ignores text before the first element.
+  function isTimestampLink(node) {
+    return node !== null && node.nodeName === "A" && /[?&]t=/.test(node.getAttribute("href") || "");
+  }
+  function firstNode(element) {
+    var node = element.firstChild;
+    while (node !== null && node.nodeType === Node.TEXT_NODE && node.textContent.trim() === "") {
+      node = node.nextSibling;
+    }
+    return node;
+  }
+  Array.prototype.forEach.call(document.querySelectorAll("main li"), function (item) {
+    var first = firstNode(item);
+    if (!isTimestampLink(first)) {
+      return;
+    }
+    item.classList.add("stamped");
+    // "0:17: text" becomes "0:17" in the time column and "text" next to it.
+    var next = first.nextSibling;
+    if (next !== null && next.nodeType === Node.TEXT_NODE) {
+      next.textContent = next.textContent.replace(/^\s*[:–—-]\s*/, "");
+    }
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("main p"), function (paragraph) {
+    var first = firstNode(paragraph);
+    var previous = paragraph.previousElementSibling;
+    if (isTimestampLink(first) && previous !== null && /^H[2-6]/.test(previous.nodeName)) {
+      paragraph.classList.add("range");
+    } else if (first !== null && first.nodeName === "STRONG") {
+      paragraph.classList.add("labeled");
+    }
+  });
+
+  // "67s", "67", "1m7s" or "1h2m3s" to seconds; null for anything else.
+  function parseTime(value) {
+    if (!value) {
+      return null;
+    }
+    var match = /(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s?)?/.exec(value);
+    if (!match || match[0].length !== value.length || match[0].length === 0) {
+      return null;
+    }
+    return (parseInt(match[1] || "0", 10) * 3600) +
+      (parseInt(match[2] || "0", 10) * 60) +
+      parseInt(match[3] || "0", 10);
+  }
+
+  // The start time of a link to this page's video, or null.
+  function linkedTime(link) {
+    var url;
+    try {
+      url = new URL(link.href);
+    } catch (error) {
+      return null;
+    }
+    var host = url.hostname.replace(/^(www\.|m\.)/, "");
+    var id = null;
+    if (host === "youtube.com" && url.pathname === "/watch") {
+      id = url.searchParams.get("v");
+    } else if (host === "youtu.be") {
+      id = url.pathname.slice(1);
+    }
+    if (id !== VIDEO_ID) {
+      return null;
+    }
+    return parseTime(url.searchParams.get("t"));
+  }
+
+  function flash(link) {
+    link.classList.remove("flash");
+    void link.offsetWidth; // Restart the animation when the same link is clicked again.
+    link.classList.add("flash");
+  }
+
+  document.addEventListener("click", function (event) {
+    if (event.defaultPrevented || event.button !== 0 ||
+        event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+      return;
+    }
+    var link = event.target.closest ? event.target.closest("a[href]") : null;
+    if (!link || !playerReady) {
+      return;
+    }
+    var seconds = linkedTime(link);
+    if (seconds === null) {
+      return;
+    }
+    event.preventDefault();
+    player.seekTo(seconds, true);
+    player.playVideo();
+    flash(link);
+    if (toggle.checked) {
+      var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      document.querySelector(".player-area").scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
+    }
+  });
+
+  if (window.location.protocol === "file:") {
+    // The player is already hidden (see <head>). Remove it so it stops loading.
+    document.getElementById("player").remove();
+    hidePlayer(serveNote("The video player only works when this page is served over HTTP."));
+    return;
+  }
+
+  window.onYouTubeIframeAPIReady = function () {
+    player = new YT.Player("player", {
+      events: {
+        onReady: function () {
+          playerReady = true;
+        },
+        onError: function (event) {
+          hidePlayer(errorNote(event.data));
+        }
+      }
+    });
+  };
+
+  var api = document.createElement("script");
+  api.src = "https://www.youtube.com/iframe_api";
+  api.onerror = function () {
+    // The player itself may still work, so keep it visible.
+    showNote(["The YouTube player script could not be loaded, so timestamps open YouTube."]);
+  };
+  document.head.appendChild(api);
+})();
+</script>
+</body>
+</html>

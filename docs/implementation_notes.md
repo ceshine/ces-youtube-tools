@@ -108,6 +108,33 @@ resolved name and asks for confirmation.
 `$Y --flat-playlist --playlist-items 1 -J https://www.youtube.com/@handle` returns `channel`, `channel_id` and
 `channel_url` at the top level. `resolve_channel` relies on this.
 
+### The embedded player refuses `file://` pages (Error 153)
+
+Checked on 2026-10-09 with headless Google Chrome and the HTML guide page template
+(`src/youtube_tools/templates/guide_page.html`), embedding `aircAruvnKk` (3Blue1Brown, public).
+
+| Page opened from | Result |
+| --- | --- |
+| `file:///.../preview.html` | "Video player configuration error", Error 153. The IFrame API's `onError` fires. |
+| `http://127.0.0.1:8765/preview.html` (`python -m http.server`) | The player loads normally. |
+
+- `referrerpolicy="strict-origin-when-cross-origin"` on the `<iframe>` does not help for `file://`: the page has no
+  origin to send as a `Referer`.
+- On a `file://` page the IFrame API fires `onReady` first, then `onError` with `event.data === 153`. A page can
+  check `location.protocol === "file:"` up front instead of waiting for the error.
+- A video ID that does not exist, served from `localhost`, gives an `onError` code in the 100/101/150 group (the
+  page treats them the same, so the exact code was not recorded).
+- Confirmed by the user in a browser on 2026-10-09: Error 153 goes away when the page comes from a local HTTP server.
+- Consequence: an HTML guide must be served over HTTP, even from `localhost`, for the player to work. Opened from
+  disk, it is still readable and its timestamp links open YouTube.
+- Firefox: not yet verified (headless Firefox did not start while the user's Firefox was running).
+- Members-only videos in the embedded player: not yet verified.
+
+Recheck: write a page with the template, then compare
+`google-chrome --headless=new --virtual-time-budget=6000 --screenshot=file.png file://$PWD/page.html` with the same
+command on `http://127.0.0.1:8765/page.html` while `uv run python -m http.server 8765 --bind 127.0.0.1` runs in that
+folder.
+
 ## yt-dlp
 
 ### `--print` applies to each entry, not to the playlist

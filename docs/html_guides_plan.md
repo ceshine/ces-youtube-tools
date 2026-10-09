@@ -11,6 +11,8 @@ video then happen on one page.
 
 - `youtube-tools html PATH...` converts existing guides. A path can be a file or a wildcard pattern.
 - `youtube-tools guide --html` and `youtube-tools browse --html` write the HTML page next to the new Markdown guide.
+- `youtube-tools serve [DIR]` serves a folder of pages on `localhost`, because YouTube's embedded player does not
+  work on a page opened from disk.
 
 ## Decisions
 
@@ -18,11 +20,13 @@ video then happen on one page.
 
 - It is already in `uv.lock` (version 4.2.0) because `rich` depends on it. Add it as a direct dependency with
   `uv add markdown-it-py`, because the code imports it and should not rely on another package's dependencies.
-- Use `MarkdownIt("commonmark", {"html": False}).enable("table")`:
+- Use `MarkdownIt("commonmark", {"html": False, "typographer": True}).enable(["table", "replacements", "smartquotes"])`:
   - `"html": False` is required. The `commonmark` preset passes raw HTML through by default, and a guide is written
     by a model from a transcript, so a `<script>` in it must come out as text.
   - `enable("table")` turns on GFM tables, which the prompt asks for when a video compares items.
   - markdown-it already rejects `javascript:` and similar link URLs (`validateLink`).
+  - `typographer` with `smartquotes` and `replacements` turns `"quotes"` into curly quotes and `--` into an en dash.
+    Guides quote the video often, so this is a cheap readability gain.
 - Pandoc (an external binary, not installed here) and rendering in the browser (needs a network connection and
   JavaScript to show anything) were considered and rejected.
 
@@ -35,33 +39,89 @@ video then happen on one page.
   YouTube player and its IFrame API script, which need a network connection anyway.
 - The template is not user-editable in the first version (no config key). It can follow the `prompt_template`
   pattern later if needed.
-- Layout:
-  - Wide screens: two columns, with the player in a sticky column next to the scrolling guide.
-  - Narrow screens: the player is sticky at the top at 16:9, and the guide scrolls below it.
-  - Light and dark themes through `prefers-color-scheme`. Readable tables with borders and horizontal scrolling when
-    they are too wide.
+- Minimal parsing: the page relies only on timestamp links, which `check_timestamp_links` already checks. It does
+  not depend on headings, range lines or any other part of the guide's structure, because a model's output (or an
+  edited prompt template, or a guide written by hand) may not follow the prompt exactly. The rendered Markdown is
+  styled with plain element styles (`h2`, `ul`, `table`, ...), so any valid Markdown looks fine. No segment list,
+  no wrapping of segments in `<section>` elements.
+- Layout, the same on every screen size:
+  - The player is at the top of the page (16:9, centered, limited width) and scrolls away with the page, so the
+    guide gets the whole window when it is read in full.
+  - Below the player, a toggle: "Scroll to the video when a timestamp is clicked" (on by default). The setting is
+    kept in `localStorage`, inside `try`/`catch`, because some browsers block storage for `file://` pages. The
+    toggle is hidden when JavaScript is off.
+  - The guide below, at most about 70 characters per line.
+  - Timestamp links are styled as small pills with fixed-width digits, picked out by a CSS attribute selector on
+    `t=` in the link, so no parsing is needed for this either.
+  - Fonts: Literata (body) and Inter (headings, timestamps, controls) from Google Fonts with `display=swap`, so
+    the page falls back to system fonts at once when offline. Inter's tabular figures line up the timestamps, so
+    no monospace font is needed. (Chosen over Source Serif 4 + Source Sans 3 on 2026-10-09.)
+  - Style hints, set as classes by a short script that looks only at how an element starts (CSS `:first-child`
+    cannot see text before the first element). Without the script, or when a guide is written differently, the
+    elements keep the plain styles:
+    - a list item that starts with a timestamp link (`li.stamped`): a timeline row with the time in an aligned
+      column and the `: ` after it removed; its list gets a thin line on the left instead of bullets;
+    - a paragraph that starts with a timestamp link right after a heading (`p.range`): small muted text;
+    - a paragraph that starts with bold text (`p.labeled`), like "How to use this guide:": a tinted callout.
+  - Hover: a timestamp pill fills with the accent color, and a timeline row gets a faint background. Tables have
+    a bold header row with a heavier bottom border, and striped rows.
+  - A light theme only (dark mode is out of scope for now). Readable tables with borders and horizontal scrolling when
+    they are too wide. A print stylesheet hides the player and the toggle.
 - `<title>` comes from the guide's first `# ` heading (without the "Watching Guide: " prefix), else the file name.
 
 ### Embedded player
 
-- Load the IFrame API (`https://www.youtube.com/iframe_api`) and create a `YT.Player` for the video ID.
-- One click handler on the guide body catches clicks on links to `youtube.com/watch?v=<same id>&t=<n>s` (and
+- The player is a plain `<iframe src="https://www.youtube.com/embed/<id>?enablejsapi=1">` in the HTML, and the
+  IFrame API (`https://www.youtube.com/iframe_api`) attaches a `YT.Player` to it. The video is then visible even
+  without JavaScript or when the API script fails to load.
+- One click handler on the page catches clicks on links to `youtube.com/watch?v=<same id>&t=<n>s` (and
   `youtu.be/<id>?t=`). It calls `player.seekTo(n, true)` and `player.playVideo()`, and prevents the default action.
+  When the toggle is on, it then scrolls the player into view (smoothly, unless `prefers-reduced-motion` is set).
+  The clicked link flashes briefly, so the reader can find their place again after scrolling back.
 - Links keep their normal behavior when:
   - the click is a middle click or uses Ctrl, Cmd or Shift (open in a new tab),
   - the link points to another video,
-  - the player is not ready or reported an error (`onError`). In that case a short note above the guide says the
-    player is unavailable and that links open YouTube.
+  - the player is not ready, is hidden, or reported an error.
+- The player is hidden, and a note at the top says why and that timestamps open YouTube, when:
+  - the page is opened from disk (`location.protocol === "file:"`). YouTube refuses such pages with Error 153, so a
+    small script in `<head>` hides the player before the page is drawn, and the `<iframe>` is removed so it stops
+    loading. The note gives the command to run: `youtube-tools serve "<folder of this page>"`, with the folder taken
+    from the page's URL (inserted with `textContent`, not as HTML).
+  - the player's `onError` fires. Code 153: the same note about `serve`. Codes 100, 101 and 150: the video is
+    private, removed, or not allowed on other sites. Any other code is shown as a number.
+- If only the IFrame API script fails to load, the player stays visible (it may still play) and the note says that
+  timestamps open YouTube.
 - Without JavaScript, the page is a readable guide whose links open YouTube, the same as the Markdown file.
-- Mark the segment being played: highlight the segment whose range contains the player's current time. This is
-  optional and can wait until after the first version.
+- Later, optionally: mark the latest timestamp link at or before the player's current time ("now playing"). It
+  works per link, so it needs no knowledge of segments.
+
+### `youtube-tools serve` command
+
+```
+youtube-tools serve [DIR] [--port 8765] [--no-open]
+```
+
+- Serves `DIR` (default: `guide.output_dir`) with `http.server`'s `ThreadingHTTPServer` and
+  `SimpleHTTPRequestHandler(directory=DIR)`, bound to `127.0.0.1` only, so the guides are not reachable from other
+  machines. With no `DIR` and no `guide.output_dir`, fail with a message asking for `DIR`. The current directory is
+  not a default, because it may hold browser cookie copies or `claude` session logs.
+- Requests whose `Host` header is not `127.0.0.1:<port>` or `localhost:<port>` get a 403, so a web page that
+  points its own domain name at `127.0.0.1` (DNS rebinding) cannot read the folder.
+- Prints the address and opens it in the browser with `webbrowser.open`, unless `--no-open`. The folder listing from
+  `SimpleHTTPRequestHandler` is the index for now.
+- A fixed default port, not a random free one: `localStorage` is kept per origin, and the origin includes the port,
+  so a new port each time would forget the scroll toggle setting. If the port is in use, fail with a message that
+  suggests `--port`.
+- Runs until Ctrl+C, then exits with status 0. Request logs go to the module logger at debug level, not stderr.
 
 ### Finding the video ID
 
 - `guide --html` / `browse --html`: the caller already has the `VideoInfo` and passes `info.id`.
 - `html PATH...`: read the ID from the guide's links. Collect the `v=` value of every YouTube link and use the most
   common one. If no link has an ID, report it for that file and skip the file; the other files are still converted.
-- The ID must match `[A-Za-z0-9_-]{11}` before it goes into the page.
+- The ID must match `[A-Za-z0-9_-]{11}` before it goes into the page. `render_guide_page` checks this itself and
+  raises `GuideHtmlError` otherwise, whichever caller passed the ID. The template puts the ID in a JavaScript string
+  and in a URL without escaping it, so this check is what keeps the page safe.
 
 ### `youtube-tools html` command
 
@@ -117,38 +177,41 @@ Each step ends with `uvx ruff check .`, `uvx ruff format --line-length 120` and 
    with a short synthetic guide in `tests/fixtures/` (headings, timestamp links, a bullet list, a table, a `<script>`
    line that must come out escaped, and a `javascript:` link that must not become a link).
 2. **Page template.** Add `templates/guide_page.html` and `render_guide_page`. Tests: the placeholders are filled,
-   the video ID is in the player setup, and a title with `<`, `&` or `"` is escaped.
-3. **Player behavior.** Write the IFrame API setup and the click handler. Check it by hand in Firefox and Chrome
-   (see "To verify" below), and record what was found in `implementation_notes.md`.
+   the video ID is in the player setup, a title with `<`, `&` or `"` is escaped, and an ID that does not match
+   `[A-Za-z0-9_-]{11}` (for example `x"; alert(1); "`) raises `GuideHtmlError`.
+3. **Player behavior.** Write the IFrame API setup, the click handler and the hiding of the player. Check it by
+   hand in Firefox and Chrome (see "To verify" below), and record what was found in `implementation_notes.md`.
+   (Template and checks in Chrome done on 2026-10-09.)
 4. **`html` command.** Add `expand_paths`, `write_guide_page` and the Typer command. Tests (in `tmp_path`): a single
    file, a quoted `*` pattern, a `**` pattern, a pattern with no matches, a file without a video ID among valid
    ones, `--output-dir`.
-5. **`--html` flag.** Add the flag to `guide` and `browse` and pass it through `_run_guide`. Tests using the
+5. **`serve` command.** Tests: the handler serves files from the given folder (a server on port 0 in a thread,
+   fetched with `urllib`), the server binds to `127.0.0.1`, a request with a foreign `Host` header gets 403, no
+   `DIR` and no `guide.output_dir` gives a clear error, a port in use gives a clear error. `webbrowser.open` is
+   mocked.
+6. **`--html` flag.** Add the flag to `guide` and `browse` and pass it through `_run_guide`. Tests using the
    existing mocked pipeline in `tests/test_cli.py`: the HTML file is written next to the guide; the "kept the
    existing guide" path still writes it.
-6. **Docs.** Move the decisions into `design.md` (workflow diagram, a new "HTML page" section), add the command and
+7. **Docs.** Move the decisions into `design.md` (workflow diagram, a new "HTML page" section), add the command and
    the flag to `README.md`, and delete or shorten this plan.
 
 ## To verify (not yet verified)
 
 Record each result in `implementation_notes.md` with the date and a recheck command.
 
-- **Embedding from a `file://` page.** Since 2025, YouTube's embedded player may refuse to play without an HTTP
-  `Referer` and show "Error 153 (video player configuration error)". A page opened from disk sends none. Check by
-  opening a generated page directly in Firefox and Chrome. If it fails:
-  - add `referrerpolicy="strict-origin-when-cross-origin"` and the `origin` player parameter, and check again;
-  - if it still fails, add `youtube-tools html --serve`, which serves the output folder on `localhost` with
-    `http.server` and opens the page. The click handler's fallback (links open YouTube) keeps the page usable in
-    the meantime.
+- **Embedding from a `file://` page: confirmed broken** (2026-10-09, see "The embedded player refuses `file://`
+  pages" in `implementation_notes.md`). Error 153 in headless Chrome and in the user's browser; served from
+  `localhost` it plays. Hence the `serve` command and hiding the player on `file://` pages.
 - **Members-only videos.** Check whether the embedded player plays a members-only video for a signed-in member, or
   shows an error. If it errors, `onError` makes the links open YouTube, which works with the browser's sign-in.
 - **`youtube-nocookie.com`.** Check whether `host: "https://www.youtube-nocookie.com"` works with the IFrame API
   and with members-only videos. Use it if it does, since it sets no cookies until playback.
 - **Videos with embedding turned off** by the uploader: confirm that `onError` fires (codes 101/150) and the
-  fallback note appears.
+  player is hidden. (A made-up video ID already gives a code in that group and hides the player.)
 
 ## Out of scope for now
 
 - PDF or EPUB output.
+- Dark mode (`prefers-color-scheme: dark`): redefine the color variables in `:root`.
 - A user-editable page template or CSS file.
-- An index page that lists all guides in a folder (a natural next step for the `html` command with a wildcard).
+- An index page that lists all guides in a folder, to replace the plain folder listing of `serve`.
