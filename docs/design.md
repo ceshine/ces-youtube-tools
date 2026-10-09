@@ -25,6 +25,11 @@ provider are surveyed in [asr_options.md](asr_options.md).
    VideoInfo ─► TranscriptProvider ─► Transcript ─► GuideGenerator ─► Markdown file
                  · yt-dlp-subs (v1)                  · claude-cli (v1)
                  · audio transcription (later)       · openai-api, other CLIs (later)
+
+ HTML page (optional)
+   Markdown file ─► guide_html ─► "<same name>.html" (embedded player) ─► youtube-tools serve ─► browser
+                    · `guide --html`, `browse --html`: right after the guide is written
+                    · `html PATH...`: guides written earlier
 ```
 
 ## Authentication
@@ -222,22 +227,60 @@ is one, `q` quits with status 0, and anything else repeats the question with a h
 ## HTML pages and `serve`
 
 A guide can be turned into a standalone HTML page that embeds the video's player, so that clicking a timestamp moves
-the player instead of opening YouTube. The full plan is in [html_guides_plan.md](html_guides_plan.md). What is built:
+the player instead of opening YouTube. The steps taken are in [html_guides_plan.md](html_guides_plan.md). What was
+built:
 
 - `youtube-tools html PATH... [--overwrite]` (`guide_html.py`). A path is a Markdown file or a folder (its `.md`
   files, not its subfolders). Each page is written next to its guide, as `<same name>.html`; there is no output
   directory option, so two guides can never write the same page. An existing page is kept with a warning unless
   `--overwrite` is given. Files that are not `.md` are ignored, but a run that leaves no `.md` file is an error. A
   guide that cannot be converted (for example, no video link) is reported and makes the exit status 1.
-- Conversion uses `markdown-it-py` with raw HTML disabled, because a guide is model output and a `<script>` in it
-  must be shown as text. The video is found from the guide's own links (the most common `v=` value), and
-  `render_guide_page` rejects any ID that is not 11 characters of `A-Za-z0-9_-`, because the template puts the ID in a
-  URL and a JavaScript string without escaping.
+- Conversion uses `markdown-it-py` (a direct dependency, although `rich` already pulls it in, because the code imports
+  it) with raw HTML disabled, because a guide is model output and a `<script>` in it must be shown as text. The
+  `commonmark` preset would pass raw HTML through, so `"html": False` is required. Tables are enabled (the prompt asks
+  for them when a video compares items), `javascript:` and similar link targets are rejected by markdown-it itself,
+  and `typographer` with smart quotes turns `"quotes"` and `--` into curly quotes and an en dash. Pandoc (an external
+  binary) and rendering in the browser (needs JavaScript and a network connection to show anything) were rejected.
+- The video is found from the guide's own links (the most common `v=` value; a link that cannot be parsed is
+  skipped). `render_guide_page` rejects any ID that is not 11 characters of `A-Za-z0-9_-`, whichever caller passed it,
+  because the template puts the ID in a URL and a JavaScript string without escaping. This check is what keeps the
+  template safe. `html` reports a guide with no video link and skips it; `--html` passes the video's ID itself.
 - `guide --html` and `browse --html` write the page next to the new guide, after the guide is written, from the
   corrected Markdown. The page is replaced whenever the guide is written (a new guide, `guide --force`, or an
   overwrite confirmed in `browse`), so it never lags behind the guide. When `browse` keeps an existing guide, the
   page is written only if missing; an existing page is kept with a warning (`html --overwrite` regenerates it). If
   the page fails, the Markdown guide stays and the exit status is 1.
+- The page template is `templates/guide_page.html`, filled with `string.Template` (`$title`, `$video_id`, `$body`; a
+  literal `$` must be written `$$`). CSS and JavaScript are inline, so one file is the whole page. It is not
+  user-editable yet. The title comes from the guide's first level-one heading (without "Watching Guide: "), else the
+  file name.
+- The page depends only on timestamp links, not on the guide's structure, because a model's output, an edited prompt
+  template or a hand-written guide may not follow the prompt. Style hints (`li.stamped`, `p.range`, `p.labeled`) are
+  classes a short script adds by looking at how an element starts; without them the plain element styles apply.
+- Player: a plain `<iframe>` in the HTML, which the IFrame API attaches to, so the video shows even if the API script
+  fails. One click handler catches links to the same video with a `t=` value and calls `seekTo` and `playVideo`. An
+  optional toggle (kept in `localStorage`, on by default) scrolls the player into view. Middle clicks and clicks with
+  Ctrl, Cmd, Shift or Alt, links to other videos, and links clicked while the player is not ready, is hidden or has
+  reported an error keep their normal behavior (open YouTube).
+- The player is hidden, with a note that timestamps open YouTube, when the page is opened from disk (the note gives
+  the `serve` command) and when the player reports an error (153: use `serve`; 100, 101, 150: private, removed or not
+  embeddable; others: shown as a number). Without JavaScript, the page is a readable guide whose links open YouTube.
+- Layout, the same on every screen size: the player at the top (16:9, centered, limited width) scrolls away with the
+  page, so the guide gets the whole window; below it, the scroll toggle (hidden without JavaScript; `localStorage` is
+  read and written inside `try`/`catch`, because some browsers block it for `file://` pages); then the guide, at most
+  about 70 characters per line. Timestamp links are pills with fixed-width digits, picked out by a CSS selector on
+  `t=` in the link. A clicked link flashes so the reader can find the place again, and scrolling is smooth unless
+  `prefers-reduced-motion` is set. Tables scroll sideways when too wide. A print stylesheet hides the player and the
+  toggle.
+- The only external resources are the YouTube player and its API script (both need a network connection anyway) and
+  the fonts.
+- On a `file://` page the player is hidden before the page is drawn and the `<iframe>` is removed so it stops
+  loading; the note shows the folder from the page's URL (inserted as text, not HTML). If only the IFrame API script
+  fails to load, the player stays visible (it may still play) and the note says timestamps open YouTube.
+- Light theme only. Fonts (Literata, Inter) come from Google Fonts with `display=swap`, so system fonts show at once
+  when offline.
+- The code is in `guide_html.py`, not `html.py`, which would shadow the standard library's `html` in some imports and
+  in reading.
 - `youtube-tools serve [DIR] [--port 8765] [--no-open]` (`serve.py`) exists because YouTube refuses to play an
   embedded video on a page opened from disk (Error 153; see "The embedded player refuses `file://` pages" in
   [implementation_notes.md](implementation_notes.md), checked 2026-10-09). The player works from `localhost`.
@@ -246,6 +289,9 @@ the player instead of opening YouTube. The full plan is in [html_guides_plan.md]
     could point its own domain at `127.0.0.1` (DNS rebinding) and read the folder through the browser.
   - `DIR` defaults to `guide.output_dir`, never to the current directory, which may hold browser cookie copies or
     `claude` session logs.
+  - It uses `ThreadingHTTPServer` with `SimpleHTTPRequestHandler`, so the folder listing is the index page for now.
+    Request logs go to the module logger at debug level, not stderr.
+  - A port already in use is an error that suggests `--port`. Ctrl+C stops the server with status 0.
   - The default port is fixed, because `localStorage` is kept per origin and the origin includes the port.
 
 ## CLI conventions
@@ -265,6 +311,8 @@ the player instead of opening YouTube. The full plan is in [html_guides_plan.md]
    above.
 5. `browse`: interactive channel and video menus on top of steps 1–4. (Done, with a typed menu.) See "Browse step"
    above. Revisit the prompt library together with the interactive config session below.
+6. HTML pages: `html`, `serve`, and the `--html` flag on `guide` and `browse`. (Done.) See "HTML pages and `serve`"
+   above. Still to check by hand: members-only videos, `youtube-nocookie.com` and Firefox (see the plan).
 
 ## Planned: interactive config session
 

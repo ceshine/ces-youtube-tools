@@ -70,10 +70,12 @@ youtube-tools browse
 
 | Command | What it does |
 | --- | --- |
-| `browse [CHANNEL] [-n N] [-o DIR] [--refresh]` | Pick a channel and a video from numbered menus, then write its guide |
+| `browse [CHANNEL] [-n N] [-o DIR] [--refresh] [--html]` | Pick a channel and a video from numbered menus, then write its guide |
 | `list CHANNEL [-n N]` | List a configured channel's latest videos and livestream replays |
 | `transcript VIDEO [--json] [--refresh]` | Print a video's transcript to stdout |
-| `guide VIDEO [-o DIR] [--force] [--refresh]` | Write a guide for a video URL or ID |
+| `guide VIDEO [-o DIR] [--force] [--refresh] [--html]` | Write a guide for a video URL or ID |
+| `html PATH... [--overwrite]` | Turn Markdown guides (files or folders) into HTML pages with the video embedded |
+| `serve [DIR] [--port N] [--no-open]` | Serve a folder of HTML pages on localhost, so their players work |
 | `config init` | Create the config file and choose a Firefox profile |
 | `config profile` | Choose a different Firefox profile |
 | `config add-channel CHANNEL [--members] [-y]` | Look up a channel and add it |
@@ -84,6 +86,24 @@ youtube-tools browse
 
 Every command takes `--config PATH` to use a different config file. In the menus, type a number to choose, press Enter
 for the default, or type `q` to quit.
+
+## HTML pages
+
+A guide can also be an HTML page that embeds the video's player. Clicking a timestamp moves the player to that moment,
+so you read and watch on one page.
+
+```bash
+youtube-tools browse --html               # write the guide and its page
+youtube-tools html ~/guides               # add pages to guides you already have
+youtube-tools serve ~/guides              # open them in the browser
+```
+
+- `html` takes Markdown files and folders (the `.md` files directly inside a folder). Each page is written next to its
+  guide. An existing page is kept with a warning unless you pass `--overwrite`. When `guide --html` or
+  `browse --html` writes a guide, it replaces that guide's page too.
+- YouTube refuses to play an embedded video on a page opened from disk (Error 153), so use `serve`. It listens on
+  `127.0.0.1` only. Opened from disk, a page is still a readable guide whose timestamps open YouTube.
+- A page needs a network connection for the player and fonts.
 
 ## Configuration
 
@@ -124,6 +144,7 @@ and a cache write only adds cost. Set `prompt_caching = true` under `[guide.opti
 
 - **Guides:** `Watching Guide <title>.md` in `--output-dir`, else `guide.output_dir`, else the current directory. An
   existing guide is not overwritten unless you pass `--force`.
+- **HTML pages:** `<same name>.html`, next to each guide.
 - **Cache:** `~/.cache/youtube-tools/<video id>/` holds the video metadata, subtitles, transcript, and the prompt and
   raw reply of the last generation. A rerun repeats only the failed step; `--refresh` ignores the cache.
 
