@@ -225,6 +225,16 @@ to a single account.
 After creating "YouTube Turk", `installs.ini` and `profiles.ini` set it as the install's default profile, so launching
 Firefox normally may open it. Set the default back in `about:profiles` if that is unwanted.
 
+## Typer
+
+### Help text is the whole docstring
+
+Checked on 2026-10-09 with typer 0.27. A command without `help=` shows its entire docstring in `--help`, including
+Google-style `Args:`, `Returns:` and `Raises:` sections. Typer does not parse docstrings. `cli.command()` passes
+`help=` with the text before the first such section.
+
+Recheck: register a command with `@APP.command("x")` and a Google-style docstring, then run `youtube-tools x --help`.
+
 ## claude CLI
 
 Checked with Claude Code 2.1.295 (`claude --help`).

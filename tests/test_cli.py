@@ -326,3 +326,19 @@ def test_init_writes_template_next_to_config(
     template = config_path.parent / "guide_prompt.md"
     assert load_config(config_path).guide.prompt_template == template
     assert "$transcript" in template.read_text(encoding="utf-8")
+
+
+def test_help_text_stops_at_docstring_sections() -> None:
+    def documented() -> None:
+        """Do a thing.
+
+        More detail.
+
+        Args:
+            x (int): Hidden from help.
+        """
+
+    assert cli.help_text(documented) == "Do a thing.\n\nMore detail."
+    result = RUNNER.invoke(APP, ["list", "--help"], env={"COLUMNS": "200"})
+    assert "Args:" not in result.output
+    assert "newest first" in result.output

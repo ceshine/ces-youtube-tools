@@ -1,9 +1,12 @@
 """Command-line entry point for youtube-tools."""
 
+import re
 import time
+import inspect
 import datetime
 from pathlib import Path
-from typing import Annotated
+from collections.abc import Callable
+from typing import Any, TypeVar, Annotated
 
 import typer
 from rich.table import Table
@@ -41,6 +44,46 @@ CONSOLE = Console()
 STDERR = Console(stderr=True)
 
 ConfigPathOption = Annotated[Path, typer.Option("--config", help="Path of the configuration file.")]
+_DOCSTRING_SECTION = re.compile(r"^(Args|Returns|Raises|Yields|Examples?|Notes?):\s*$")
+
+CommandFunction = TypeVar("CommandFunction", bound=Callable[..., Any])
+
+
+def help_text(function: Callable[..., Any]) -> str:
+    """Get a command's help text: its docstring up to the first Google-style section such as `Args:`.
+
+    Typer shows the whole docstring otherwise, including the argument documentation the code style requires.
+
+    Args:
+        function (Callable[..., Any]): The command function.
+
+    Returns:
+        str: The docstring's description paragraphs.
+    """
+    lines: list[str] = []
+    for line in inspect.cleandoc(function.__doc__ or "").splitlines():
+        if _DOCSTRING_SECTION.match(line.strip()):
+            break
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
+def command(app: typer.Typer, name: str) -> Callable[[CommandFunction], CommandFunction]:
+    """Register a function as a Typer command, with help text taken from its docstring description.
+
+    Args:
+        app (typer.Typer): The app or command group.
+        name (str): The command name.
+
+    Returns:
+        Callable[[CommandFunction], CommandFunction]: The decorator.
+    """
+
+    def register(function: CommandFunction) -> CommandFunction:
+        _ = app.command(name, help=help_text(function))(function)
+        return function
+
+    return register
 
 
 @APP.callback()
@@ -142,7 +185,7 @@ def _pick_profile() -> FirefoxProfile:
     return profile
 
 
-@CONFIG_APP.command("init")
+@command(CONFIG_APP, "init")
 def config_init(
     config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
     force: Annotated[bool, typer.Option("--force", help="Overwrite an existing configuration file.")] = False,
@@ -191,7 +234,7 @@ def _write_default_template(path: Path, force: bool) -> bool:
     return True
 
 
-@CONFIG_APP.command("template")
+@command(CONFIG_APP, "template")
 def config_template(
     force: Annotated[bool, typer.Option("--force", help="Overwrite an edited template.")] = False,
     config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
@@ -214,7 +257,7 @@ def config_template(
     CONSOLE.print(f"Wrote the guide prompt template to {path}.")
 
 
-@CONFIG_APP.command("profile")
+@command(CONFIG_APP, "profile")
 def config_profile(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     """Choose a different Firefox profile for YouTube cookies.
 
@@ -231,7 +274,7 @@ def config_profile(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     CONSOLE.print(f"Using profile {profile.name} ({profile.path}).")
 
 
-@CONFIG_APP.command("add-channel")
+@command(CONFIG_APP, "add-channel")
 def config_add_channel(
     channel: Annotated[str, typer.Argument(help="Channel handle (@name) or URL.")],
     members: Annotated[bool, typer.Option("--members", help="Also list members-only videos.")] = False,
@@ -271,7 +314,7 @@ def config_add_channel(
     CONSOLE.print(f"Added {resolved.name}.")
 
 
-@CONFIG_APP.command("remove-channel")
+@command(CONFIG_APP, "remove-channel")
 def config_remove_channel(
     channel: Annotated[str, typer.Argument(help="Channel name or channel ID.")],
     config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
@@ -297,7 +340,7 @@ def config_remove_channel(
     CONSOLE.print(f"Removed {found.name}.")
 
 
-@CONFIG_APP.command("show")
+@command(CONFIG_APP, "show")
 def config_show(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     """Print the configuration and whether the Firefox profile has YouTube sign-in cookies.
 
@@ -320,7 +363,7 @@ def config_show(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
         CONSOLE.print(f"The Firefox profile {state} YouTube sign-in cookies.")
 
 
-@CONFIG_APP.command("check")
+@command(CONFIG_APP, "check")
 def config_check(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     """Check with YouTube that the configured profile is signed in.
 
@@ -377,7 +420,7 @@ def _videos_table(title: str, videos: list[VideoSummary], now: float) -> Table:
     return table
 
 
-@APP.command("list")
+@command(APP, "list")
 def list_videos(
     channel: Annotated[str, typer.Argument(help="Channel name or ID from the configuration.")],
     limit: Annotated[int, typer.Option("--limit", "-n", min=1, help="Maximum number of videos to show.")] = 20,
@@ -412,7 +455,7 @@ def list_videos(
     CONSOLE.print(_videos_table(f"Latest videos of {found.name}", videos, time.time()))
 
 
-@APP.command("transcript")
+@command(APP, "transcript")
 def show_transcript(
     video: Annotated[str, typer.Argument(help="Video URL or ID.")],
     refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcript.")] = False,
@@ -459,7 +502,7 @@ def show_transcript(
         typer.echo(f"[{format_duration(segment.start)}] {segment.text}")
 
 
-@APP.command("guide")
+@command(APP, "guide")
 def make_guide(
     video: Annotated[str, typer.Argument(help="Video URL or ID.")],
     output_dir: Annotated[

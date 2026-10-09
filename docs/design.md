@@ -187,6 +187,13 @@ first:
 
 Details and recheck commands are in [implementation_notes.md](implementation_notes.md).
 
+## CLI conventions
+
+- Register commands with `@command(APP, "name")` / `@command(CONFIG_APP, "name")` from `cli.py`, not
+  `@APP.command(...)`. It passes Typer only the docstring's description; Typer would otherwise print the Google-style
+  `Args:` / `Returns:` / `Raises:` sections in `--help`.
+- Data a command prints for piping (`transcript`) goes to stdout. Status, warnings and errors go to stderr.
+
 ## Build order
 
 1. Config: models, load/save, Firefox profile discovery and picker, `config` commands. (Done.)
