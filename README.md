@@ -117,6 +117,9 @@ effort = "high"      # optional
 Edit `guide_prompt.md` to change the structure and tone of the guides. Run `youtube-tools config show` to see every
 setting, including the optional ones such as `session_dir`.
 
+Guide generation turns off Claude Code's prompt caching, because each run is a single request that is never repeated
+and a cache write only adds cost. Set `prompt_caching = true` under `[guide.options.claude-cli]` to turn it back on.
+
 ## Where files go
 
 - **Guides:** `Watching Guide <title>.md` in `--output-dir`, else `guide.output_dir`, else the current directory. An

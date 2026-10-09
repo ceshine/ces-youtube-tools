@@ -287,6 +287,18 @@ Recheck: run `echo hi | claude -p --tools "" --name test-name` in a new empty di
 `grep custom-title ~/.claude/projects/*<D's name>/*.jsonl`. Repeat with `--no-session-persistence` (and with
 `--system-prompt "x"`) and check that no `.jsonl` file appears. Delete the project folders afterwards.
 
+### Prompt caching (`claude-cli`)
+
+Checked on 2026-10-09 with `--model sonnet` and a one-word prompt.
+
+- With `DISABLE_PROMPT_CACHING=1`, the session log shows `cache_creation_input_tokens` of 0 on both requests. Without
+  it, both show 3593. So the variable works, and the per-model variants (`DISABLE_PROMPT_CACHING_HAIKU`, `_SONNET`,
+  `_OPUS`) are not needed. They were not tested.
+
+Recheck: in a new empty directory `D`, run `echo hi | claude -p --tools "" --name cache-off` with and without
+`DISABLE_PROMPT_CACHING=1`, then compare `grep -o '"cache_creation_input_tokens":[0-9]*' ~/.claude/projects/*<D's name>/*.jsonl`.
+Delete the project folder afterwards.
+
 ### Guide generation runs (`claude-cli`)
 
 Checked on 2026-10-09 with the default template and Claude Code's default model, on `3i2C3IB3PaA` (13.5 minutes,

@@ -20,11 +20,14 @@ SYSTEM_PROMPT = (
 )
 
 DISABLE_CLAUDE_MDS_ENV = "CLAUDE_CODE_DISABLE_CLAUDE_MDS"
+DISABLE_PROMPT_CACHING_ENV = "DISABLE_PROMPT_CACHING"
 
-ClaudeRunner = Callable[[list[str], str, Path, float], subprocess.CompletedProcess[str]]
+ClaudeRunner = Callable[[list[str], str, Path, float, dict[str, str]], subprocess.CompletedProcess[str]]
 
 
-def run_claude(args: list[str], prompt: str, cwd: Path, timeout: float) -> subprocess.CompletedProcess[str]:
+def run_claude(
+    args: list[str], prompt: str, cwd: Path, timeout: float, extra_env: dict[str, str]
+) -> subprocess.CompletedProcess[str]:
     """Run the `claude` CLI with the prompt on stdin and CLAUDE.md files disabled.
 
     Args:
@@ -32,6 +35,7 @@ def run_claude(args: list[str], prompt: str, cwd: Path, timeout: float) -> subpr
         prompt (str): Text sent to stdin.
         cwd (Path): Working directory for the process.
         timeout (float): Seconds to wait before giving up.
+        extra_env (dict[str, str]): Environment variables added on top of the current environment.
 
     Returns:
         subprocess.CompletedProcess[str]: The finished process.
@@ -39,7 +43,7 @@ def run_claude(args: list[str], prompt: str, cwd: Path, timeout: float) -> subpr
     Raises:
         subprocess.TimeoutExpired: If the process runs longer than `timeout`.
     """
-    env = {**os.environ, DISABLE_CLAUDE_MDS_ENV: "1"}
+    env = {**os.environ, DISABLE_CLAUDE_MDS_ENV: "1", **extra_env}
     return subprocess.run(
         args, input=prompt, capture_output=True, text=True, cwd=cwd, timeout=timeout, env=env, check=False
     )
@@ -54,6 +58,8 @@ class ClaudeCliOptions(BaseModel):
         effort (str | None): Effort level for `--effort` (`low` to `max`). None uses the default.
         bare (bool): Pass `--bare`, which skips hooks, plugins and CLAUDE.md discovery but only works with an
             `ANTHROPIC_API_KEY` (not with a Claude subscription login).
+        prompt_caching (bool): Allow Claude Code's prompt caching. Off by default: each run is one request that is
+            never repeated, so a cache write only adds cost.
         timeout_seconds (float): How long one generation may take.
         session_dir (Path | None): Folder to run `claude` in with session logging on, so every log lands in one
             folder under `~/.claude/projects/`. None passes `--no-session-persistence` and keeps no log.
@@ -66,6 +72,7 @@ class ClaudeCliOptions(BaseModel):
     model: str | None = None
     effort: str | None = None
     bare: bool = False
+    prompt_caching: bool = False
     timeout_seconds: float = 1800
     session_dir: Path | None = None
     extra_args: list[str] = []
@@ -154,9 +161,10 @@ class ClaudeCliGenerator:
                 cwd.mkdir(parents=True, exist_ok=True)
             except OSError as exc:
                 raise GuideError(f"Cannot use session_dir {cwd}: {exc}") from exc
+        extra_env = {} if self.options.prompt_caching else {DISABLE_PROMPT_CACHING_ENV: "1"}
         LOGGER.debug("Running %s in %s with a %d-character prompt", args[0], cwd, len(prompt))
         try:
-            result = self.runner(args, prompt, cwd, self.options.timeout_seconds)
+            result = self.runner(args, prompt, cwd, self.options.timeout_seconds, extra_env)
         except FileNotFoundError as exc:
             raise GuideError(f"Cannot run {args[0]!r}. Is Claude Code installed and on PATH?") from exc
         except subprocess.TimeoutExpired as exc:

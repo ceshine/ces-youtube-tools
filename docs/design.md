@@ -76,7 +76,7 @@ prompt_template = "~/.config/ces-youtube-tools/guide_prompt.md"
 model = "opus"            # optional; default: Claude Code's default model
 effort = "high"           # optional
 session_dir = "~/.cache/youtube-tools/claude-sessions"   # optional; unset = no session log is kept
-# command = ["claude"], bare = false, timeout_seconds = 1800, extra_args = []
+# command = ["claude"], bare = false, prompt_caching = false, timeout_seconds = 1800, extra_args = []
 ```
 
 - `ytdlp_command` defaults to `uvx ... @latest` because YouTube changes often break older yt-dlp releases.
@@ -124,6 +124,8 @@ cd <session_dir> && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude --print --tools "" -
 - The prompt goes in on stdin, because transcripts are too long for a command-line argument.
 - `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` keeps every `CLAUDE.md` file out of the run, whatever the working directory is.
   `--system-prompt` replaces Claude Code's coding-agent prompt.
+- `DISABLE_PROMPT_CACHING=1` is set unless `prompt_caching = true`. Each run is one request that is never repeated,
+  so a cache write only adds cost. (Checked, see `docs/implementation_notes.md`.)
 - `--bare` would also skip hooks, plugins and all CLAUDE.md discovery, but it only works with `ANTHROPIC_API_KEY`
   authentication, so it is opt-in (`bare = true`). User-level settings (`~/.claude`) still apply without it.
 - `session_dir` (optional, `~` is expanded) turns on session logs for usage tracking. Claude Code stores a log in

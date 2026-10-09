@@ -12,6 +12,7 @@ from youtube_tools.claude_cli import (
     ClaudeCliOptions,
     ClaudeCliGenerator,
     DISABLE_CLAUDE_MDS_ENV,
+    DISABLE_PROMPT_CACHING_ENV,
 )
 
 VIDEO = VideoInfo(id="abc123", title="A video", duration=60)
@@ -22,11 +23,15 @@ class FakeClaude:
         self, stdout: str = "# Guide\n", returncode: int = 0, stderr: str = "", error: Exception | None = None
     ):
         self.calls: list[tuple[list[str], str, Path, float]] = []
+        self.envs: list[dict[str, str]] = []
         self.result = (stdout, returncode, stderr)
         self.error = error
 
-    def __call__(self, args: list[str], prompt: str, cwd: Path, timeout: float) -> subprocess.CompletedProcess[str]:
+    def __call__(
+        self, args: list[str], prompt: str, cwd: Path, timeout: float, extra_env: dict[str, str]
+    ) -> subprocess.CompletedProcess[str]:
         self.calls.append((args, prompt, cwd, timeout))
+        self.envs.append(extra_env)
         if self.error is not None:
             raise self.error
         stdout, returncode, stderr = self.result
@@ -136,8 +141,21 @@ def test_run_claude_disables_claude_md_files(monkeypatch: pytest.MonkeyPatch, tm
         return subprocess.CompletedProcess(args, 0, "ok", "")
 
     monkeypatch.setattr(subprocess, "run", fake_run)
-    _ = run_claude(["claude"], "PROMPT", tmp_path, 5)
+    _ = run_claude(["claude"], "PROMPT", tmp_path, 5, {"EXTRA": "x"})
     env = captured["env"]
     assert isinstance(env, dict)
     assert env[DISABLE_CLAUDE_MDS_ENV] == "1"
+    assert env["EXTRA"] == "x"
     assert "PATH" in env
+
+
+def test_generate_disables_prompt_caching_by_default(tmp_path: Path) -> None:
+    fake = FakeClaude()
+    _ = ClaudeCliGenerator(ClaudeCliOptions(), fake).generate("PROMPT", VIDEO, tmp_path)
+    assert fake.envs == [{DISABLE_PROMPT_CACHING_ENV: "1"}]
+
+
+def test_generate_keeps_prompt_caching_when_enabled(tmp_path: Path) -> None:
+    fake = FakeClaude()
+    _ = ClaudeCliGenerator(ClaudeCliOptions(prompt_caching=True), fake).generate("PROMPT", VIDEO, tmp_path)
+    assert fake.envs == [{}]
