@@ -59,6 +59,12 @@ When multiple valid approaches exist, choose based on:
 - **Fixtures:** Use pytest fixtures for setup/teardown of data, models, or temporary directories.
 - **Mocking:** Mock external services (yt-dlp subprocess calls, YouTube network requests) and local browser data (Firefox profile and cookie files) when writing unit tests to keep them fast and reliable.
 
+### Project Documentation
+
+- **Design:** `docs/design.md` records what we decided to build and why. Read it before starting a feature, and update it when a design decision changes.
+- **Implementation notes:** Record observed behavior of YouTube, yt-dlp, Firefox and the `claude` CLI in `docs/implementation_notes.md`, with the date it was checked and a command to recheck it. Mark unconfirmed findings as "not yet verified". When a note turns out to be wrong or outdated, correct it rather than adding a contradicting entry.
+- **Fixtures:** Never commit real subtitles or transcripts of members-only videos as test fixtures. Use short synthetic files with the same structure.
+
 ### CLI & User Interface
 
 - **Typer:** Use `typer` for creating CLI applications. Organize commands logically using sub-commands if necessary.
