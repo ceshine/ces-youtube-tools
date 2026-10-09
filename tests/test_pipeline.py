@@ -1,15 +1,26 @@
 import json
 import logging
+import datetime
 import subprocess
 from pathlib import Path
 
 import pytest
 
+from youtube_tools.guide import GuideError
 from youtube_tools.video import VideoInfo
 from youtube_tools.ytdlp import YtDlp
 from youtube_tools.config import AppConfig
-from youtube_tools.pipeline import work_dir_for, load_transcript, load_video_info, make_transcript_provider
+from youtube_tools.pipeline import (
+    write_guide,
+    work_dir_for,
+    load_transcript,
+    load_video_info,
+    load_prompt_template,
+    make_guide_generator,
+    make_transcript_provider,
+)
 from youtube_tools.subtitles import YtDlpSubtitleProvider
+from youtube_tools.claude_cli import ClaudeCliGenerator
 from youtube_tools.transcript import Transcript, TranscriptSegment
 
 VIDEO_JSON = {"id": "abcdefghijk", "title": "A video", "formats": [{"url": "https://signed.example/x"}]}
@@ -95,3 +106,83 @@ def test_make_transcript_provider_unknown() -> None:
     config.transcript.provider = "whisper"
     with pytest.raises(ValueError, match="Unknown transcript provider 'whisper'. Available: yt-dlp-subs"):
         _ = make_transcript_provider(config, YtDlp(["yt-dlp"], None))
+
+
+class FakeGenerator:
+    def __init__(self, reply: str) -> None:
+        self.reply = reply
+        self.prompts: list[str] = []
+
+    def generate(self, prompt: str, work_dir: Path) -> str:
+        self.prompts.append(prompt)
+        return self.reply
+
+
+TODAY = datetime.date(2026, 10, 9)
+GUIDE_VIDEO = VideoInfo(id="abcdefghijk", title="A video: part 1", duration=600)
+GUIDE_TRANSCRIPT = Transcript(
+    video_id="abcdefghijk", source="fake", language="en", segments=[TranscriptSegment(start=0, end=1, text="hi")]
+)
+REPLY = "```markdown\n# Guide\n\n[1:10](https://www.youtube.com/watch?v=abcdefghijk&t=67s)\n```"
+
+
+def test_write_guide(tmp_path: Path) -> None:
+    generator = FakeGenerator(REPLY)
+    work_dir, output_dir = tmp_path / "work", tmp_path / "out" / "nested"
+    work_dir.mkdir()
+    result = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "Guide for $title", generator, work_dir, output_dir, TODAY)
+    assert result.path == output_dir / "Watching Guide A video part 1.md"
+    assert (
+        result.path.read_text(encoding="utf-8")
+        == "# Guide\n\n[1:07](https://www.youtube.com/watch?v=abcdefghijk&t=67s)\n"
+    )
+    assert (result.links.links, result.links.relabeled) == (1, 1)
+    assert generator.prompts == ["Guide for A video: part 1"]
+    assert (work_dir / "prompt.md").read_text(encoding="utf-8") == "Guide for A video: part 1"
+    assert (work_dir / "guide.md").read_text(encoding="utf-8") == REPLY
+
+
+def test_write_guide_refuses_to_overwrite_before_generating(tmp_path: Path) -> None:
+    existing = tmp_path / "Watching Guide A video part 1.md"
+    existing.write_text("mine", encoding="utf-8")
+    generator = FakeGenerator(REPLY)
+    with pytest.raises(GuideError, match="already exists"):
+        _ = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "$title", generator, tmp_path, tmp_path, TODAY)
+    assert generator.prompts == []
+    assert existing.read_text(encoding="utf-8") == "mine"
+    _ = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "$title", generator, tmp_path, tmp_path, TODAY, force=True)
+    assert existing.read_text(encoding="utf-8").startswith("# Guide")
+
+
+def test_write_guide_rejects_bad_template_before_generating(tmp_path: Path) -> None:
+    generator = FakeGenerator(REPLY)
+    with pytest.raises(GuideError, match="Unknown placeholder"):
+        _ = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "$nope", generator, tmp_path, tmp_path, TODAY)
+    assert generator.prompts == []
+
+
+def test_load_prompt_template(tmp_path: Path) -> None:
+    text, is_default = load_prompt_template(tmp_path / "missing.md")
+    assert is_default and "$transcript" in text
+    custom = tmp_path / "custom.md"
+    custom.write_text("Mine: $title", encoding="utf-8")
+    assert load_prompt_template(custom) == ("Mine: $title", False)
+
+
+def test_make_guide_generator() -> None:
+    config = AppConfig()
+    config.guide.options["claude-cli"] = {"model": "opus"}
+    generator = make_guide_generator(config)
+    assert isinstance(generator, ClaudeCliGenerator)
+    assert generator.options.model == "opus"
+
+
+def test_make_guide_generator_errors() -> None:
+    config = AppConfig()
+    config.guide.generator = "openai"
+    with pytest.raises(ValueError, match="Unknown guide generator 'openai'. Available: claude-cli"):
+        _ = make_guide_generator(config)
+    config = AppConfig()
+    config.guide.options["claude-cli"] = {"modle": "opus"}
+    with pytest.raises(ValueError, match=r"Invalid settings in \[guide.options.claude-cli\]"):
+        _ = make_guide_generator(config)

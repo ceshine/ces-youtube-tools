@@ -73,7 +73,9 @@ prompt_template = "~/.config/youtube-tools/guide_prompt.md"
 # output_dir defaults to the directory the command is run from
 
 [guide.options.claude-cli]   # per-generator settings, keyed by generator name
-model = "opus"
+model = "opus"            # optional; default: Claude Code's default model
+effort = "high"           # optional
+# command = ["claude"], bare = false, timeout_seconds = 1800, extra_args = []
 ```
 
 - `ytdlp_command` defaults to `uvx ... @latest` because YouTube changes often break older yt-dlp releases.
@@ -81,8 +83,10 @@ model = "opus"
   gives the `UUMO<id without "UC">` members-only playlist if that is ever needed.
 - `members` decides whether the listing includes members-only uploads (the `UUMF` and `UUMV` playlists). Leave it
   off for channels you are not a member of, because their members-only videos cannot be downloaded.
-- `prompt_template` is a user-editable file. A default template ships with the package and is copied there on
-  `config init`.
+- `prompt_template` is a user-editable file. A default template ships with the package
+  (`src/youtube_tools/templates/guide_prompt.md`). `config init` writes it next to the config file, and
+  `config template [--force]` writes it to the configured path later. If the file is missing, `guide` uses the
+  built-in template and says so.
 
 ## Pipeline interfaces
 
@@ -92,23 +96,51 @@ class TranscriptProvider(Protocol):
 
 
 class GuideGenerator(Protocol):
-    def generate(self, video: VideoInfo, transcript: Transcript) -> str: ...  # Markdown
+    def generate(self, prompt: str, work_dir: Path) -> str: ...  # Markdown
 ```
 
 - `Transcript` is a list of timestamped segments (`start`, `end`, `text`). The yt-dlp provider removes the rolling
   duplicate lines from YouTube's auto-generated VTT subtitles. Generators never see raw subtitle files.
-- Prompt building is shared: the template plus `VideoInfo` and `Transcript` produce the prompt. Generators only send
-  the prompt and return the reply.
+- Prompt building is shared (`guide.render_prompt`): the template plus `VideoInfo` and `Transcript` produce the
+  prompt. Generators only send the prompt and return the reply.
 - Implementations are chosen by name from a plain dict registry keyed by the config values.
 
 ### claude-cli generator
 
 ```
-claude -p --tools "" --no-session-persistence --output-format text [--model MODEL] < prompt
+cd <work dir> && claude --print --tools "" --no-session-persistence --output-format text \
+  --system-prompt "<short guide-writer prompt>" [--model M] [--effort E] [--bare] [extra_args] < prompt
 ```
 
 - `--tools ""` disables all tools. The model only writes text.
 - The prompt goes in on stdin, because transcripts are too long for a command-line argument.
+- Running in the video's work directory keeps project `CLAUDE.md` / `AGENTS.md` files from the user's current
+  directory out of the run. `--system-prompt` replaces Claude Code's coding-agent prompt.
+- `--bare` would also skip hooks, plugins and all CLAUDE.md discovery, but it only works with `ANTHROPIC_API_KEY`
+  authentication, so it is opt-in (`bare = true`). User-level settings (`~/.claude`) still apply without it.
+
+## Guide step
+
+`youtube-tools guide VIDEO [-o DIR] [--force] [--refresh]` runs the transcript step, then:
+
+1. **Prompt** (`render_prompt`): the template is filled with `string.Template` placeholders (`$title`, `$channel`,
+   `$url`, `$video_id`, `$duration`, `$upload_date`, `$today`, `$description`, `$chapters`, `$transcript_note`,
+   `$transcript`; `$$` is a literal `$`). `string.Template` instead of `str.format`, because Markdown and JSON in a
+   template are full of braces. Unknown placeholders fail before any generation.
+2. **Transcript blocks**: segments are joined into blocks of about 15 seconds, each starting with its time in both
+   forms, `[1:07 | 67s]`. Fewer, longer blocks save tokens; 30-second blocks made every highlight land on a
+   30-second mark, coarser than the hand-written sample guide.
+3. **Generation**: the configured generator writes the guide. The prompt and the raw reply are saved in the work
+   directory (`prompt.md`, `guide.md`).
+4. **Checks** (`check_timestamp_links`, `clean_output`): every timestamp link's label is rewritten from its `t=`
+   seconds, which come straight from the block markers; links past the video's end are reported. A code fence
+   around the whole reply is removed.
+5. **Output**: `Watching Guide <title>.md` in `--output-dir`, else `guide.output_dir`, else the current directory.
+   An existing file is refused before generating (no wasted generation) unless `--force`.
+
+The default template asks for the structure of the hand-written sample guide: title, date and channel line, overview
+paragraph, "Watch the full video" and "How to use this guide" lines, then numbered segments with a linked range, a
+summary and two to eight timestamped highlights, and tables where the video compares items.
 
 ## Work directory
 
@@ -161,7 +193,8 @@ Details and recheck commands are in [implementation_notes.md](implementation_not
 2. Video listing: `youtube-tools list CHANNEL`. (Done.) See "Video listing" below.
 3. Transcript: yt-dlp subtitle provider, VTT parser with duplicate removal, work-directory cache,
    `youtube-tools transcript VIDEO`. (Done.) See "Transcript step" above.
-4. Guide: prompt template and builder, `ClaudeCliGenerator`, `guide URL` command.
+4. Guide: prompt template and builder, `ClaudeCliGenerator`, `guide VIDEO` command. (Done.) See "Guide step"
+   above.
 5. `browse`: interactive channel and video menus on top of steps 1–4. Choose the prompt library here, because the
    interactive config session below uses the same one.
 

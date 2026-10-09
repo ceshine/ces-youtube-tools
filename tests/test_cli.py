@@ -219,3 +219,110 @@ def test_transcript_bad_video(config_path: Path) -> None:
     result = RUNNER.invoke(APP, ["transcript", "https://example.com/x", "--config", str(config_path)])
     assert result.exit_code == 1
     assert "Not a YouTube video" in result.output
+
+
+GUIDE_REPLY = "# Watching Guide: A video\n\n[0:05](https://www.youtube.com/watch?v=3i2C3IB3PaA&t=5s)\n"
+
+
+class FakeGuideGenerator:
+    def __init__(self, reply: str = GUIDE_REPLY) -> None:
+        self.reply = reply
+        self.prompts: list[str] = []
+
+    def generate(self, prompt: str, work_dir: Path) -> str:
+        self.prompts.append(prompt)
+        return self.reply
+
+
+@pytest.fixture
+def guide_setup(config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeGuideGenerator:
+    config = AppConfig(cache_dir=tmp_path / "cache")
+    config.guide.prompt_template = tmp_path / "missing_template.md"
+    save_config(config, config_path)
+    generator = FakeGuideGenerator()
+
+    def fake_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
+        return VideoInfo(id=video_id, title="A video", duration=60)
+
+    def fake_transcript(video: VideoInfo, provider: object, work_dir: Path, refresh: bool = False) -> Transcript:
+        segments = [TranscriptSegment(start=5, end=6, text="Hello.")]
+        return Transcript(video_id=video.id, source="yt-dlp-subs: human-made en", language="en", segments=segments)
+
+    monkeypatch.setattr(cli, "load_video_info", fake_info)
+    monkeypatch.setattr(cli, "load_transcript", fake_transcript)
+    monkeypatch.setattr(cli, "make_guide_generator", lambda config: generator)
+    return generator
+
+
+def test_guide_writes_to_the_current_directory_by_default(
+    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workdir = tmp_path / "here"
+    workdir.mkdir()
+    monkeypatch.chdir(workdir)
+    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "--config", str(config_path)], env={"COLUMNS": "300"})
+    assert result.exit_code == 0, result.output
+    assert (workdir / "Watching Guide A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
+    assert "Using the built-in prompt template" in result.output
+    assert "1 timestamp links, 0 labels corrected." in result.output
+    assert "[0:05 | 5s] Hello." in guide_setup.prompts[0]
+
+    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "--config", str(config_path)], env={"COLUMNS": "300"})
+    assert result.exit_code == 1
+    assert "already exists" in result.output
+    assert len(guide_setup.prompts) == 1
+
+
+def test_guide_output_dir_option_beats_config(
+    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
+) -> None:
+    config = load_config(config_path)
+    config.guide.output_dir = tmp_path / "from-config"
+    save_config(config, config_path)
+    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "--config", str(config_path)])
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "from-config" / "Watching Guide A video.md").exists()
+    result = RUNNER.invoke(
+        APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path / "from-option"), "--config", str(config_path)]
+    )
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "from-option" / "Watching Guide A video.md").exists()
+
+
+def test_guide_warns_about_bad_links(guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path) -> None:
+    guide_setup.reply = "# Guide\n\n[9:00](https://www.youtube.com/watch?v=3i2C3IB3PaA&t=540s)\n"
+    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)])
+    assert result.exit_code == 0, result.output
+    assert "links past the end of the video: 9:00" in result.output
+
+    guide_setup.reply = "# Guide without links\n"
+    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--force", "--config", str(config_path)])
+    assert "no timestamp links" in result.output
+
+
+def test_config_template(config_path: Path, tmp_path: Path) -> None:
+    config = AppConfig()
+    config.guide.prompt_template = tmp_path / "templates" / "guide_prompt.md"
+    save_config(config, config_path)
+    result = RUNNER.invoke(APP, ["config", "template", "--config", str(config_path)])
+    assert result.exit_code == 0, result.output
+    assert "$transcript" in config.guide.prompt_template.read_text(encoding="utf-8")
+
+    config.guide.prompt_template.write_text("edited", encoding="utf-8")
+    result = RUNNER.invoke(APP, ["config", "template", "--config", str(config_path)])
+    assert result.exit_code == 1
+    assert config.guide.prompt_template.read_text(encoding="utf-8") == "edited"
+    result = RUNNER.invoke(APP, ["config", "template", "--force", "--config", str(config_path)])
+    assert result.exit_code == 0
+    assert "$transcript" in config.guide.prompt_template.read_text(encoding="utf-8")
+
+
+def test_init_writes_template_next_to_config(
+    fake_home: Path, config_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HOME", str(fake_home))
+    result = RUNNER.invoke(APP, ["config", "init", "--config", str(config_path)], input="\n")
+    assert result.exit_code == 0, result.output
+    template = config_path.parent / "guide_prompt.md"
+    assert load_config(config_path).guide.prompt_template == template
+    assert "$transcript" in template.read_text(encoding="utf-8")

@@ -5,18 +5,32 @@ Work directory layout (`<cache_dir>/<video_id>/`):
 - `video.json`: the `VideoInfo` fields (never yt-dlp's raw output, which holds signed media URLs).
 - `subtitles/`: downloaded subtitle files.
 - `transcript.json`: the `Transcript`.
+- `prompt.md`, `guide.md`: the last guide prompt and the generator's raw reply, for debugging.
 """
 
 import logging
+import datetime
 from pathlib import Path
+from dataclasses import dataclass
 from collections.abc import Callable
 
 from pydantic import BaseModel, ValidationError
 
+from .guide import (
+    LinkCheck,
+    GuideError,
+    clean_output,
+    render_prompt,
+    GuideGenerator,
+    guide_filename,
+    default_template,
+    check_timestamp_links,
+)
 from .video import VideoInfo, video_url, video_info_from_ytdlp
 from .ytdlp import YtDlp
 from .config import AppConfig
 from .subtitles import PROVIDER_NAME as SUBTITLES_PROVIDER, YtDlpSubtitleProvider
+from .claude_cli import GENERATOR_NAME as CLAUDE_CLI_GENERATOR, ClaudeCliOptions, ClaudeCliGenerator
 from .transcript import Transcript, TranscriptProvider
 
 LOGGER = logging.getLogger(__name__)
@@ -142,3 +156,114 @@ def load_transcript(
     transcript = provider.fetch(video, work_dir)
     _save(cache_file, transcript)
     return transcript
+
+
+GuideGeneratorFactory = Callable[[AppConfig], GuideGenerator]
+
+
+def _make_claude_cli(config: AppConfig) -> GuideGenerator:
+    """Build the `claude` CLI generator from its settings table.
+
+    Args:
+        config (AppConfig): The configuration.
+
+    Returns:
+        GuideGenerator: The generator.
+    """
+    return ClaudeCliGenerator(ClaudeCliOptions.model_validate(config.guide.options.get(CLAUDE_CLI_GENERATOR, {})))
+
+
+GUIDE_GENERATORS: dict[str, GuideGeneratorFactory] = {CLAUDE_CLI_GENERATOR: _make_claude_cli}
+
+
+def make_guide_generator(config: AppConfig) -> GuideGenerator:
+    """Build the guide generator named in the configuration.
+
+    Args:
+        config (AppConfig): The configuration.
+
+    Returns:
+        GuideGenerator: The generator.
+
+    Raises:
+        ValueError: If the generator name is unknown or its `[guide.options.<name>]` settings are invalid.
+    """
+    name = config.guide.generator
+    factory = GUIDE_GENERATORS.get(name)
+    if factory is None:
+        raise ValueError(f"Unknown guide generator {name!r}. Available: {', '.join(sorted(GUIDE_GENERATORS))}.")
+    try:
+        return factory(config)
+    except ValidationError as exc:
+        raise ValueError(f"Invalid settings in [guide.options.{name}]:\n{exc}") from exc
+
+
+def load_prompt_template(path: Path) -> tuple[str, bool]:
+    """Read the prompt template, falling back to the built-in one.
+
+    Args:
+        path (Path): The configured template file.
+
+    Returns:
+        tuple[str, bool]: The template text, and True if the built-in template was used because the file is missing.
+    """
+    if path.exists():
+        return path.read_text(encoding="utf-8"), False
+    return default_template(), True
+
+
+@dataclass(frozen=True)
+class GuideResult:
+    """A written guide.
+
+    Attributes:
+        path (Path): Where the guide was written.
+        links (LinkCheck): What the timestamp link check found and fixed.
+    """
+
+    path: Path
+    links: LinkCheck
+
+
+def write_guide(
+    video: VideoInfo,
+    transcript: Transcript,
+    template: str,
+    generator: GuideGenerator,
+    work_dir: Path,
+    output_dir: Path,
+    today: datetime.date,
+    force: bool = False,
+) -> GuideResult:
+    """Generate a guide and write it to `output_dir`.
+
+    The output path is checked before generating, so an existing guide does not cost a generation. The prompt and
+    the raw reply are kept in the work directory.
+
+    Args:
+        video (VideoInfo): The video.
+        transcript (Transcript): Its transcript.
+        template (str): The prompt template.
+        generator (GuideGenerator): The guide generator.
+        work_dir (Path): The video's work directory.
+        output_dir (Path): Directory for the guide file. Created if needed.
+        today (datetime.date): The date the guide is written.
+        force (bool): Overwrite an existing guide file.
+
+    Returns:
+        GuideResult: The guide's path and the link check result.
+
+    Raises:
+        GuideError: If the guide file exists and `force` is not set, the template is invalid, or generation fails.
+    """
+    path = output_dir / guide_filename(video)
+    if path.exists() and not force:
+        raise GuideError(f"{path} already exists. Use --force to overwrite it.")
+    prompt = render_prompt(template, video, transcript, today)
+    (work_dir / "prompt.md").write_text(prompt, encoding="utf-8")
+    reply = generator.generate(prompt, work_dir)
+    (work_dir / "guide.md").write_text(reply, encoding="utf-8")
+    links = check_timestamp_links(clean_output(reply), video)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    path.write_text(links.markdown, encoding="utf-8")
+    return GuideResult(path=path, links=links)

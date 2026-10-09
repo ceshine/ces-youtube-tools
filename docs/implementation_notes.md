@@ -234,6 +234,35 @@ Checked with Claude Code 2.1.295 (`claude --help`).
 - `--no-session-persistence` keeps runs out of saved sessions.
 - `--output-format text` (default), `json` or `stream-json`.
 - Pass the prompt on stdin. A long transcript is too large to pass safely as an argument.
+- `--system-prompt <prompt>` replaces the default (coding-agent) system prompt. `--effort <level>` takes `low`,
+  `medium`, `high`, `xhigh` or `max`.
+- `--bare` skips hooks, plugins, auto-memory and CLAUDE.md auto-discovery, but then "Anthropic auth is strictly
+  ANTHROPIC_API_KEY or apiKeyHelper via --settings (OAuth and keychain are never read)". It breaks a Claude
+  subscription login, so the generator only passes it when `bare = true`. Without it, `claude` would read `CLAUDE.md`
+  files for its working directory, which is why the generator runs in the video's work directory. User-level
+  settings in `~/.claude` are expected to still apply (not tested).
+
+### Guide generation runs (`claude-cli`)
+
+Checked on 2026-10-09 with the default template and Claude Code's default model, on `3i2C3IB3PaA` (13.5 minutes,
+automatic captions, 363 segments).
+
+| Transcript blocks | Time | Guide | Timestamp links | Labels corrected |
+| --- | --- | --- | --- | --- |
+| 30 s (26 blocks) | 55 s | 9 KB, 6 segments, one table | 38 | 0 |
+| 15 s (51 blocks) | 41 s | similar | 43 | 0 |
+
+- The model followed the requested structure and did not wrap the reply in a code fence. `clean_output` still
+  removes one if it appears.
+- With 30-second blocks every highlight landed on a block start (0:01, 0:31, 1:02, ...). With 15-second blocks the
+  highlights spread out (0:17, 0:33, 3:59, ...), closer to the hand-written sample.
+- A speech recognition error ("chill in grease", meaning Greece) was copied into a quote while the summary spelled it
+  correctly, because "quote exactly" won over "fix misspellings". Saying that misspelling fixes apply to quotes too
+  fixed it on the next run.
+- No label needed correcting in either run, but labels are still rewritten from the `t=` seconds, since that is
+  cheap and errors are more likely past one hour.
+
+Recheck: `youtube-tools guide 3i2C3IB3PaA -o /tmp/guides --force`, then compare the guide and the counts printed.
 
 ### Claude cannot transcribe audio
 

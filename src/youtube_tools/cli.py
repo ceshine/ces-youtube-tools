@@ -1,6 +1,7 @@
 """Command-line entry point for youtube-tools."""
 
 import time
+import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -8,6 +9,7 @@ import typer
 from rich.table import Table
 from rich.console import Console
 
+from .guide import GuideError, default_template
 from .video import parse_video_id
 from .ytdlp import YtDlp, YtDlpError
 from .config import (
@@ -26,6 +28,7 @@ from .firefox import (
 )
 from .youtube import VideoSummary, verify_login, resolve_channel, list_latest_videos
 from .pipeline import work_dir_for, load_transcript, load_video_info, make_transcript_provider
+from .pipeline import write_guide, load_prompt_template, make_guide_generator
 from .formatting import format_age, format_duration
 from .transcript import TranscriptError
 
@@ -161,8 +164,54 @@ def config_init(
     profile = _pick_profile()
     config = AppConfig()
     config.auth.firefox_profile = profile.path
+    config.guide.prompt_template = config_path.parent / "guide_prompt.md"
     save_config(config, config_path)
-    CONSOLE.print(f"Saved {config_path}. Next, add channels with `youtube-tools config add-channel @handle`.")
+    CONSOLE.print(f"Saved {config_path}.")
+    if _write_default_template(config.guide.prompt_template, force=False):
+        CONSOLE.print(
+            f"Wrote the guide prompt template to {config.guide.prompt_template}. Edit it to change the guides."
+        )
+    CONSOLE.print("Next, add channels with `youtube-tools config add-channel @handle`.")
+
+
+def _write_default_template(path: Path, force: bool) -> bool:
+    """Write the built-in prompt template to a file.
+
+    Args:
+        path (Path): Where to write it.
+        force (bool): Overwrite an existing file.
+
+    Returns:
+        bool: True if the file was written, False if it already existed.
+    """
+    if path.exists() and not force:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(default_template(), encoding="utf-8")
+    return True
+
+
+@CONFIG_APP.command("template")
+def config_template(
+    force: Annotated[bool, typer.Option("--force", help="Overwrite an edited template.")] = False,
+    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
+) -> None:
+    """Write the built-in guide prompt template to the configured `prompt_template` path, for editing.
+
+    Args:
+        force (bool): Overwrite an existing template file.
+        config_path (Path): Path of the configuration file.
+
+    Returns:
+        None
+
+    Raises:
+        typer.Exit: If the template file exists and `force` is not set.
+    """
+    path = _load(config_path).guide.prompt_template
+    if not _write_default_template(path, force):
+        raise _fail(f"{path} already exists. Use --force to replace it with the built-in template.")
+    CONSOLE.print(f"Wrote the guide prompt template to {path}.")
 
 
 @CONFIG_APP.command("profile")
@@ -408,6 +457,77 @@ def show_transcript(
         return
     for segment in transcript.segments:
         typer.echo(f"[{format_duration(segment.start)}] {segment.text}")
+
+
+@APP.command("guide")
+def make_guide(
+    video: Annotated[str, typer.Argument(help="Video URL or ID.")],
+    output_dir: Annotated[
+        Path | None, typer.Option("--output-dir", "-o", help="Where to write the guide. Overrides the config.")
+    ] = None,
+    force: Annotated[bool, typer.Option("--force", help="Overwrite an existing guide file.")] = False,
+    refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcript.")] = False,
+    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
+) -> None:
+    """Generate a watching guide for a video and write it as Markdown.
+
+    The guide goes to `--output-dir`, else the configured `guide.output_dir`, else the current directory.
+
+    Args:
+        video (str): Video URL or ID.
+        output_dir (Path | None): Directory for the guide file.
+        force (bool): Overwrite an existing guide file.
+        refresh (bool): Ignore cached metadata and transcript.
+        config_path (Path): Path of the configuration file.
+
+    Returns:
+        None
+
+    Raises:
+        typer.Exit: If any step fails.
+    """
+    config = _load(config_path)
+    target_dir = output_dir or config.guide.output_dir or Path.cwd()
+    try:
+        video_id = parse_video_id(video)
+        ytdlp = _make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
+        provider = make_transcript_provider(config, ytdlp)
+        generator = make_guide_generator(config)
+        work_dir = work_dir_for(config.cache_dir, video_id)
+        template, is_default = load_prompt_template(config.guide.prompt_template)
+        if is_default:
+            STDERR.print(
+                f"Using the built-in prompt template ({config.guide.prompt_template} does not exist). "
+                "Run `youtube-tools config template` for an editable copy.",
+                markup=False,
+                highlight=False,
+            )
+        with STDERR.status("Fetching video metadata..."):
+            info = load_video_info(video_id, ytdlp, work_dir, refresh=refresh)
+        with STDERR.status("Fetching transcript..."):
+            transcript = load_transcript(info, provider, work_dir, refresh=refresh)
+        with STDERR.status(f"Writing the guide with {config.guide.generator} (this can take a few minutes)..."):
+            result = write_guide(
+                info,
+                transcript,
+                template,
+                generator,
+                work_dir,
+                target_dir,
+                datetime.datetime.now().astimezone().date(),
+                force=force,
+            )
+    except (ValueError, YtDlpError, TranscriptError, GuideError) as exc:
+        raise _fail(str(exc)) from exc
+
+    links = result.links
+    CONSOLE.print(f"Wrote {result.path}", markup=False, highlight=False)
+    CONSOLE.print(f"{links.links} timestamp links, {links.relabeled} labels corrected.")
+    if links.out_of_range:
+        times = ", ".join(format_duration(seconds) for seconds in links.out_of_range)
+        STDERR.print(f"[yellow]Warning:[/yellow] links past the end of the video: {times}. Check those parts.")
+    if links.links == 0:
+        STDERR.print("[yellow]Warning:[/yellow] the guide has no timestamp links. Check the prompt template.")
 
 
 if __name__ == "__main__":
