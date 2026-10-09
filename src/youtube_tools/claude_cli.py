@@ -1,13 +1,15 @@
 """Guide generator that runs the `claude` CLI (Claude Code) in print mode."""
 
+import os
 import logging
 import subprocess
 from pathlib import Path
 from collections.abc import Callable
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from .guide import GuideError
+from .video import VideoInfo
 
 LOGGER = logging.getLogger(__name__)
 
@@ -17,11 +19,13 @@ SYSTEM_PROMPT = (
     "Reply with the Markdown guide only."
 )
 
+DISABLE_CLAUDE_MDS_ENV = "CLAUDE_CODE_DISABLE_CLAUDE_MDS"
+
 ClaudeRunner = Callable[[list[str], str, Path, float], subprocess.CompletedProcess[str]]
 
 
 def run_claude(args: list[str], prompt: str, cwd: Path, timeout: float) -> subprocess.CompletedProcess[str]:
-    """Run the `claude` CLI with the prompt on stdin.
+    """Run the `claude` CLI with the prompt on stdin and CLAUDE.md files disabled.
 
     Args:
         args (list[str]): The command and its arguments.
@@ -35,7 +39,10 @@ def run_claude(args: list[str], prompt: str, cwd: Path, timeout: float) -> subpr
     Raises:
         subprocess.TimeoutExpired: If the process runs longer than `timeout`.
     """
-    return subprocess.run(args, input=prompt, capture_output=True, text=True, cwd=cwd, timeout=timeout, check=False)
+    env = {**os.environ, DISABLE_CLAUDE_MDS_ENV: "1"}
+    return subprocess.run(
+        args, input=prompt, capture_output=True, text=True, cwd=cwd, timeout=timeout, env=env, check=False
+    )
 
 
 class ClaudeCliOptions(BaseModel):
@@ -48,6 +55,8 @@ class ClaudeCliOptions(BaseModel):
         bare (bool): Pass `--bare`, which skips hooks, plugins and CLAUDE.md discovery but only works with an
             `ANTHROPIC_API_KEY` (not with a Claude subscription login).
         timeout_seconds (float): How long one generation may take.
+        session_dir (Path | None): Folder to run `claude` in with session logging on, so every log lands in one
+            folder under `~/.claude/projects/`. None passes `--no-session-persistence` and keeps no log.
         extra_args (list[str]): More arguments, added last.
     """
 
@@ -58,14 +67,29 @@ class ClaudeCliOptions(BaseModel):
     effort: str | None = None
     bare: bool = False
     timeout_seconds: float = 1800
+    session_dir: Path | None = None
     extra_args: list[str] = []
+
+    @field_validator("session_dir")
+    @classmethod
+    def expand_session_dir(cls, value: Path | None) -> Path | None:
+        """Expand a leading `~` in `session_dir`.
+
+        Args:
+            value (Path | None): The configured folder.
+
+        Returns:
+            Path | None: The expanded folder, or None when it is not set.
+        """
+        return value.expanduser() if value is not None else None
 
 
 class ClaudeCliGenerator:
     """Generates a guide with `claude -p`, with all tools disabled.
 
-    The process runs in the video's work directory, so no project CLAUDE.md or AGENTS.md is picked up, and a short
-    system prompt replaces Claude Code's coding-agent prompt.
+    CLAUDE.md files are disabled and a short system prompt replaces Claude Code's coding-agent prompt. Without
+    `session_dir` the process runs in the video's work directory and keeps no session log. With it, the process runs
+    in `session_dir` and each logged session is named after the video ID.
 
     Args:
         options (ClaudeCliOptions): Settings.
@@ -76,8 +100,11 @@ class ClaudeCliGenerator:
         self.options: ClaudeCliOptions = options
         self.runner: ClaudeRunner = runner
 
-    def build_args(self) -> list[str]:
+    def build_args(self, video_id: str | None = None) -> list[str]:
         """Build the command line.
+
+        Args:
+            video_id (str | None): Name for the logged session. Only used when `session_dir` is set.
 
         Returns:
             list[str]: The command and its arguments.
@@ -87,12 +114,15 @@ class ClaudeCliGenerator:
             "--print",
             "--tools",
             "",
-            "--no-session-persistence",
             "--output-format",
             "text",
             "--system-prompt",
             SYSTEM_PROMPT,
         ]
+        if self.options.session_dir is None:
+            args.append("--no-session-persistence")
+        elif video_id:
+            args += ["--name", video_id]
         if self.options.model:
             args += ["--model", self.options.model]
         if self.options.effort:
@@ -101,23 +131,32 @@ class ClaudeCliGenerator:
             args.append("--bare")
         return [*args, *self.options.extra_args]
 
-    def generate(self, prompt: str, work_dir: Path) -> str:
+    def generate(self, prompt: str, video: VideoInfo, work_dir: Path) -> str:
         """Run Claude Code on the prompt and return its reply.
 
         Args:
             prompt (str): The full prompt.
-            work_dir (Path): The video's work directory, used as the working directory.
+            video (VideoInfo): The video. Its ID names the logged session.
+            work_dir (Path): The video's work directory. It is the working directory unless `session_dir` is set.
 
         Returns:
             str: The reply.
 
         Raises:
-            GuideError: If the command is missing, times out, fails or prints nothing.
+            GuideError: If `session_dir` is not a folder, or the command is missing, times out, fails or prints
+                nothing.
         """
-        args = self.build_args()
-        LOGGER.debug("Running %s with a %d-character prompt", args[0], len(prompt))
+        args = self.build_args(video.id)
+        cwd = work_dir
+        if self.options.session_dir is not None:
+            cwd = self.options.session_dir
+            try:
+                cwd.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise GuideError(f"Cannot use session_dir {cwd}: {exc}") from exc
+        LOGGER.debug("Running %s in %s with a %d-character prompt", args[0], cwd, len(prompt))
         try:
-            result = self.runner(args, prompt, work_dir, self.options.timeout_seconds)
+            result = self.runner(args, prompt, cwd, self.options.timeout_seconds)
         except FileNotFoundError as exc:
             raise GuideError(f"Cannot run {args[0]!r}. Is Claude Code installed and on PATH?") from exc
         except subprocess.TimeoutExpired as exc:

@@ -113,7 +113,7 @@ class FakeGenerator:
         self.reply = reply
         self.prompts: list[str] = []
 
-    def generate(self, prompt: str, work_dir: Path) -> str:
+    def generate(self, prompt: str, video: VideoInfo, work_dir: Path) -> str:
         self.prompts.append(prompt)
         return self.reply
 

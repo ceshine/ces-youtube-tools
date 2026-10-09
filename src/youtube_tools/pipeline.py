@@ -261,7 +261,7 @@ def write_guide(
         raise GuideError(f"{path} already exists. Use --force to overwrite it.")
     prompt = render_prompt(template, video, transcript, today)
     (work_dir / "prompt.md").write_text(prompt, encoding="utf-8")
-    reply = generator.generate(prompt, work_dir)
+    reply = generator.generate(prompt, video, work_dir)
     (work_dir / "guide.md").write_text(reply, encoding="utf-8")
     links = check_timestamp_links(clean_output(reply), video)
     output_dir.mkdir(parents=True, exist_ok=True)

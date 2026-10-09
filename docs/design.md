@@ -75,6 +75,7 @@ prompt_template = "~/.config/youtube-tools/guide_prompt.md"
 [guide.options.claude-cli]   # per-generator settings, keyed by generator name
 model = "opus"            # optional; default: Claude Code's default model
 effort = "high"           # optional
+session_dir = "~/.cache/youtube-tools/claude-sessions"   # optional; unset = no session log is kept
 # command = ["claude"], bare = false, timeout_seconds = 1800, extra_args = []
 ```
 
@@ -96,7 +97,7 @@ class TranscriptProvider(Protocol):
 
 
 class GuideGenerator(Protocol):
-    def generate(self, prompt: str, work_dir: Path) -> str: ...  # Markdown
+    def generate(self, prompt: str, video: VideoInfo, work_dir: Path) -> str: ...  # Markdown
 ```
 
 - `Transcript` is a list of timestamped segments (`start`, `end`, `text`). The yt-dlp provider removes the rolling
@@ -108,16 +109,31 @@ class GuideGenerator(Protocol):
 ### claude-cli generator
 
 ```
-cd <work dir> && claude --print --tools "" --no-session-persistence --output-format text \
-  --system-prompt "<short guide-writer prompt>" [--model M] [--effort E] [--bare] [extra_args] < prompt
+# session_dir not set (default): no session log
+cd <work dir> && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude --print --tools "" --no-session-persistence \
+  --output-format text --system-prompt "<short guide-writer prompt>" [--model M] [--effort E] [--bare] \
+  [extra_args] < prompt
+
+# session_dir set: the session log is kept, to track usage
+cd <session_dir> && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude --print --tools "" --name <video id> \
+  --output-format text --system-prompt "<short guide-writer prompt>" [--model M] [--effort E] [--bare] \
+  [extra_args] < prompt
 ```
 
 - `--tools ""` disables all tools. The model only writes text.
 - The prompt goes in on stdin, because transcripts are too long for a command-line argument.
-- Running in the video's work directory keeps project `CLAUDE.md` / `AGENTS.md` files from the user's current
-  directory out of the run. `--system-prompt` replaces Claude Code's coding-agent prompt.
+- `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` keeps every `CLAUDE.md` file out of the run, whatever the working directory is.
+  `--system-prompt` replaces Claude Code's coding-agent prompt.
 - `--bare` would also skip hooks, plugins and all CLAUDE.md discovery, but it only works with `ANTHROPIC_API_KEY`
   authentication, so it is opt-in (`bare = true`). User-level settings (`~/.claude`) still apply without it.
+- `session_dir` (optional, `~` is expanded) turns on session logs for usage tracking. Claude Code stores a log in
+  `~/.claude/projects/<working directory, encoded>/`, so the process runs in `session_dir` and all logs land in one
+  folder instead of one per video. Without it, `--no-session-persistence` is passed and the process runs in the
+  video's work directory, as before.
+- `--name <video id>` labels each logged session, using `video.id` from the `generate` arguments. It is not passed
+  when `session_dir` is unset, because nothing is stored.
+- `CLAUDE_CONFIG_DIR` could move the logs elsewhere, but it moves credentials and settings too, which breaks a
+  subscription login. That is why the working directory is used instead.
 
 ## Guide step
 

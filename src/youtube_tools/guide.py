@@ -38,11 +38,12 @@ class GuideError(Exception):
 class GuideGenerator(Protocol):
     """Writes a Markdown guide from a prompt, e.g. with the `claude` CLI or an LLM API."""
 
-    def generate(self, prompt: str, work_dir: Path) -> str:
+    def generate(self, prompt: str, video: VideoInfo, work_dir: Path) -> str:
         """Generate the guide.
 
         Args:
             prompt (str): The full prompt, including the transcript.
+            video (VideoInfo): The video the guide is for.
             work_dir (Path): The video's work directory.
 
         Returns:

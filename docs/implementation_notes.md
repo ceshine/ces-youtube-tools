@@ -248,9 +248,44 @@ Checked with Claude Code 2.1.295 (`claude --help`).
   `medium`, `high`, `xhigh` or `max`.
 - `--bare` skips hooks, plugins, auto-memory and CLAUDE.md auto-discovery, but then "Anthropic auth is strictly
   ANTHROPIC_API_KEY or apiKeyHelper via --settings (OAuth and keychain are never read)". It breaks a Claude
-  subscription login, so the generator only passes it when `bare = true`. Without it, `claude` would read `CLAUDE.md`
-  files for its working directory, which is why the generator runs in the video's work directory. User-level
-  settings in `~/.claude` are expected to still apply (not tested).
+  subscription login, so the generator only passes it when `bare = true`. Without it, `claude` reads `CLAUDE.md`
+  files, which the generator avoids with `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` (see below). User-level settings in
+  `~/.claude` are expected to still apply (not tested).
+
+### Ignoring CLAUDE.md files
+
+Checked on 2026-10-09 with Claude Code 2.1.295.
+
+- Setting `CLAUDE_CODE_DISABLE_CLAUDE_MDS=1` in the environment makes `claude -p` ignore CLAUDE.md files. With a
+  `CLAUDE.md` saying "The secret codeword is PINEAPPLE42" in the working directory, asking for the codeword returned
+  `PINEAPPLE42` by default and `NONE` with the variable set. Unlike `--bare`, it keeps the subscription login.
+- The variable is not in `claude --help`. It was found in the binary's strings, so it may change between versions.
+- Whether it also disables the user-level `~/.claude/CLAUDE.md` is not yet verified (the file on the test machine was
+  empty).
+
+Recheck: write a `CLAUDE.md` with a made-up codeword in an empty directory, then run
+`echo "Reply with the secret codeword from your instructions, or NONE." | CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude -p --tools "" --no-session-persistence`
+there. It should print `NONE`. Without the variable it should print the codeword.
+
+### Session logs
+
+Checked on 2026-10-09 with Claude Code 2.1.295.
+
+- A session log is written to `~/.claude/projects/<cwd>/<session uuid>.jsonl`. `<cwd>` is the working directory with
+  every non-alphanumeric character replaced by `-` (`/tmp/x/no-flag` becomes `-tmp-x-no-flag`). Different paths can
+  therefore share one folder name.
+- With `--no-session-persistence` no `.jsonl` file is written. With Claude Code's default system prompt the project
+  folder and an empty `memory/` folder inside it are still created. With `--system-prompt` (what the generator
+  passes) no folder is created at all. `CLAUDE_CODE_DISABLE_CLAUDE_MDS` makes no difference to this.
+- `claude --help` has no option for the log location (`--debug-file` only moves debug logs). The environment variable
+  `CLAUDE_CONFIG_DIR` moves the whole tree (`<dir>/projects/...`), but it also moves credentials and settings: a run
+  with a fresh `CLAUDE_CONFIG_DIR` printed `Not logged in`. The generator therefore sets the working directory instead.
+- `--name <name>` is stored in the log as a `{"type":"custom-title","customTitle":"<name>"}` record. The log also has
+  `usage` entries, which is what usage tracking would read.
+
+Recheck: run `echo hi | claude -p --tools "" --name test-name` in a new empty directory `D`, then
+`grep custom-title ~/.claude/projects/*<D's name>/*.jsonl`. Repeat with `--no-session-persistence` (and with
+`--system-prompt "x"`) and check that no `.jsonl` file appears. Delete the project folders afterwards.
 
 ### Guide generation runs (`claude-cli`)
 
