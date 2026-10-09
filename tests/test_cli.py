@@ -342,3 +342,91 @@ def test_help_text_stops_at_docstring_sections() -> None:
     result = RUNNER.invoke(APP, ["list", "--help"], env={"COLUMNS": "200"})
     assert "Args:" not in result.output
     assert "newest first" in result.output
+
+
+TYT = ChannelConfig(
+    name="The Young Turks", url="https://www.youtube.com/@TheYoungTurks", channel_id="UCtyt", members=True
+)
+LISTED = [
+    VideoSummary(id="aaaaaaaaaaa", title="First video", duration=300),
+    VideoSummary(id="3i2C3IB3PaA", title="Bonus episode", duration=815, members_only=True),
+]
+
+
+@pytest.fixture
+def browse_setup(guide_setup: FakeGuideGenerator, config_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    config = load_config(config_path)
+    config.channels = [CHANNEL, TYT]
+    save_config(config, config_path)
+    listed: list[str] = []
+
+    def fake_list(channel: ChannelConfig, ytdlp: YtDlp, limit: int) -> list[VideoSummary]:
+        listed.append(channel.name)
+        assert ytdlp.cookies_spec is None  # listing never sends cookies
+        return LISTED
+
+    monkeypatch.setattr(cli, "list_latest_videos", fake_list)
+    return listed
+
+
+def test_browse_menus_then_guide(
+    browse_setup: list[str], guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
+) -> None:
+    args = ["browse", "-o", str(tmp_path / "out"), "--config", str(config_path)]
+    result = RUNNER.invoke(APP, args, input="7\n2\nx\n2\n", env={"COLUMNS": "200"})
+    assert result.exit_code == 0, result.output
+    assert browse_setup == ["The Young Turks"]
+    assert "Enter a number from 1 to 2, or q to quit." in result.output
+    assert "Selected: Bonus episode (https://www.youtube.com/watch?v=3i2C3IB3PaA)" in result.output
+    assert (tmp_path / "out" / "Watching Guide A video.md").exists()
+    assert len(guide_setup.prompts) == 1
+
+
+def test_browse_channel_argument_and_overwrite_prompt(
+    browse_setup: list[str], guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
+) -> None:
+    existing = tmp_path / "Watching Guide A video.md"
+    existing.write_text("mine", encoding="utf-8")
+    args = ["browse", "3blue1brown", "-o", str(tmp_path), "--config", str(config_path)]
+    result = RUNNER.invoke(APP, args, input="1\nn\n")
+    assert result.exit_code == 0, result.output
+    assert browse_setup == ["3Blue1Brown"]
+    assert "Kept the existing guide." in result.output
+    assert existing.read_text(encoding="utf-8") == "mine"
+    assert guide_setup.prompts == []
+
+    result = RUNNER.invoke(APP, args, input="1\ny\n")
+    assert result.exit_code == 0, result.output
+    assert existing.read_text(encoding="utf-8") == GUIDE_REPLY
+
+
+@pytest.mark.parametrize("answers", ["q\n", "1\nq\n"])
+def test_browse_quit(browse_setup: list[str], guide_setup: FakeGuideGenerator, config_path: Path, answers: str) -> None:
+    result = RUNNER.invoke(APP, ["browse", "--config", str(config_path)], input=answers)
+    assert result.exit_code == 0, result.output
+    assert "Bye." in result.output
+    assert guide_setup.prompts == []
+
+
+def test_browse_single_channel_skips_the_channel_menu(
+    browse_setup: list[str], config_path: Path, tmp_path: Path
+) -> None:
+    config = load_config(config_path)
+    config.channels = [TYT]
+    save_config(config, config_path)
+    result = RUNNER.invoke(APP, ["browse", "-o", str(tmp_path), "--config", str(config_path)], input="1\n")
+    assert result.exit_code == 0, result.output
+    assert "Channels" not in result.output
+    assert browse_setup == ["The Young Turks"]
+
+
+def test_browse_errors(config_path: Path) -> None:
+    save_config(AppConfig(), config_path)
+    result = RUNNER.invoke(APP, ["browse", "--config", str(config_path)])
+    assert result.exit_code == 1
+    assert "No channels configured" in result.output
+
+    save_config(AppConfig(channels=[CHANNEL]), config_path)
+    result = RUNNER.invoke(APP, ["browse", "nope", "--config", str(config_path)], env={"COLUMNS": "200"})
+    assert result.exit_code == 1
+    assert "Configured channels: 3Blue1Brown" in result.output

@@ -12,9 +12,11 @@ import typer
 from rich.table import Table
 from rich.console import Console
 
-from .guide import GuideError, default_template
+from .menu import QuitMenu, parse_choice
+from .guide import GuideError, guide_filename, default_template
 from .video import parse_video_id
 from .ytdlp import YtDlp, YtDlpError
+from .config import ChannelConfig
 from .config import (
     AppConfig,
     ConfigError,
@@ -146,6 +148,33 @@ def _make_ytdlp(config: AppConfig, *, with_cookies: bool) -> YtDlp:
     return YtDlp(config.ytdlp_command, cookies_spec)
 
 
+def _choose(prompt: str, count: int, default: int | None = None) -> int:
+    """Ask for a menu item number until the answer is valid.
+
+    Args:
+        prompt (str): The question.
+        count (int): Number of items in the menu.
+        default (int | None): Item chosen by an empty answer, or None if an answer is required.
+
+    Returns:
+        int: The chosen item number, from 1 to `count`.
+
+    Raises:
+        typer.Exit: With status 0 if the user quits with `q`.
+    """
+    while True:
+        answer = typer.prompt(
+            prompt, default=str(default) if default is not None else "", show_default=default is not None
+        )
+        try:
+            return parse_choice(answer, count, default)
+        except QuitMenu:
+            CONSOLE.print("Bye.")
+            raise typer.Exit() from None
+        except ValueError as exc:
+            CONSOLE.print(str(exc))
+
+
 def _pick_profile() -> FirefoxProfile:
     """Show the Firefox profiles and ask the user to pick one.
 
@@ -171,11 +200,7 @@ def _pick_profile() -> FirefoxProfile:
     CONSOLE.print(table)
 
     default = next((index for index, ok in enumerate(signed_in, start=1) if ok), 1)
-    while True:
-        choice = typer.prompt("Profile to use for YouTube cookies", default=default, type=int)
-        if 1 <= choice <= len(profiles):
-            break
-        CONSOLE.print(f"Enter a number from 1 to {len(profiles)}.")
+    choice = _choose("Profile to use for YouTube cookies", len(profiles), default=default)
     profile = profiles[choice - 1]
     if not signed_in[choice - 1]:
         CONSOLE.print(
@@ -530,9 +555,33 @@ def make_guide(
         typer.Exit: If any step fails.
     """
     config = _load(config_path)
-    target_dir = output_dir or config.guide.output_dir or Path.cwd()
     try:
         video_id = parse_video_id(video)
+    except ValueError as exc:
+        raise _fail(str(exc)) from exc
+    _run_guide(config, video_id, output_dir or config.guide.output_dir or Path.cwd(), force=force, refresh=refresh)
+
+
+def _run_guide(
+    config: AppConfig, video_id: str, target_dir: Path, *, force: bool, refresh: bool, ask_to_overwrite: bool = False
+) -> None:
+    """Fetch a video's transcript, generate its guide, write it and report the result.
+
+    Args:
+        config (AppConfig): The configuration.
+        video_id (str): YouTube video ID.
+        target_dir (Path): Directory for the guide file.
+        force (bool): Overwrite an existing guide file.
+        refresh (bool): Ignore cached metadata and transcript.
+        ask_to_overwrite (bool): If the guide file exists, ask whether to overwrite it instead of failing.
+
+    Returns:
+        None
+
+    Raises:
+        typer.Exit: If any step fails.
+    """
+    try:
         ytdlp = _make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
         provider = make_transcript_provider(config, ytdlp)
         generator = make_guide_generator(config)
@@ -547,6 +596,12 @@ def make_guide(
             )
         with STDERR.status("Fetching video metadata..."):
             info = load_video_info(video_id, ytdlp, work_dir, refresh=refresh)
+        existing = target_dir / guide_filename(info)
+        if ask_to_overwrite and not force and existing.exists():
+            if not typer.confirm(f"{existing} already exists. Overwrite it?", default=False):
+                CONSOLE.print("Kept the existing guide.")
+                return
+            force = True
         with STDERR.status("Fetching transcript..."):
             transcript = load_transcript(info, provider, work_dir, refresh=refresh)
         with STDERR.status(f"Writing the guide with {config.guide.generator} (this can take a few minutes)..."):
@@ -571,6 +626,85 @@ def make_guide(
         STDERR.print(f"[yellow]Warning:[/yellow] links past the end of the video: {times}. Check those parts.")
     if links.links == 0:
         STDERR.print("[yellow]Warning:[/yellow] the guide has no timestamp links. Check the prompt template.")
+
+
+def _channels_table(channels: list[ChannelConfig]) -> Table:
+    """Build a table of configured channels for display.
+
+    Args:
+        channels (list[ChannelConfig]): The channels.
+
+    Returns:
+        Table: The table.
+    """
+    table = Table(title="Channels")
+    table.add_column("#", justify="right")
+    table.add_column("Name")
+    table.add_column("Members-only")
+    table.add_column("URL")
+    for index, channel in enumerate(channels, start=1):
+        table.add_row(str(index), channel.name, "listed" if channel.members else "", channel.url)
+    return table
+
+
+@command(APP, "browse")
+def browse(
+    channel: Annotated[str | None, typer.Argument(help="Channel name or ID. Omit to pick from a menu.")] = None,
+    limit: Annotated[int, typer.Option("--limit", "-n", min=1, help="Number of videos to show.")] = 20,
+    output_dir: Annotated[
+        Path | None, typer.Option("--output-dir", "-o", help="Where to write the guide. Overrides the config.")
+    ] = None,
+    refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcript.")] = False,
+    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
+) -> None:
+    """Pick a channel and one of its latest videos, then generate the video's watching guide.
+
+    Args:
+        channel (str | None): Channel name (case-insensitive) or ID from the configuration. None shows a menu.
+        limit (int): Number of videos to show.
+        output_dir (Path | None): Directory for the guide file.
+        refresh (bool): Ignore cached metadata and transcript.
+        config_path (Path): Path of the configuration file.
+
+    Returns:
+        None
+
+    Raises:
+        typer.Exit: If no channel is configured, the channel is unknown, or a step fails. Status 0 when the user quits.
+    """
+    config = _load(config_path)
+    if not config.channels:
+        raise _fail("No channels configured. Add one with `youtube-tools config add-channel @handle`.")
+    if channel is not None:
+        found = config.find_channel(channel)
+        if found is None:
+            names = ", ".join(c.name for c in config.channels)
+            raise _fail(f"No channel named {channel!r} in the configuration. Configured channels: {names}.")
+    elif len(config.channels) == 1:
+        found = config.channels[0]
+    else:
+        CONSOLE.print(_channels_table(config.channels))
+        found = config.channels[_choose("Channel", len(config.channels)) - 1]
+
+    try:
+        with CONSOLE.status(f"Fetching the latest videos of {found.name}..."):
+            videos = list_latest_videos(found, _make_ytdlp(config, with_cookies=False), limit)
+    except YtDlpError as exc:
+        raise _fail(str(exc)) from exc
+    if not videos:
+        CONSOLE.print(f"No videos found for {found.name}.")
+        return
+    CONSOLE.print(_videos_table(f"Latest videos of {found.name}", videos, time.time()))
+    video = videos[_choose("Video to write a guide for", len(videos)) - 1]
+    CONSOLE.print(f"Selected: {video.title} ({video.url})", markup=False, highlight=False)
+    _run_guide(
+        config,
+        video.id,
+        output_dir or config.guide.output_dir or Path.cwd(),
+        force=False,
+        refresh=refresh,
+        ask_to_overwrite=True,
+    )
 
 
 if __name__ == "__main__":

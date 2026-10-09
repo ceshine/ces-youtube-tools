@@ -187,6 +187,20 @@ first:
 
 Details and recheck commands are in [implementation_notes.md](implementation_notes.md).
 
+## Browse step
+
+`youtube-tools browse [CHANNEL] [-n N] [-o DIR] [--refresh]` is the everyday command:
+
+1. **Channel**: the `CHANNEL` argument (name or ID), else the only configured channel, else a numbered table of the
+   configured channels.
+2. **Video**: a numbered table of the channel's latest videos, the same listing as `list` (no cookies).
+3. **Guide**: the same steps as `guide` (`_run_guide`). If the guide file exists, `browse` asks whether to overwrite
+   it instead of failing, and keeps it on "no" without generating.
+
+Menus are typed for now (`menu.parse_choice`): a number picks an item, an empty answer takes the default where there
+is one, `q` quits with status 0, and anything else repeats the question with a hint. The Firefox profile picker in
+`config init` / `config profile` uses the same helper.
+
 ## CLI conventions
 
 - Register commands with `@command(APP, "name")` / `@command(CONFIG_APP, "name")` from `cli.py`, not
@@ -202,8 +216,8 @@ Details and recheck commands are in [implementation_notes.md](implementation_not
    `youtube-tools transcript VIDEO`. (Done.) See "Transcript step" above.
 4. Guide: prompt template and builder, `ClaudeCliGenerator`, `guide VIDEO` command. (Done.) See "Guide step"
    above.
-5. `browse`: interactive channel and video menus on top of steps 1–4. Choose the prompt library here, because the
-   interactive config session below uses the same one.
+5. `browse`: interactive channel and video menus on top of steps 1–4. (Done, with a typed menu.) See "Browse step"
+   above. Revisit the prompt library together with the interactive config session below.
 
 ## Planned: interactive config session
 
