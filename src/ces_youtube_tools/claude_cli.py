@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from collections.abc import Callable
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import Field, BaseModel, ConfigDict, field_validator
 
 from .guide import GuideError
 from .video import VideoInfo
@@ -68,14 +68,25 @@ class ClaudeCliOptions(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    command: list[str] = ["claude"]
-    model: str | None = None
-    effort: str | None = None
-    bare: bool = False
-    prompt_caching: bool = False
-    timeout_seconds: float = 1800
-    session_dir: Path | None = None
-    extra_args: list[str] = []
+    command: list[str] = Field(default=["claude"], description="Command that runs Claude Code.")
+    model: str | None = Field(
+        default=None, description="Model alias or ID for --model. Unset uses Claude Code's default."
+    )
+    effort: str | None = Field(
+        default=None, description="Effort level for --effort (low to max). Unset uses the default."
+    )
+    bare: bool = Field(
+        default=False,
+        description="Pass --bare (skips hooks, plugins and CLAUDE.md). Needs an ANTHROPIC_API_KEY, not a subscription.",
+    )
+    prompt_caching: bool = Field(
+        default=False, description="Allow prompt caching. Off by default: each run is a single request."
+    )
+    timeout_seconds: float = Field(default=1800, description="How long one generation may take.")
+    session_dir: Path | None = Field(
+        default=None, description="Run claude here with session logging on. Unset keeps no session log."
+    )
+    extra_args: list[str] = Field(default=[], description="More arguments for claude, added last.")
 
     @field_validator("session_dir")
     @classmethod

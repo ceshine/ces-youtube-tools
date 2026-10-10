@@ -8,8 +8,10 @@ from ces_youtube_tools.config import (
     load_config,
     save_config,
     ChannelConfig,
+    describe_options,
     DEFAULT_YTDLP_COMMAND,
 )
+from ces_youtube_tools.claude_cli import GENERATOR_NAME, ClaudeCliOptions
 
 
 def test_defaults() -> None:
@@ -77,3 +79,19 @@ def test_cache_dir_default_and_expansion(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
     path.write_text('cache_dir = "~/somewhere"\n', encoding="utf-8")
     assert load_config(path).cache_dir == Path.home() / "somewhere"
+
+
+def test_describe_options_covers_nested_tables() -> None:
+    options = {option.key: option for option in describe_options(AppConfig)}
+    assert options["ytdlp_command"].type_name == "list[str]"
+    assert options["auth.firefox_profile"].type_name == "Path | None"
+    assert options["auth.firefox_profile"].default == "(unset)"
+    assert options["channels[].channel_id"].default == "(required)"
+    assert options["guide.generator"].default == '"claude-cli"'
+    assert all(option.description for option in options.values())
+
+
+def test_describe_options_covers_generator_options() -> None:
+    options = {option.key: option for option in describe_options(ClaudeCliOptions, f"guide.options.{GENERATOR_NAME}.")}
+    assert options[f"guide.options.{GENERATOR_NAME}.session_dir"].type_name == "Path | None"
+    assert all(option.description for option in options.values())

@@ -26,6 +26,7 @@ from .config import (
     dump_config,
     load_config,
     save_config,
+    describe_options,
     DEFAULT_CONFIG_PATH,
 )
 from .firefox import (
@@ -37,6 +38,7 @@ from .firefox import (
 from .youtube import VideoSummary, verify_login, resolve_channel, list_latest_videos
 from .pipeline import work_dir_for, load_transcript, load_video_info, make_transcript_provider
 from .pipeline import write_guide, load_prompt_template, make_guide_generator
+from .claude_cli import GENERATOR_NAME, ClaudeCliOptions
 from .formatting import format_age, format_duration
 from .guide_html import expand_paths, GuideHtmlError, PageExistsError, write_guide_page
 from .transcript import TranscriptError
@@ -390,6 +392,25 @@ def config_show(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     else:
         state = "has" if is_signed_in(profile) else "does not have"
         CONSOLE.print(f"The Firefox profile {state} YouTube sign-in cookies.")
+
+
+@command(CONFIG_APP, "options")
+def config_options() -> None:
+    """List every configuration option with its type, default value and meaning.
+
+    Returns:
+        None
+    """
+    rows = describe_options(AppConfig)
+    rows += describe_options(ClaudeCliOptions, f"guide.options.{GENERATOR_NAME}.")
+    table = Table(title="Configuration options")
+    table.add_column("Option", no_wrap=True)
+    table.add_column("Type")
+    table.add_column("Default", overflow="fold")
+    table.add_column("Description")
+    for row in rows:
+        table.add_row(escape(row.key), escape(row.type_name), escape(row.default), escape(row.description))
+    CONSOLE.print(table)
 
 
 @command(CONFIG_APP, "check")

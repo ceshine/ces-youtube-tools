@@ -93,6 +93,10 @@ session_dir = "~/.cache/ces-youtube-tools/claude-sessions"   # optional; unset =
   (`src/ces_youtube_tools/templates/guide_prompt.md`). `config init` writes it next to the config file, and
   `config template [--force]` writes it to the configured path later. If the file is missing, `guide` uses the
   built-in template and says so.
+- `config options` lists every option with its type, default and meaning. It reads the Pydantic models (field
+  descriptions), including `[guide.options.claude-cli]`, so it works without a config file and cannot drift from the
+  code. A new option needs a `Field(description=...)`, or its description column is blank. A new generator's options
+  must be added to the command by hand, because `guide.options` is a free-form dict.
 
 ## Pipeline interfaces
 
