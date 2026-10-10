@@ -79,7 +79,7 @@ yt-dlp -x --audio-format m4a (cookies for members-only)  ─►  ASR backend  �
 - Cache the downloaded audio and the transcript in the work directory, because transcribing 3 hours is the
   slowest step.
 - ASR libraries pull in CUDA-enabled PyTorch or CTranslate2. Make them an optional extra
-  (`youtube-tools[asr]`), so the default install stays light.
+  (`ces-youtube-tools[asr]`), so the default install stays light.
 
 ## To verify before building
 

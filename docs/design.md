@@ -1,4 +1,4 @@
-# youtube-tools design
+# ces-youtube-tools design
 
 Browse the latest videos of a YouTube channel (including members-only videos when the user is a member), pick one,
 and generate a Markdown watching guide from its transcript.
@@ -10,16 +10,16 @@ provider are surveyed in [asr_options.md](asr_options.md).
 ## Workflow
 
 ```
- youtube-tools config ...          (run once, edit occasionally)
+ ces-youtube-tools config ...          (run once, edit occasionally)
    ├─ pick a Firefox profile  ──┐
    └─ add/remove channels     ──┴──► ~/.config/ces-youtube-tools/config.toml
 
- youtube-tools browse [CHANNEL]    (everyday command)
+ ces-youtube-tools browse [CHANNEL]    (everyday command)
    1. pick a channel from the config
    2. list its latest videos (yt-dlp, no cookies needed) ─► pick one
    3. run the guide pipeline
 
- youtube-tools guide URL           (same pipeline, no browsing)
+ ces-youtube-tools guide URL           (same pipeline, no browsing)
 
  guide pipeline
    VideoInfo ─► TranscriptProvider ─► Transcript ─► GuideGenerator ─► Markdown file
@@ -27,7 +27,7 @@ provider are surveyed in [asr_options.md](asr_options.md).
                  · audio transcription (later)       · openai-api, other CLIs (later)
 
  HTML page (optional)
-   Markdown file ─► guide_html ─► "<same name>.html" (embedded player) ─► youtube-tools serve ─► browser
+   Markdown file ─► guide_html ─► "<same name>.html" (embedded player) ─► ces-youtube-tools serve ─► browser
                     · `guide --html`, `browse --html`: right after the guide is written
                     · `html PATH...`: guides written earlier
 ```
@@ -57,7 +57,7 @@ passes cookies, because a video's availability is not always known in advance (s
 
 ```toml
 ytdlp_command = ["uvx", "--from", "yt-dlp[default,curl-cffi]@latest", "yt-dlp"]
-cache_dir = "~/.cache/youtube-tools"   # per-video work directories
+cache_dir = "~/.cache/ces-youtube-tools"   # per-video work directories
 
 [auth]
 firefox_profile = "/home/<user>/.mozilla/firefox/xxxxxxxx.Profile 1"
@@ -80,7 +80,7 @@ prompt_template = "~/.config/ces-youtube-tools/guide_prompt.md"
 [guide.options.claude-cli]   # per-generator settings, keyed by generator name
 model = "opus"            # optional; default: Claude Code's default model
 effort = "high"           # optional
-session_dir = "~/.cache/youtube-tools/claude-sessions"   # optional; unset = no session log is kept
+session_dir = "~/.cache/ces-youtube-tools/claude-sessions"   # optional; unset = no session log is kept
 # command = ["claude"], bare = false, prompt_caching = false, timeout_seconds = 1800, extra_args = []
 ```
 
@@ -144,7 +144,7 @@ cd <session_dir> && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude --print --tools "" -
 
 ## Guide step
 
-`youtube-tools guide VIDEO [-o DIR] [--force] [--refresh]` runs the transcript step, then:
+`ces-youtube-tools guide VIDEO [-o DIR] [--force] [--refresh]` runs the transcript step, then:
 
 1. **Prompt** (`render_prompt`): the template is filled with `string.Template` placeholders (`$title`, `$channel`,
    `$url`, `$video_id`, `$duration`, `$upload_date`, `$today`, `$description`, `$chapters`, `$transcript_note`,
@@ -167,7 +167,7 @@ summary and two to eight timestamped highlights, and tables where the video comp
 
 ## Work directory
 
-`<cache_dir>/<video_id>/` (default `~/.cache/youtube-tools/`) holds:
+`<cache_dir>/<video_id>/` (default `~/.cache/ces-youtube-tools/`) holds:
 
 - `video.json`: the `VideoInfo` fields (title, channel, chapters, available subtitle tracks, ...). Never yt-dlp's raw
   output, which is large and holds signed media URLs.
@@ -179,7 +179,7 @@ cache. An unreadable cache file is logged and rebuilt.
 
 ## Transcript step
 
-`youtube-tools transcript VIDEO` prints a video's transcript (timestamped lines, or `--json`) to stdout, with status
+`ces-youtube-tools transcript VIDEO` prints a video's transcript (timestamped lines, or `--json`) to stdout, with status
 and errors on stderr.
 
 1. `load_video_info`: one full extraction (`yt-dlp -J`, with cookies, because members-only videos need them) gives
@@ -212,7 +212,7 @@ Details and recheck commands are in [implementation_notes.md](implementation_not
 
 ## Browse step
 
-`youtube-tools browse [CHANNEL] [-n N] [-o DIR] [--refresh]` is the everyday command:
+`ces-youtube-tools browse [CHANNEL] [-n N] [-o DIR] [--refresh]` is the everyday command:
 
 1. **Channel**: the `CHANNEL` argument (name or ID), else the only configured channel, else a numbered table of the
    configured channels.
@@ -230,7 +230,7 @@ A guide can be turned into a standalone HTML page that embeds the video's player
 the player instead of opening YouTube. The steps taken are in [html_guides_plan.md](html_guides_plan.md). What was
 built:
 
-- `youtube-tools html PATH... [--overwrite]` (`guide_html.py`). A path is a Markdown file or a folder (its `.md`
+- `ces-youtube-tools html PATH... [--overwrite]` (`guide_html.py`). A path is a Markdown file or a folder (its `.md`
   files, not its subfolders). Each page is written next to its guide, as `<same name>.html`; there is no output
   directory option, so two guides can never write the same page. An existing page is kept with a warning unless
   `--overwrite` is given. Files that are not `.md` are ignored, but a run that leaves no `.md` file is an error. A
@@ -285,7 +285,7 @@ built:
   when offline.
 - The code is in `guide_html.py`, not `html.py`, which would shadow the standard library's `html` in some imports and
   in reading.
-- `youtube-tools serve [DIR] [--port 8765] [--no-open]` (`serve.py`) exists because YouTube refuses to play an
+- `ces-youtube-tools serve [DIR] [--port 8765] [--no-open]` (`serve.py`) exists because YouTube refuses to play an
   embedded video on a page opened from disk (Error 153; see "The embedded player refuses `file://` pages" in
   [implementation_notes.md](implementation_notes.md), checked 2026-10-09). The player works from `localhost`.
   - It binds to `127.0.0.1` only, so the guides are not reachable from other machines.
@@ -304,13 +304,15 @@ built:
   `@APP.command(...)`. It passes Typer only the docstring's description; Typer would otherwise print the Google-style
   `Args:` / `Returns:` / `Raises:` sections in `--help`.
 - Data a command prints for piping (`transcript`) goes to stdout. Status, warnings and errors go to stderr.
+- The project is called `ces-youtube-tools` (distribution, command, config and cache directories) to avoid clashing
+  with other tools. The Python package is still `youtube_tools`, so imports and `src/youtube_tools/` are unchanged.
 
 ## Build order
 
 1. Config: models, load/save, Firefox profile discovery and picker, `config` commands. (Done.)
-2. Video listing: `youtube-tools list CHANNEL`. (Done.) See "Video listing" below.
+2. Video listing: `ces-youtube-tools list CHANNEL`. (Done.) See "Video listing" below.
 3. Transcript: yt-dlp subtitle provider, VTT parser with duplicate removal, work-directory cache,
-   `youtube-tools transcript VIDEO`. (Done.) See "Transcript step" above.
+   `ces-youtube-tools transcript VIDEO`. (Done.) See "Transcript step" above.
 4. Guide: prompt template and builder, `ClaudeCliGenerator`, `guide VIDEO` command. (Done.) See "Guide step"
    above.
 5. `browse`: interactive channel and video menus on top of steps 1–4. (Done, with a typed menu.) See "Browse step"
@@ -325,10 +327,10 @@ built:
 
 Not needed for the first version. The `config` subcommands stay as they are, for scripting.
 
-`youtube-tools config` with no subcommand starts a session:
+`ces-youtube-tools config` with no subcommand starts a session:
 
 ```
-$ youtube-tools config
+$ ces-youtube-tools config
 No config found. Let's create one.
 <Firefox profile picker, as in `config init`>
 

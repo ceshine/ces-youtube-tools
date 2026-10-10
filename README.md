@@ -1,4 +1,4 @@
-# youtube-tools
+# ces-youtube-tools
 
 Browse a YouTube channel's latest videos, pick one, and generate a Markdown **watching guide** from its transcript: an
 overview, then numbered segments with timestamped highlights that link back into the video.
@@ -13,7 +13,7 @@ Members-only videos work too, if you are a member of the channel.
 ## How it works
 
 ```
-youtube-tools browse
+ces-youtube-tools browse
   1. pick a channel from your config
   2. list its latest videos (yt-dlp, no cookies)  ─► pick one
   3. fetch subtitles  ─►  build a prompt  ─►  `claude` CLI  ─►  "Watching Guide <title>.md"
@@ -40,7 +40,7 @@ youtube-tools browse
 
 ```bash
 uv sync --frozen
-uv run youtube-tools --help
+uv run ces-youtube-tools --help
 ```
 
 Or install the command on your `PATH`:
@@ -53,17 +53,17 @@ uv tool install .
 
 ```bash
 # 1. Create the config and pick the Firefox profile used for YouTube cookies
-youtube-tools config init
+ces-youtube-tools config init
 
 # 2. Add the channels you follow (--members also lists members-only videos)
-youtube-tools config add-channel @3blue1brown
-youtube-tools config add-channel @SomeChannel --members
+ces-youtube-tools config add-channel @3blue1brown
+ces-youtube-tools config add-channel @SomeChannel --members
 
 # 3. Check that the profile is signed in (optional)
-youtube-tools config check
+ces-youtube-tools config check
 
 # 4. Pick a channel and a video, and write the guide
-youtube-tools browse
+ces-youtube-tools browse
 ```
 
 ## Commands
@@ -93,9 +93,9 @@ A guide can also be an HTML page that embeds the video's player. Clicking a time
 so you read and watch on one page.
 
 ```bash
-youtube-tools browse --html               # write the guide and its page
-youtube-tools html ~/guides               # add pages to guides you already have
-youtube-tools serve ~/guides              # open them in the browser
+ces-youtube-tools browse --html               # write the guide and its page
+ces-youtube-tools html ~/guides               # add pages to guides you already have
+ces-youtube-tools serve ~/guides              # open them in the browser
 ```
 
 - `html` takes Markdown files and folders (the `.md` files directly inside a folder). Each page is written next to its
@@ -116,7 +116,7 @@ The config lives at `~/.config/ces-youtube-tools/config.toml`:
 
 ```toml
 ytdlp_command = ["uvx", "--from", "yt-dlp[default,curl-cffi]@latest", "yt-dlp"]
-cache_dir = "~/.cache/youtube-tools"
+cache_dir = "~/.cache/ces-youtube-tools"
 
 [auth]
 firefox_profile = "/home/<user>/.mozilla/firefox/xxxxxxxx.Profile 1"
@@ -139,7 +139,7 @@ model = "opus"       # optional
 effort = "high"      # optional
 ```
 
-Edit `guide_prompt.md` to change the structure and tone of the guides. Run `youtube-tools config show` to see every
+Edit `guide_prompt.md` to change the structure and tone of the guides. Run `ces-youtube-tools config show` to see every
 setting, including the optional ones such as `session_dir`.
 
 Guide generation turns off Claude Code's prompt caching, because each run is a single request that is never repeated
@@ -150,8 +150,8 @@ and a cache write only adds cost. Set `prompt_caching = true` under `[guide.opti
 - **Guides:** `Watching Guide <title>.md` in `--output-dir`, else `guide.output_dir`, else the current directory. An
   existing guide is not overwritten unless you pass `--force`.
 - **HTML pages:** `<same name>.html`, next to each guide.
-- **Cache:** `~/.cache/youtube-tools/<video id>/` holds the video metadata, subtitles, transcript, and the prompt and
-  raw reply of the last generation. A rerun repeats only the failed step; `--refresh` ignores the cache.
+- **Cache:** `~/.cache/ces-youtube-tools/<video id>/` holds the video metadata, subtitles, transcript, and the prompt
+  and raw reply of the last generation. A rerun repeats only the failed step; `--refresh` ignores the cache.
 
 ## Development
 

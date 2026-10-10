@@ -140,9 +140,9 @@ Checked on 2026-10-09 with headless Google Chrome and the HTML guide page templa
   for a members-only video, then compare with tracking protection on and off for that site.
   A full extraction of a members-only video also reports `availability: subscriber_only` (confirmed by the user on
   2026-10-09, through the hint that `guide --html` adds to the page for such videos).
-- `youtube-tools serve` (added after this check) is tested only with Python's `http.client` against a local server
+- `ces-youtube-tools serve` (added after this check) is tested only with Python's `http.client` against a local server
   and a mocked browser opener, not with a real browser and video through the command: not yet verified end to end.
-  Recheck: `uv run youtube-tools html DIR && uv run youtube-tools serve DIR`, open a page and click a timestamp.
+  Recheck: `uv run ces-youtube-tools html DIR && uv run ces-youtube-tools serve DIR`, open a page and click a timestamp.
 
 Recheck: write a page with the template, then compare
 `google-chrome --headless=new --virtual-time-budget=6000 --screenshot=file.png file://$PWD/page.html` with the same
@@ -274,7 +274,8 @@ Checked on 2026-10-09 with typer 0.27. A command without `help=` shows its entir
 Google-style `Args:`, `Returns:` and `Raises:` sections. Typer does not parse docstrings. `cli.command()` passes
 `help=` with the text before the first such section.
 
-Recheck: register a command with `@APP.command("x")` and a Google-style docstring, then run `youtube-tools x --help`.
+Recheck: register a command with `@APP.command("x")` and a Google-style docstring, then run
+`ces-youtube-tools x --help`.
 
 ## claude CLI
 
@@ -360,7 +361,7 @@ automatic captions, 363 segments).
 - No label needed correcting in either run, but labels are still rewritten from the `t=` seconds, since that is
   cheap and errors are more likely past one hour.
 
-Recheck: `youtube-tools guide 3i2C3IB3PaA -o /tmp/guides --force`, then compare the guide and the counts printed.
+Recheck: `ces-youtube-tools guide 3i2C3IB3PaA -o /tmp/guides --force`, then compare the guide and the counts printed.
 
 ### Claude cannot transcribe audio
 
