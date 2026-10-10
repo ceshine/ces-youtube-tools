@@ -1,6 +1,6 @@
 import pytest
 
-from youtube_tools.menu import QuitMenu, parse_choice
+from ces_youtube_tools.menu import QuitMenu, parse_choice
 
 
 @pytest.mark.parametrize(("answer", "expected"), [("1", 1), (" 3 ", 3), ("", 2)])

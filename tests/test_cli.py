@@ -3,13 +3,13 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from youtube_tools import cli
-from youtube_tools.cli import APP
-from youtube_tools.video import VideoInfo
-from youtube_tools.ytdlp import YtDlp
-from youtube_tools.config import AppConfig, load_config, save_config, ChannelConfig
-from youtube_tools.youtube import VideoSummary
-from youtube_tools.transcript import Transcript, TranscriptSegment
+from ces_youtube_tools import cli
+from ces_youtube_tools.cli import APP
+from ces_youtube_tools.video import VideoInfo
+from ces_youtube_tools.ytdlp import YtDlp
+from ces_youtube_tools.config import AppConfig, load_config, save_config, ChannelConfig
+from ces_youtube_tools.youtube import VideoSummary
+from ces_youtube_tools.transcript import Transcript, TranscriptSegment
 
 RUNNER = CliRunner()
 CHANNEL = ChannelConfig(name="3Blue1Brown", url="https://www.youtube.com/@3blue1brown", channel_id="UCYO")

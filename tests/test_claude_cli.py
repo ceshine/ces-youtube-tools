@@ -4,9 +4,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from youtube_tools.guide import GuideError
-from youtube_tools.video import VideoInfo
-from youtube_tools.claude_cli import (
+from ces_youtube_tools.guide import GuideError
+from ces_youtube_tools.video import VideoInfo
+from ces_youtube_tools.claude_cli import (
     run_claude,
     SYSTEM_PROMPT,
     ClaudeCliOptions,

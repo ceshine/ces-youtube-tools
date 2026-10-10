@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from youtube_tools.cli import APP
-from youtube_tools.guide_html import expand_paths, GuideHtmlError, PageExistsError, write_guide_page
+from ces_youtube_tools.cli import APP
+from ces_youtube_tools.guide_html import expand_paths, GuideHtmlError, PageExistsError, write_guide_page
 
 FIXTURE = Path(__file__).parent / "fixtures" / "sample_guide.md"
 RUNNER = CliRunner()

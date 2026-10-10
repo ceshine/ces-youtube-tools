@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from youtube_tools.vtt import parse_vtt, parse_timestamp
-from youtube_tools.transcript import TranscriptSegment
+from ces_youtube_tools.vtt import parse_vtt, parse_timestamp
+from ces_youtube_tools.transcript import TranscriptSegment
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

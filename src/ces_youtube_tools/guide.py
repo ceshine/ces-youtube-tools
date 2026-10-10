@@ -61,7 +61,7 @@ def default_template() -> str:
     Returns:
         str: The template text.
     """
-    return resources.files("youtube_tools").joinpath("templates/guide_prompt.md").read_text(encoding="utf-8")
+    return resources.files("ces_youtube_tools").joinpath("templates/guide_prompt.md").read_text(encoding="utf-8")
 
 
 def format_seconds_label(seconds: float) -> str:

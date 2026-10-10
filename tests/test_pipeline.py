@@ -6,11 +6,11 @@ from pathlib import Path
 
 import pytest
 
-from youtube_tools.guide import GuideError
-from youtube_tools.video import VideoInfo
-from youtube_tools.ytdlp import YtDlp
-from youtube_tools.config import AppConfig
-from youtube_tools.pipeline import (
+from ces_youtube_tools.guide import GuideError
+from ces_youtube_tools.video import VideoInfo
+from ces_youtube_tools.ytdlp import YtDlp
+from ces_youtube_tools.config import AppConfig
+from ces_youtube_tools.pipeline import (
     write_guide,
     work_dir_for,
     load_transcript,
@@ -19,9 +19,9 @@ from youtube_tools.pipeline import (
     make_guide_generator,
     make_transcript_provider,
 )
-from youtube_tools.subtitles import YtDlpSubtitleProvider
-from youtube_tools.claude_cli import ClaudeCliGenerator
-from youtube_tools.transcript import Transcript, TranscriptSegment
+from ces_youtube_tools.subtitles import YtDlpSubtitleProvider
+from ces_youtube_tools.claude_cli import ClaudeCliGenerator
+from ces_youtube_tools.transcript import Transcript, TranscriptSegment
 
 VIDEO_JSON = {"id": "abcdefghijk", "title": "A video", "formats": [{"url": "https://signed.example/x"}]}
 

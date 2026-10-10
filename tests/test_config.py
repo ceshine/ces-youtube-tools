@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from youtube_tools.config import (
+from ces_youtube_tools.config import (
     AppConfig,
     ConfigError,
     load_config,

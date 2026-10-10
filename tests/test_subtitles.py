@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from youtube_tools.video import VideoInfo
-from youtube_tools.ytdlp import YtDlp, YtDlpError
-from youtube_tools.subtitles import choose_track, SubtitleTrack, YtDlpSubtitleProvider
-from youtube_tools.transcript import TranscriptError
+from ces_youtube_tools.video import VideoInfo
+from ces_youtube_tools.ytdlp import YtDlp, YtDlpError
+from ces_youtube_tools.subtitles import choose_track, SubtitleTrack, YtDlpSubtitleProvider
+from ces_youtube_tools.transcript import TranscriptError
 
 VTT = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello there.\n"
 LANGUAGES = ["en-orig", "en"]

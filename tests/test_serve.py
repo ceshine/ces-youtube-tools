@@ -8,10 +8,10 @@ from collections.abc import Iterator
 import pytest
 from typer.testing import CliRunner
 
-from youtube_tools import cli
-from youtube_tools.cli import APP
-from youtube_tools.serve import ServeError, make_server
-from youtube_tools.config import AppConfig, GuideConfig, save_config
+from ces_youtube_tools import cli
+from ces_youtube_tools.cli import APP
+from ces_youtube_tools.serve import ServeError, make_server
+from ces_youtube_tools.config import AppConfig, GuideConfig, save_config
 
 RUNNER = CliRunner()
 

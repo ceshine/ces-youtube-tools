@@ -1,6 +1,6 @@
 import pytest
 
-from youtube_tools.video import Chapter, parse_video_id, video_info_from_ytdlp
+from ces_youtube_tools.video import Chapter, parse_video_id, video_info_from_ytdlp
 
 
 @pytest.mark.parametrize(

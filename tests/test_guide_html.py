@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from youtube_tools.guide_html import (
+from ces_youtube_tools.guide_html import (
     guide_title,
     find_video_id,
     GuideHtmlError,

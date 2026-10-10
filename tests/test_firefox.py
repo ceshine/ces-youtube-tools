@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from youtube_tools.firefox import (
+from ces_youtube_tools.firefox import (
     is_signed_in,
     FirefoxProfile,
     discover_profiles,

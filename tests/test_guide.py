@@ -3,7 +3,7 @@ import datetime
 
 import pytest
 
-from youtube_tools.guide import (
+from ces_youtube_tools.guide import (
     GuideError,
     clean_output,
     render_prompt,
@@ -15,8 +15,8 @@ from youtube_tools.guide import (
     TEMPLATE_PLACEHOLDERS,
     check_timestamp_links,
 )
-from youtube_tools.video import Chapter, VideoInfo
-from youtube_tools.transcript import Transcript, TranscriptSegment
+from ces_youtube_tools.video import Chapter, VideoInfo
+from ces_youtube_tools.transcript import Transcript, TranscriptSegment
 
 TODAY = datetime.date(2026, 10, 9)
 VIDEO = VideoInfo(

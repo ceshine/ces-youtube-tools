@@ -1,6 +1,6 @@
 import pytest
 
-from youtube_tools.formatting import format_age, format_duration
+from ces_youtube_tools.formatting import format_age, format_duration
 
 NOW = 1_800_000_000
 

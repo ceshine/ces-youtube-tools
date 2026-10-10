@@ -3,8 +3,8 @@ import subprocess
 
 import pytest
 
-from youtube_tools.ytdlp import YtDlp, YtDlpError
-from youtube_tools.youtube import verify_login, resolve_channel, normalize_channel_url
+from ces_youtube_tools.ytdlp import YtDlp, YtDlpError
+from ces_youtube_tools.youtube import verify_login, resolve_channel, normalize_channel_url
 
 
 class FakeRunner:

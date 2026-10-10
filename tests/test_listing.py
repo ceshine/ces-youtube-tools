@@ -4,9 +4,9 @@ import subprocess
 
 import pytest
 
-from youtube_tools.ytdlp import YtDlp, YtDlpError
-from youtube_tools.config import ChannelConfig
-from youtube_tools.youtube import (
+from ces_youtube_tools.ytdlp import YtDlp, YtDlpError
+from ces_youtube_tools.config import ChannelConfig
+from ces_youtube_tools.youtube import (
     VideoSummary,
     fetch_playlist,
     list_latest_videos,

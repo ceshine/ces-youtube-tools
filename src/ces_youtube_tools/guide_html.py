@@ -120,7 +120,7 @@ def render_guide_page(markdown: str, video_id: str, fallback_title: str, members
     """
     if not _VIDEO_ID.fullmatch(video_id):
         raise GuideHtmlError(f"Not a valid YouTube video ID: {video_id!r}")
-    template = Template(resources.files("youtube_tools").joinpath("templates/guide_page.html").read_text("utf-8"))
+    template = Template(resources.files("ces_youtube_tools").joinpath("templates/guide_page.html").read_text("utf-8"))
     return template.substitute(
         title=escape(guide_title(markdown, fallback_title)),
         video_id=video_id,
