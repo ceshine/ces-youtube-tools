@@ -138,7 +138,7 @@ def load_config(path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
         ConfigError: If the file does not exist, is not valid TOML or fails validation.
     """
     if not path.exists():
-        raise ConfigError(f"Config file not found: {path}. Run `youtube-tools config init` first.")
+        raise ConfigError(f"Config file not found: {path}. Run `ces-youtube-tools config init` first.")
     try:
         data = tomllib.loads(path.read_text(encoding="utf-8"))
         return AppConfig.model_validate(data)

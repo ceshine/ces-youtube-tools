@@ -1,4 +1,4 @@
-"""Command-line entry point for youtube-tools."""
+"""Command-line entry point for ces-youtube-tools."""
 
 import re
 import time
@@ -209,7 +209,7 @@ def _pick_profile() -> FirefoxProfile:
     if not signed_in[choice - 1]:
         CONSOLE.print(
             f"[yellow]Warning:[/yellow] {profile.name} is not signed in to YouTube. "
-            "Sign in with that profile, then run `youtube-tools config check`."
+            "Sign in with that profile, then run `ces-youtube-tools config check`."
         )
     return profile
 
@@ -243,7 +243,7 @@ def config_init(
         CONSOLE.print(
             f"Wrote the guide prompt template to {config.guide.prompt_template}. Edit it to change the guides."
         )
-    CONSOLE.print("Next, add channels with `youtube-tools config add-channel @handle`.")
+    CONSOLE.print("Next, add channels with `ces-youtube-tools config add-channel @handle`.")
 
 
 def _write_default_template(path: Path, force: bool) -> bool:
@@ -384,7 +384,7 @@ def config_show(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     CONSOLE.print(dump_config(config), markup=False, highlight=False)
     profile = config.auth.firefox_profile
     if profile is None:
-        CONSOLE.print("No Firefox profile configured. Run `youtube-tools config profile`.")
+        CONSOLE.print("No Firefox profile configured. Run `ces-youtube-tools config profile`.")
     elif not profile.is_dir():
         CONSOLE.print(f"[red]Firefox profile folder not found:[/red] {profile}")
     else:
@@ -407,11 +407,11 @@ def config_check(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     """
     config = _load(config_path)
     if config.auth.firefox_profile is None:
-        raise _fail("No Firefox profile configured. Run `youtube-tools config profile`.")
+        raise _fail("No Firefox profile configured. Run `ces-youtube-tools config profile`.")
     if not verify_login(_make_ytdlp(config, with_cookies=True)):
         raise _fail(
             "YouTube did not accept the cookies. Sign in with the Firefox profile "
-            f"{config.auth.firefox_profile}, or choose another with `youtube-tools config profile`."
+            f"{config.auth.firefox_profile}, or choose another with `ces-youtube-tools config profile`."
         )
     CONSOLE.print("[green]Signed in:[/green] YouTube accepted the profile's cookies.")
 
@@ -471,7 +471,9 @@ def list_videos(
     config = _load(config_path)
     found = config.find_channel(channel)
     if found is None:
-        names = ", ".join(c.name for c in config.channels) or "none, add one with `youtube-tools config add-channel`"
+        names = (
+            ", ".join(c.name for c in config.channels) or "none, add one with `ces-youtube-tools config add-channel`"
+        )
         raise _fail(f"No channel named {channel!r} in the configuration. Configured channels: {names}.")
     try:
         with CONSOLE.status(f"Fetching the latest videos of {found.name}..."):
@@ -701,7 +703,7 @@ def _run_guide(
         if is_default:
             STDERR.print(
                 f"Using the built-in prompt template ({config.guide.prompt_template} does not exist). "
-                "Run `youtube-tools config template` for an editable copy.",
+                "Run `ces-youtube-tools config template` for an editable copy.",
                 markup=False,
                 highlight=False,
             )
@@ -762,7 +764,8 @@ def _write_page(markdown_path: Path, video_id: str, *, overwrite: bool, members_
         target = write_guide_page(markdown_path, video_id, overwrite=overwrite, members_only=members_only)
     except PageExistsError as exc:
         STDERR.print(
-            f"[yellow]Warning:[/yellow] {escape(str(exc))}, kept. Use `youtube-tools html --overwrite` to replace it.",
+            f"[yellow]Warning:[/yellow] {escape(str(exc))}, kept. "
+            "Use `ces-youtube-tools html --overwrite` to replace it.",
             highlight=False,
             soft_wrap=True,
         )
@@ -820,7 +823,7 @@ def browse(
     """
     config = _load(config_path)
     if not config.channels:
-        raise _fail("No channels configured. Add one with `youtube-tools config add-channel @handle`.")
+        raise _fail("No channels configured. Add one with `ces-youtube-tools config add-channel @handle`.")
     if channel is not None:
         found = config.find_channel(channel)
         if found is None:
