@@ -1,5 +1,5 @@
 [project]
-name = "youtube-tools"
+name = "ces-youtube-tools"
 version = "0.1.0"
 description = "Browse a YouTube channel's latest videos and generate watching guides from their subtitles"
 readme = "README.md"
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-youtube-tools = "youtube_tools.cli:APP"
+ces-youtube-tools = "youtube_tools.cli:APP"
 
 [build-system]
 requires = ["hatchling"]
