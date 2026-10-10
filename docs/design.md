@@ -90,7 +90,7 @@ session_dir = "~/.cache/ces-youtube-tools/claude-sessions"   # optional; unset =
 - `members` decides whether the listing includes members-only uploads (the `UUMF` and `UUMV` playlists). Leave it
   off for channels you are not a member of, because their members-only videos cannot be downloaded.
 - `prompt_template` is a user-editable file. A default template ships with the package
-  (`src/youtube_tools/templates/guide_prompt.md`). `config init` writes it next to the config file, and
+  (`src/ces_youtube_tools/templates/guide_prompt.md`). `config init` writes it next to the config file, and
   `config template [--force]` writes it to the configured path later. If the file is missing, `guide` uses the
   built-in template and says so.
 
@@ -305,7 +305,7 @@ built:
   `Args:` / `Returns:` / `Raises:` sections in `--help`.
 - Data a command prints for piping (`transcript`) goes to stdout. Status, warnings and errors go to stderr.
 - The project is called `ces-youtube-tools` (distribution, command, config and cache directories) to avoid clashing
-  with other tools. The Python package is still `youtube_tools`, so imports and `src/youtube_tools/` are unchanged.
+  with other tools. The Python package is `ces_youtube_tools`, the same name with underscores.
 
 ## Build order
 

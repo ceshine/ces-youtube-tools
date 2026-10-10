@@ -55,7 +55,7 @@ When multiple valid approaches exist, choose based on:
 
 ### Testing Strategy
 
-- **Pytest:** Use `pytest` for all testing. Organize tests in a `tests/` directory mirroring the `src/youtube_tools/` structure.
+- **Pytest:** Use `pytest` for all testing. Organize tests in a `tests/` directory mirroring the `src/ces_youtube_tools/` structure.
 - **Fixtures:** Use pytest fixtures for setup/teardown of data, models, or temporary directories.
 - **Mocking:** Mock external services (yt-dlp subprocess calls, YouTube network requests) and local browser data (Firefox profile and cookie files) when writing unit tests to keep them fast and reliable.
 

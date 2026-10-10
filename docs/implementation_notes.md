@@ -111,7 +111,7 @@ resolved name and asks for confirmation.
 ### The embedded player refuses `file://` pages (Error 153)
 
 Checked on 2026-10-09 with headless Google Chrome and the HTML guide page template
-(`src/youtube_tools/templates/guide_page.html`), embedding `aircAruvnKk` (3Blue1Brown, public).
+(`src/ces_youtube_tools/templates/guide_page.html`), embedding `aircAruvnKk` (3Blue1Brown, public).
 
 | Page opened from | Result |
 | --- | --- |
