@@ -10,7 +10,7 @@ from pydantic import Field, BaseModel, ValidationError, field_validator
 CONFIG_DIR = Path.home() / ".config" / "ces-youtube-tools"
 DEFAULT_CONFIG_PATH = CONFIG_DIR / "config.toml"
 DEFAULT_PROMPT_TEMPLATE_PATH = CONFIG_DIR / "guide_prompt.md"
-DEFAULT_CACHE_DIR = Path.home() / ".cache" / "youtube-tools"
+DEFAULT_CACHE_DIR = Path.home() / ".cache" / "ces-youtube-tools"
 DEFAULT_YTDLP_COMMAND = ["uvx", "--from", "yt-dlp[default,curl-cffi]@latest", "yt-dlp"]
 
 

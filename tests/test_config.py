@@ -73,7 +73,7 @@ def test_find_channel() -> None:
 
 
 def test_cache_dir_default_and_expansion(tmp_path: Path) -> None:
-    assert AppConfig().cache_dir == Path.home() / ".cache" / "youtube-tools"
+    assert AppConfig().cache_dir == Path.home() / ".cache" / "ces-youtube-tools"
     path = tmp_path / "config.toml"
     path.write_text('cache_dir = "~/somewhere"\n', encoding="utf-8")
     assert load_config(path).cache_dir == Path.home() / "somewhere"
