@@ -47,8 +47,6 @@ Record each result in `implementation_notes.md` with the date and a recheck comm
   `localhost` it plays. Hence the `serve` command and hiding the player on `file://` pages.
 - **Members-only videos: checked** (2026-10-09, Firefox). The player shows the join prompt unless Enhanced Tracking
   Protection is off for the page; no `onError` fires. See the implementation notes. Chrome: not yet verified.
-- **`youtube-nocookie.com`.** Check whether `host: "https://www.youtube-nocookie.com"` works with the IFrame API
-  and with members-only videos. Use it if it does, since it sets no cookies until playback.
 - **Videos with embedding turned off** by the uploader: confirm that `onError` fires (codes 101/150) and the
   player is hidden. (A made-up video ID already gives a code in that group and hides the player.)
 
@@ -61,3 +59,10 @@ Record each result in `implementation_notes.md` with the date and a recheck comm
 - Marking the latest timestamp link at or before the player's current time ("now playing"). It works per link, so it
   needs no knowledge of the guide's structure.
 - A `[guide] html = true` setting that makes `--html` the default.
+- Embedding from `youtube-nocookie.com` (privacy-enhanced mode, no YouTube cookies until playback). Decided against
+  as the default on 2026-10-09: members-only videos need the viewer's `youtube.com` sign-in, which a different
+  domain would not receive, so they would very likely show the join prompt even with tracking protection off (not
+  yet verified). The benefit is small for pages served from `localhost`. If it is wanted later, make it opt-in
+  (for example a `--privacy` flag that applies to public videos only), after checking that the IFrame API
+  (`onReady`, `seekTo`, `onError`) works against a nocookie `<iframe src>`. Note that the `host` player option does not
+  matter here: the page's `<iframe>` already exists, so its `src` sets the domain.

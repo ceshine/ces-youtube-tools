@@ -318,7 +318,8 @@ built:
 6. HTML pages: `html`, `serve`, and the `--html` flag on `guide` and `browse`. (Done.) See "HTML pages and `serve`"
    above. Members-only videos play in the embedded player only if the browser lets the iframe send YouTube's cookies
    (verified in Firefox, see the implementation notes); the page cannot detect the case. Still to check by hand:
-   `youtube-nocookie.com`, Chrome cookie settings and embedding turned off (see the plan).
+   Chrome cookie settings and embedding turned off (see the plan). `youtube-nocookie.com` was ruled out as a default
+   (see "Out of scope" in the plan).
 
 ## Planned: interactive config session
 
