@@ -109,12 +109,13 @@ def _fail(message: str) -> typer.Exit:
     """Print an error message and build the exit to raise.
 
     Args:
-        message (str): The error message.
+        message (str): The error message, as plain text. Square brackets in it are printed as they are, not read as
+            Rich markup, because messages often hold paths, video titles and yt-dlp output such as `[youtube]`.
 
     Returns:
         typer.Exit: An exit with status 1, for the caller to raise.
     """
-    STDERR.print(f"[red]Error:[/red] {message}", markup=True, highlight=False)
+    STDERR.print(f"[red]Error:[/red] {escape(message)}", markup=True, highlight=False)
     return typer.Exit(code=1)
 
 
@@ -792,7 +793,7 @@ def _write_page(markdown_path: Path, video_id: str, *, overwrite: bool, members_
         )
         return
     except GuideHtmlError as exc:
-        raise _fail(escape(str(exc))) from exc
+        raise _fail(str(exc)) from exc
     CONSOLE.print(f"Wrote {target}", markup=False, highlight=False)
 
 

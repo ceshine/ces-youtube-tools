@@ -6,7 +6,7 @@ from typer.testing import CliRunner
 from ces_youtube_tools import cli
 from ces_youtube_tools.cli import APP
 from ces_youtube_tools.video import VideoInfo
-from ces_youtube_tools.ytdlp import YtDlp
+from ces_youtube_tools.ytdlp import YtDlp, YtDlpError
 from ces_youtube_tools.config import AppConfig, load_config, save_config, ChannelConfig
 from ces_youtube_tools.youtube import VideoSummary
 from ces_youtube_tools.transcript import Transcript, TranscriptSegment
@@ -496,6 +496,33 @@ def test_guide_write_failure_exits_1_with_a_message(
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert "Error: Cannot write" in result.output
     assert "raw reply is kept in" in result.output
+
+
+def test_guide_error_shows_square_brackets_in_the_title(
+    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def bracket_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
+        return VideoInfo(id=video_id, title="[/x] [bold]Live[/bold]", duration=60, upload_date="20261008")
+
+    monkeypatch.setattr(cli, "load_video_info", bracket_info)
+    (tmp_path / "Watching Guide - 20261008 - [ x] [bold]Live[ bold].md").write_text("mine", encoding="utf-8")
+    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)]
+    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
+    assert result.exit_code == 1
+    assert "[ x] [bold]Live[ bold].md already exists" in result.output
+
+
+def test_guide_error_keeps_the_ytdlp_extractor_tag(
+    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def failing_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
+        raise YtDlpError(f"ERROR: [youtube] {video_id}: Join this channel to get access to members-only content")
+
+    monkeypatch.setattr(cli, "load_video_info", failing_info)
+    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)]
+    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
+    assert result.exit_code == 1
+    assert "ERROR: [youtube] 3i2C3IB3PaA: Join this channel" in result.output
 
 
 def test_browse_html_flag_on_a_kept_guide(
