@@ -249,7 +249,7 @@ def guide_setup(config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPat
     generator = FakeGuideGenerator()
 
     def fake_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
-        return VideoInfo(id=video_id, title="A video", duration=60)
+        return VideoInfo(id=video_id, title="A video", duration=60, upload_date="20261008")
 
     def fake_transcript(video: VideoInfo, provider: object, work_dir: Path, refresh: bool = False) -> Transcript:
         segments = [TranscriptSegment(start=5, end=6, text="Hello.")]
@@ -269,7 +269,7 @@ def test_guide_writes_to_the_current_directory_by_default(
     monkeypatch.chdir(workdir)
     result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "--config", str(config_path)], env={"COLUMNS": "300"})
     assert result.exit_code == 0, result.output
-    assert (workdir / "Watching Guide A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
+    assert (workdir / "Watching Guide - 20261008 - A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
     assert "Using the built-in prompt template" in result.output
     assert "1 timestamp links, 0 labels corrected." in result.output
     assert "[0:05 | 5s] Hello." in guide_setup.prompts[0]
@@ -288,12 +288,12 @@ def test_guide_output_dir_option_beats_config(
     save_config(config, config_path)
     result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
-    assert (tmp_path / "from-config" / "Watching Guide A video.md").exists()
+    assert (tmp_path / "from-config" / "Watching Guide - 20261008 - A video.md").exists()
     result = RUNNER.invoke(
         APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path / "from-option"), "--config", str(config_path)]
     )
     assert result.exit_code == 0, result.output
-    assert (tmp_path / "from-option" / "Watching Guide A video.md").exists()
+    assert (tmp_path / "from-option" / "Watching Guide - 20261008 - A video.md").exists()
 
 
 def test_guide_warns_about_bad_links(guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path) -> None:
@@ -385,14 +385,14 @@ def test_browse_menus_then_guide(
     assert browse_setup == ["The Young Turks"]
     assert "Enter a number from 1 to 2, or q to quit." in result.output
     assert "Selected: Bonus episode (https://www.youtube.com/watch?v=3i2C3IB3PaA)" in result.output
-    assert (tmp_path / "out" / "Watching Guide A video.md").exists()
+    assert (tmp_path / "out" / "Watching Guide - 20261008 - A video.md").exists()
     assert len(guide_setup.prompts) == 1
 
 
 def test_browse_channel_argument_and_overwrite_prompt(
     browse_setup: list[str], guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
 ) -> None:
-    existing = tmp_path / "Watching Guide A video.md"
+    existing = tmp_path / "Watching Guide - 20261008 - A video.md"
     existing.write_text("mine", encoding="utf-8")
     args = ["browse", "3blue1brown", "-o", str(tmp_path), "--config", str(config_path)]
     result = RUNNER.invoke(APP, args, input="1\nn\n")
@@ -444,7 +444,7 @@ def test_guide_html_flag_writes_the_page_next_to_the_guide(
 ) -> None:
     result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
-    page = (tmp_path / "Watching Guide A video.html").read_text(encoding="utf-8")
+    page = (tmp_path / "Watching Guide - 20261008 - A video.html").read_text(encoding="utf-8")
     assert 'var VIDEO_ID = "3i2C3IB3PaA";' in page
     assert "<title>A video</title>" in page
 
@@ -460,13 +460,15 @@ def test_guide_without_html_flag_writes_no_page(
 def test_guide_force_html_replaces_the_existing_page(
     guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
 ) -> None:
-    (tmp_path / "Watching Guide A video.md").write_text("old", encoding="utf-8")
-    (tmp_path / "Watching Guide A video.html").write_text("old", encoding="utf-8")
+    (tmp_path / "Watching Guide - 20261008 - A video.md").write_text("old", encoding="utf-8")
+    (tmp_path / "Watching Guide - 20261008 - A video.html").write_text("old", encoding="utf-8")
     args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--force", "--config", str(config_path)]
     result = RUNNER.invoke(APP, args)
     assert result.exit_code == 0, result.output
-    assert (tmp_path / "Watching Guide A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
-    assert 'var VIDEO_ID = "3i2C3IB3PaA";' in (tmp_path / "Watching Guide A video.html").read_text(encoding="utf-8")
+    assert (tmp_path / "Watching Guide - 20261008 - A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
+    assert 'var VIDEO_ID = "3i2C3IB3PaA";' in (tmp_path / "Watching Guide - 20261008 - A video.html").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_guide_html_failure_keeps_the_guide_and_exits_1(
@@ -481,19 +483,19 @@ def test_guide_html_failure_keeps_the_guide_and_exits_1(
     result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--config", str(config_path)])
     assert result.exit_code == 1
     assert "cannot write the page" in result.output
-    assert (tmp_path / "Watching Guide A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
+    assert (tmp_path / "Watching Guide - 20261008 - A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
 
 
 def test_browse_html_flag_on_a_kept_guide(
     browse_setup: list[str], guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
 ) -> None:
-    existing = tmp_path / "Watching Guide A video.md"
+    existing = tmp_path / "Watching Guide - 20261008 - A video.md"
     existing.write_text("mine", encoding="utf-8")
     args = ["browse", "3blue1brown", "-o", str(tmp_path), "--html", "--config", str(config_path)]
     result = RUNNER.invoke(APP, args, input="1\nn\n")
     assert result.exit_code == 0, result.output
     assert guide_setup.prompts == []
-    page = tmp_path / "Watching Guide A video.html"
+    page = tmp_path / "Watching Guide - 20261008 - A video.html"
     assert "aaaaaaaaaaa" in page.read_text(encoding="utf-8")
 
     page.write_text("hand-edited", encoding="utf-8")
@@ -506,21 +508,37 @@ def test_browse_html_flag_on_a_kept_guide(
 def test_browse_html_flag_replaces_the_page_when_the_guide_is_overwritten(
     browse_setup: list[str], guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
 ) -> None:
-    (tmp_path / "Watching Guide A video.md").write_text("mine", encoding="utf-8")
-    (tmp_path / "Watching Guide A video.html").write_text("old", encoding="utf-8")
+    (tmp_path / "Watching Guide - 20261008 - A video.md").write_text("mine", encoding="utf-8")
+    (tmp_path / "Watching Guide - 20261008 - A video.html").write_text("old", encoding="utf-8")
     args = ["browse", "3blue1brown", "-o", str(tmp_path), "--html", "--config", str(config_path)]
     result = RUNNER.invoke(APP, args, input="1\ny\n")
     assert result.exit_code == 0, result.output
-    assert "<h1>" in (tmp_path / "Watching Guide A video.html").read_text(encoding="utf-8")
+    assert "<h1>" in (tmp_path / "Watching Guide - 20261008 - A video.html").read_text(encoding="utf-8")
+
+
+def test_guide_without_upload_date_leaves_the_date_out_of_the_file_name(
+    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def undated_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
+        return VideoInfo(id=video_id, title="A video", duration=60)
+
+    monkeypatch.setattr(cli, "load_video_info", undated_info)
+    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--config", str(config_path)]
+    result = RUNNER.invoke(APP, args)
+    assert result.exit_code == 0, result.output
+    assert (tmp_path / "Watching Guide - A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
+    assert (tmp_path / "Watching Guide - A video.html").exists()
 
 
 def test_guide_html_members_only_video_gets_the_hint(
     guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def members_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
-        return VideoInfo(id=video_id, title="A video", duration=60, availability="subscriber_only")
+        return VideoInfo(
+            id=video_id, title="A video", duration=60, upload_date="20261008", availability="subscriber_only"
+        )
 
-    page = tmp_path / "Watching Guide A video.html"
+    page = tmp_path / "Watching Guide - 20261008 - A video.html"
     args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--config", str(config_path)]
     assert RUNNER.invoke(APP, args).exit_code == 0
     assert '<p class="members-hint">' not in page.read_text(encoding="utf-8").split("<body>")[1]

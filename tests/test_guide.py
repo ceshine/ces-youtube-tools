@@ -141,15 +141,25 @@ def test_clean_output(reply: str, expected: str) -> None:
 @pytest.mark.parametrize(
     ("title", "expected"),
     [
-        ("The Chief AI Officer Role", "Watching Guide The Chief AI Officer Role.md"),
-        ("Bonus Episode: October 8, 2026", "Watching Guide Bonus Episode October 8, 2026.md"),
-        ('A/B "test"?  <now>|', "Watching Guide A B test now.md"),
-        ("???", "Watching Guide abcdefghijk.md"),
+        ("The Chief AI Officer Role", "Watching Guide - 20261008 - The Chief AI Officer Role.md"),
+        ("Bonus Episode: October 8, 2026", "Watching Guide - 20261008 - Bonus Episode October 8, 2026.md"),
+        ('A/B "test"?  <now>|', "Watching Guide - 20261008 - A B test now.md"),
+        ("???", "Watching Guide - 20261008 - abcdefghijk.md"),
     ],
 )
 def test_guide_filename(title: str, expected: str) -> None:
-    assert guide_filename(VideoInfo(id="abcdefghijk", title=title)) == expected
+    assert guide_filename(VideoInfo(id="abcdefghijk", title=title, upload_date="20261008")) == expected
+
+
+@pytest.mark.parametrize(
+    "upload_date",
+    [None, "", "2026-10-08", "Oct 8", "2026W411", "99999999", "20261332", "20260230", "202610081", "٢٠٢٦١٠٠٨"],
+)
+def test_guide_filename_without_a_valid_upload_date(upload_date: str | None) -> None:
+    video = VideoInfo(id="abcdefghijk", title="A video", upload_date=upload_date)
+    assert guide_filename(video) == "Watching Guide - A video.md"
 
 
 def test_guide_filename_is_bounded() -> None:
-    assert len(guide_filename(VideoInfo(id="abcdefghijk", title="x" * 500))) <= 150
+    video = VideoInfo(id="abcdefghijk", title="x" * 500, upload_date="20261008")
+    assert len(guide_filename(video)) <= 150

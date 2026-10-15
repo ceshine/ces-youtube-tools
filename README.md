@@ -16,7 +16,7 @@ Members-only videos work too, if you are a member of the channel.
 ces-youtube-tools browse
   1. pick a channel from your config
   2. list its latest videos (yt-dlp, no cookies)  ─► pick one
-  3. fetch subtitles  ─►  build a prompt  ─►  `claude` CLI  ─►  "Watching Guide <title>.md"
+  3. fetch subtitles  ─►  build a prompt  ─►  `claude` CLI  ─►  "Watching Guide - <YYYYMMDD> - <title>.md"
 ```
 
 - **Listing** uses yt-dlp on the channel's upload playlists, without cookies.
@@ -147,8 +147,9 @@ and a cache write only adds cost. Set `prompt_caching = true` under `[guide.opti
 
 ## Where files go
 
-- **Guides:** `Watching Guide <title>.md` in `--output-dir`, else `guide.output_dir`, else the current directory. An
-  existing guide is not overwritten unless you pass `--force`.
+- **Guides:** `Watching Guide - <YYYYMMDD> - <title>.md`, named by the upload date (left out when unknown or
+  malformed), in `--output-dir`, else `guide.output_dir`, else the current directory. An existing guide is not
+  overwritten unless you pass `--force`.
 - **HTML pages:** `<same name>.html`, next to each guide.
 - **Cache:** `~/.cache/ces-youtube-tools/<video id>/` holds the video metadata, subtitles, transcript, and the prompt
   and raw reply of the last generation. A rerun repeats only the failed step; `--refresh` ignores the cache.

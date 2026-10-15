@@ -119,7 +119,7 @@ class FakeGenerator:
 
 
 TODAY = datetime.date(2026, 10, 9)
-GUIDE_VIDEO = VideoInfo(id="abcdefghijk", title="A video: part 1", duration=600)
+GUIDE_VIDEO = VideoInfo(id="abcdefghijk", title="A video: part 1", duration=600, upload_date="20261008")
 GUIDE_TRANSCRIPT = Transcript(
     video_id="abcdefghijk", source="fake", language="en", segments=[TranscriptSegment(start=0, end=1, text="hi")]
 )
@@ -131,7 +131,7 @@ def test_write_guide(tmp_path: Path) -> None:
     work_dir, output_dir = tmp_path / "work", tmp_path / "out" / "nested"
     work_dir.mkdir()
     result = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "Guide for $title", generator, work_dir, output_dir, TODAY)
-    assert result.path == output_dir / "Watching Guide A video part 1.md"
+    assert result.path == output_dir / "Watching Guide - 20261008 - A video part 1.md"
     assert (
         result.path.read_text(encoding="utf-8")
         == "# Guide\n\n[1:07](https://www.youtube.com/watch?v=abcdefghijk&t=67s)\n"
@@ -143,7 +143,7 @@ def test_write_guide(tmp_path: Path) -> None:
 
 
 def test_write_guide_refuses_to_overwrite_before_generating(tmp_path: Path) -> None:
-    existing = tmp_path / "Watching Guide A video part 1.md"
+    existing = tmp_path / "Watching Guide - 20261008 - A video part 1.md"
     existing.write_text("mine", encoding="utf-8")
     generator = FakeGenerator(REPLY)
     with pytest.raises(GuideError, match="already exists"):

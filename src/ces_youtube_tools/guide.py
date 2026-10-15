@@ -29,6 +29,7 @@ TEMPLATE_PLACEHOLDERS = {
 }
 _UNSAFE_FILENAME_CHARACTERS = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 _CODE_FENCE = re.compile(r"^```[\w-]*\n(.*)\n```$", re.DOTALL)
+_UPLOAD_DATE = re.compile(r"[0-9]{8}")
 
 
 class GuideError(Exception):
@@ -250,15 +251,37 @@ def clean_output(markdown: str) -> str:
     return text + "\n"
 
 
+def _is_valid_upload_date(upload_date: str | None) -> bool:
+    """Check that a yt-dlp upload date is a real calendar date written as `YYYYMMDD`.
+
+    Args:
+        upload_date (str | None): The date, or None if unknown.
+
+    Returns:
+        bool: True if the date is eight ASCII digits that form a valid date.
+    """
+    # The regex rejects the other forms `fromisoformat` accepts, such as `2026-10-08` and week dates.
+    if not upload_date or not _UPLOAD_DATE.fullmatch(upload_date):
+        return False
+    try:
+        datetime.date.fromisoformat(upload_date)
+    except ValueError:
+        return False
+    return True
+
+
 def guide_filename(video: VideoInfo) -> str:
-    """Build the guide's file name from the video title.
+    """Build the guide's file name from the video's upload date and title.
 
     Args:
         video (VideoInfo): The video.
 
     Returns:
-        str: For example `Watching Guide The Chief AI Officer Role.md`, without characters that are unsafe in file
-            names, and at most about 150 characters long.
+        str: For example `Watching Guide - 20261008 - The Chief AI Officer Role.md`, or
+            `Watching Guide - The Chief AI Officer Role.md` when the upload date is unknown or malformed. Characters
+            that are unsafe in file names are removed, and the name is at most about 150 characters long.
     """
-    title = " ".join(_UNSAFE_FILENAME_CHARACTERS.sub(" ", video.title).split())[:120].rstrip(" .") or video.id
-    return f"Watching Guide {title}.md"
+    title = " ".join(_UNSAFE_FILENAME_CHARACTERS.sub(" ", video.title).split())[:115].rstrip(" .") or video.id
+    if _is_valid_upload_date(video.upload_date):
+        return f"Watching Guide - {video.upload_date} - {title}.md"
+    return f"Watching Guide - {title}.md"

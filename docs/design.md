@@ -162,8 +162,9 @@ cd <session_dir> && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude --print --tools "" -
 4. **Checks** (`check_timestamp_links`, `clean_output`): every timestamp link's label is rewritten from its `t=`
    seconds, which come straight from the block markers; links past the video's end are reported. A code fence
    around the whole reply is removed.
-5. **Output**: `Watching Guide <title>.md` in `--output-dir`, else `guide.output_dir`, else the current directory.
-   An existing file is refused before generating (no wasted generation) unless `--force`.
+5. **Output**: `Watching Guide - <YYYYMMDD> - <title>.md`, named by the upload date (left out when unknown or
+   malformed), in `--output-dir`, else `guide.output_dir`, else the current directory. The date prefix makes guides
+   sort by upload date. An existing file is refused before generating (no wasted generation) unless `--force`.
 
 The default template asks for the structure of the hand-written sample guide: title, date and channel line, overview
 paragraph, "Watch the full video" and "How to use this guide" lines, then numbered segments with a linked range, a
