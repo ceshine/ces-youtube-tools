@@ -30,6 +30,10 @@ TEMPLATE_PLACEHOLDERS = {
 _UNSAFE_FILENAME_CHARACTERS = re.compile(r'[\\/:*?"<>|\x00-\x1f]+')
 _CODE_FENCE = re.compile(r"^```[\w-]*\n(.*)\n```$", re.DOTALL)
 _UPLOAD_DATE = re.compile(r"[0-9]{8}")
+# Most filesystems limit a file name to 255 bytes. With the dated prefix (28 bytes) and `.html` (5 bytes), a title of
+# at most 200 UTF-8 bytes keeps both the guide and its page within that limit, even for CJK titles.
+_MAX_TITLE_CHARACTERS = 115
+_MAX_TITLE_BYTES = 200
 
 
 class GuideError(Exception):
@@ -279,9 +283,14 @@ def guide_filename(video: VideoInfo) -> str:
     Returns:
         str: For example `Watching Guide - 20261008 - The Chief AI Officer Role.md`, or
             `Watching Guide - The Chief AI Officer Role.md` when the upload date is unknown or malformed. Characters
-            that are unsafe in file names are removed, and the name is at most about 150 characters long.
+            that are unsafe in file names are removed. The name is at most about 150 characters and at most 231 UTF-8
+            bytes long, so the `.html` page beside it also fits the common 255-byte limit.
     """
-    title = " ".join(_UNSAFE_FILENAME_CHARACTERS.sub(" ", video.title).split())[:115].rstrip(" .") or video.id
+    title = " ".join(_UNSAFE_FILENAME_CHARACTERS.sub(" ", video.title).split())[:_MAX_TITLE_CHARACTERS]
+    # Cutting the bytes can split a multi-byte code point; "ignore" drops the partial code point at the end. Both cuts
+    # work on code points, so a character built from several (an emoji sequence, a letter plus an accent) may be split.
+    title = title.encode("utf-8")[:_MAX_TITLE_BYTES].decode("utf-8", errors="ignore")
+    title = title.rstrip(" .") or video.id
     if _is_valid_upload_date(video.upload_date):
         return f"Watching Guide - {video.upload_date} - {title}.md"
     return f"Watching Guide - {title}.md"

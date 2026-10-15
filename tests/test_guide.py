@@ -1,5 +1,6 @@
 import re
 import datetime
+from pathlib import Path
 
 import pytest
 
@@ -163,3 +164,29 @@ def test_guide_filename_without_a_valid_upload_date(upload_date: str | None) -> 
 def test_guide_filename_is_bounded() -> None:
     video = VideoInfo(id="abcdefghijk", title="x" * 500, upload_date="20261008")
     assert len(guide_filename(video)) <= 150
+
+
+@pytest.mark.parametrize(
+    ("title", "kept_bytes"),
+    [
+        ("漢" * 500, 198),  # 66 three-byte characters
+        ("a" + "漢" * 500, 199),
+        ("ab" + "漢" * 500, 200),
+        ("😀" * 500, 200),  # 50 four-byte characters
+    ],
+)
+def test_guide_filename_fits_the_filesystem_byte_limit(title: str, kept_bytes: int) -> None:
+    name = guide_filename(VideoInfo(id="abcdefghijk", title=title, upload_date="20261008"))
+    page_name = name.removesuffix(".md") + ".html"
+    assert len(page_name.encode("utf-8")) <= 255
+    # Only whole code points are kept, and as many as fit in the byte limit.
+    kept = name.removeprefix("Watching Guide - 20261008 - ").removesuffix(".md")
+    assert title.startswith(kept)
+    assert len(kept.encode("utf-8")) == kept_bytes
+
+
+def test_guide_filename_writes_a_long_cjk_title(tmp_path: Path) -> None:
+    name = guide_filename(VideoInfo(id="abcdefghijk", title="漢" * 500, upload_date="20261008"))
+    (tmp_path / name).write_text("guide", encoding="utf-8")
+    (tmp_path / name).with_suffix(".html").write_text("page", encoding="utf-8")
+    assert (tmp_path / name).exists()
