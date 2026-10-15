@@ -3,7 +3,7 @@
 import errno
 import logging
 import functools
-from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
+from http.server import HTTPServer, ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +25,10 @@ class _GuideHandler(SimpleHTTPRequestHandler):
     """
 
     def _host_allowed(self) -> bool:
-        port = self.server.server_address[1]
+        server = self.server
+        if not isinstance(server, HTTPServer):
+            return False
+        port = server.server_port
         return self.headers.get("Host") in {f"{HOST}:{port}", f"localhost:{port}"}
 
     def do_GET(self) -> None:
