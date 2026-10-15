@@ -62,6 +62,10 @@ def make_transcript_provider(config: AppConfig, ytdlp: YtDlp) -> TranscriptProvi
     return factory(config, ytdlp)
 
 
+class CacheError(Exception):
+    """Raised when a work directory or a file in it cannot be written."""
+
+
 def work_dir_for(cache_dir: Path, video_id: str) -> Path:
     """Get a video's work directory, creating it if needed.
 
@@ -71,9 +75,17 @@ def work_dir_for(cache_dir: Path, video_id: str) -> Path:
 
     Returns:
         Path: The work directory.
+
+    Raises:
+        CacheError: If the directory cannot be created.
     """
     work_dir = cache_dir / video_id
-    work_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        work_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise CacheError(
+            f"Cannot create the work directory {work_dir} ({exc}). Check cache_dir in the configuration."
+        ) from exc
     return work_dir
 
 
@@ -85,15 +97,34 @@ def _load_cached[ModelT: BaseModel](path: Path, model: type[ModelT]) -> ModelT |
         model (type[ModelT]): The model class to validate the file with.
 
     Returns:
-        ModelT | None: The cached value, or None if the file is missing or invalid (it is then rebuilt).
+        ModelT | None: The cached value, or None if the file is missing, unreadable or invalid (it is then rebuilt).
     """
     if not path.exists():
         return None
     try:
         return model.model_validate_json(path.read_text(encoding="utf-8"))
-    except ValidationError as exc:
+    except (OSError, UnicodeDecodeError, ValidationError) as exc:
         LOGGER.warning("Ignoring invalid cache file %s: %s", path, exc)
         return None
+
+
+def _write_cache_text(path: Path, text: str) -> None:
+    """Write a text file in a work directory.
+
+    Args:
+        path (Path): The file.
+        text (str): Its content.
+
+    Returns:
+        None
+
+    Raises:
+        CacheError: If the file cannot be written.
+    """
+    try:
+        path.write_text(text, encoding="utf-8")
+    except OSError as exc:
+        raise CacheError(f"Cannot write the cache file {path} ({exc}).") from exc
 
 
 def _save(path: Path, value: BaseModel) -> None:
@@ -105,8 +136,11 @@ def _save(path: Path, value: BaseModel) -> None:
 
     Returns:
         None
+
+    Raises:
+        CacheError: If the file cannot be written.
     """
-    path.write_text(value.model_dump_json(indent=2), encoding="utf-8")
+    _write_cache_text(path, value.model_dump_json(indent=2))
 
 
 def load_video_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
@@ -123,6 +157,7 @@ def load_video_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool =
 
     Raises:
         YtDlpError: If yt-dlp fails, e.g. for a members-only video without a membership.
+        CacheError: If the metadata cannot be saved in the work directory.
     """
     cache_file = work_dir / "video.json"
     if not refresh and (cached := _load_cached(cache_file, VideoInfo)) is not None:
@@ -149,6 +184,7 @@ def load_transcript(
     Raises:
         TranscriptError: If the provider cannot produce a transcript.
         YtDlpError: If yt-dlp fails.
+        CacheError: If the transcript cannot be saved in the work directory.
     """
     cache_file = work_dir / "transcript.json"
     if not refresh and (cached := _load_cached(cache_file, Transcript)) is not None:
@@ -219,10 +255,12 @@ class GuideResult:
     Attributes:
         path (Path): Where the guide was written.
         links (LinkCheck): What the timestamp link check found and fixed.
+        raw_reply_error (str | None): Why the raw reply could not be saved in the work directory, or None if it was.
     """
 
     path: Path
     links: LinkCheck
+    raw_reply_error: str | None = None
 
 
 def write_guide(
@@ -238,7 +276,8 @@ def write_guide(
     """Generate a guide and write it to `output_dir`.
 
     The output path is checked before generating, so an existing guide does not cost a generation. The prompt and
-    the raw reply are kept in the work directory.
+    the raw reply are kept in the work directory. A raw reply that cannot be saved does not stop the guide from being
+    written; `GuideResult.raw_reply_error` says why.
 
     Args:
         video (VideoInfo): The video.
@@ -251,11 +290,12 @@ def write_guide(
         force (bool): Overwrite an existing guide file.
 
     Returns:
-        GuideResult: The guide's path and the link check result.
+        GuideResult: The guide's path, the link check result, and whether the raw reply was saved.
 
     Raises:
         GuideError: If the guide file exists and `force` is not set, the template is invalid, the output directory
             cannot be created, generation fails, or the guide file cannot be written.
+        CacheError: If the prompt cannot be saved in the work directory. This is checked before generating.
     """
     path = output_dir / guide_filename(video)
     if path.exists() and not force:
@@ -266,15 +306,22 @@ def write_guide(
         output_dir.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         raise GuideError(f"Cannot create the output directory {output_dir} ({exc}).") from exc
-    (work_dir / "prompt.md").write_text(prompt, encoding="utf-8")
+    _write_cache_text(work_dir / "prompt.md", prompt)
     reply = generator.generate(prompt, video, work_dir)
     raw_reply_path = work_dir / "guide.md"
-    raw_reply_path.write_text(reply, encoding="utf-8")
+    # The generation is already paid for, so a failed save of the raw reply must not stop the guide being written.
+    raw_reply_error: str | None = None
+    try:
+        _write_cache_text(raw_reply_path, reply)
+    except CacheError as exc:
+        raw_reply_error = str(exc)
     links = check_timestamp_links(clean_output(reply), video)
     try:
         path.write_text(links.markdown, encoding="utf-8")
     except OSError as exc:
-        raise GuideError(
-            f"Cannot write {path} ({exc}). The generator's raw reply is kept in {raw_reply_path}."
-        ) from exc
-    return GuideResult(path=path, links=links)
+        if raw_reply_error is None:
+            fallback = f"The generator's raw reply is kept in {raw_reply_path}."
+        else:
+            fallback = f"The raw reply could not be saved either, so the generation is lost: {raw_reply_error}"
+        raise GuideError(f"Cannot write {path} ({exc}). {fallback}") from exc
+    return GuideResult(path=path, links=links, raw_reply_error=raw_reply_error)

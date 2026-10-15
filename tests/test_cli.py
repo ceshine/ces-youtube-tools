@@ -221,6 +221,17 @@ def test_transcript(config_path: Path, tmp_path: Path, monkeypatch: pytest.Monke
     assert Transcript.model_validate_json(result.stdout).segments[1].text == "Next."
 
 
+def test_transcript_unusable_cache_dir_exits_1(config_path: Path, tmp_path: Path) -> None:
+    config = AppConfig(cache_dir=tmp_path / "cache")
+    config.auth.firefox_profile = Path("/p/abc.Profile 1")
+    save_config(config, config_path)
+    (tmp_path / "cache").write_text("not a directory", encoding="utf-8")
+    result = RUNNER.invoke(APP, ["transcript", "3i2C3IB3PaA", "--config", str(config_path)], env={"COLUMNS": "1000"})
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "Error: Cannot create the work directory" in result.output
+
+
 def test_transcript_bad_video(config_path: Path) -> None:
     save_config(AppConfig(), config_path)
     result = RUNNER.invoke(APP, ["transcript", "https://example.com/x", "--config", str(config_path)])
@@ -496,6 +507,27 @@ def test_guide_write_failure_exits_1_with_a_message(
     assert result.exception is None or isinstance(result.exception, SystemExit)
     assert "Error: Cannot write" in result.output
     assert "raw reply is kept in" in result.output
+
+
+def test_guide_unusable_cache_dir_exits_1(guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path) -> None:
+    (tmp_path / "cache").write_text("not a directory", encoding="utf-8")
+    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path / "out"), "--config", str(config_path)]
+    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "Error: Cannot create the work directory" in result.output
+    assert guide_setup.prompts == []
+
+
+def test_guide_warns_when_the_raw_reply_is_not_saved(
+    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
+) -> None:
+    (tmp_path / "cache" / "3i2C3IB3PaA" / "guide.md").mkdir(parents=True)
+    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path / "out"), "--config", str(config_path)]
+    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
+    assert result.exit_code == 0, result.output
+    assert "Warning: the raw reply was not kept in the cache: Cannot write the cache file" in result.output
+    assert (tmp_path / "out" / "Watching Guide - 20261008 - A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
 
 
 def test_guide_error_shows_square_brackets_in_the_title(

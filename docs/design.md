@@ -180,7 +180,10 @@ summary and two to eight timestamped highlights, and tables where the video comp
 - `transcript.json`: the `Transcript`.
 
 A rerun with a different generator reuses them, and a failed step is the only one repeated. `--refresh` ignores the
-cache. An unreadable cache file is logged and rebuilt.
+cache. An unreadable cache file is logged and rebuilt. A work directory or cache file that cannot be written stops the
+command with an error naming the path, before any generation (`CacheError`, or `TranscriptError` for the `subtitles/`
+folder). The one exception is the raw reply (`guide.md`), saved after the generation: if it cannot be written, the
+guide is still written and a warning is shown.
 
 ## Transcript step
 

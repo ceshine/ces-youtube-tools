@@ -83,6 +83,15 @@ def test_fetch_without_matching_track_lists_what_exists(tmp_path: Path) -> None:
     assert runner.calls == []
 
 
+def test_fetch_reports_an_unusable_subtitle_directory(tmp_path: Path) -> None:
+    (tmp_path / "subtitles").write_text("not a directory", encoding="utf-8")
+    runner = WritingRunner()
+    provider = YtDlpSubtitleProvider(YtDlp(["yt-dlp"], None, runner), LANGUAGES)
+    with pytest.raises(TranscriptError, match="Cannot create the subtitle directory"):
+        _ = provider.fetch(video(["en"], []), tmp_path)
+    assert runner.calls == []
+
+
 def test_fetch_when_no_file_is_written(tmp_path: Path) -> None:
     provider = YtDlpSubtitleProvider(YtDlp(["yt-dlp"], None, WritingRunner(write=False)), LANGUAGES)
     with pytest.raises(TranscriptError, match="did not write"):

@@ -36,7 +36,7 @@ from .firefox import (
     cookies_from_browser_spec,
 )
 from .youtube import VideoSummary, verify_login, resolve_channel, list_latest_videos
-from .pipeline import work_dir_for, load_transcript, load_video_info, make_transcript_provider
+from .pipeline import CacheError, work_dir_for, load_transcript, load_video_info, make_transcript_provider
 from .pipeline import write_guide, load_prompt_template, make_guide_generator
 from .claude_cli import GENERATOR_NAME, ClaudeCliOptions
 from .formatting import format_age, format_duration
@@ -541,7 +541,7 @@ def show_transcript(
             info = load_video_info(video_id, ytdlp, work_dir, refresh=refresh)
         with STDERR.status("Fetching transcript..."):
             transcript = load_transcript(info, provider, work_dir, refresh=refresh)
-    except (ValueError, YtDlpError, TranscriptError) as exc:
+    except (ValueError, YtDlpError, TranscriptError, CacheError) as exc:
         raise _fail(str(exc)) from exc
 
     STDERR.print(f"[bold]{info.title}[/bold] ({info.channel or 'unknown channel'})", highlight=False)
@@ -752,7 +752,7 @@ def _run_guide(
                 datetime.datetime.now().astimezone().date(),
                 force=force,
             )
-    except (ValueError, YtDlpError, TranscriptError, GuideError) as exc:
+    except (ValueError, YtDlpError, TranscriptError, GuideError, CacheError) as exc:
         raise _fail(str(exc)) from exc
 
     links = result.links
@@ -763,6 +763,12 @@ def _run_guide(
         STDERR.print(f"[yellow]Warning:[/yellow] links past the end of the video: {times}. Check those parts.")
     if links.links == 0:
         STDERR.print("[yellow]Warning:[/yellow] the guide has no timestamp links. Check the prompt template.")
+    if result.raw_reply_error is not None:
+        STDERR.print(
+            f"[yellow]Warning:[/yellow] the raw reply was not kept in the cache: {escape(result.raw_reply_error)}",
+            highlight=False,
+            soft_wrap=True,
+        )
     if html:
         _write_page(result.path, info.id, overwrite=True, members_only=info.availability == "subscriber_only")
 

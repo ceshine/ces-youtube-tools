@@ -73,7 +73,8 @@ class YtDlpSubtitleProvider:
             Transcript: The transcript.
 
         Raises:
-            TranscriptError: If no track matches the preferred languages, or the download produced no file.
+            TranscriptError: If no track matches the preferred languages, the subtitle directory cannot be created,
+                or the download produced no file.
             YtDlpError: If yt-dlp fails.
         """
         track = choose_track(video, self.languages)
@@ -85,7 +86,10 @@ class YtDlpSubtitleProvider:
                 f"{' ...' if len(video.auto_caption_languages) > 10 else ''}."
             )
         subtitle_dir = work_dir / "subtitles"
-        subtitle_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            subtitle_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            raise TranscriptError(f"Cannot create the subtitle directory {subtitle_dir} ({exc}).") from exc
         _ = self.ytdlp.run(
             [
                 "--skip-download",

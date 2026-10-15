@@ -11,6 +11,7 @@ from ces_youtube_tools.video import VideoInfo
 from ces_youtube_tools.ytdlp import YtDlp
 from ces_youtube_tools.config import AppConfig
 from ces_youtube_tools.pipeline import (
+    CacheError,
     write_guide,
     work_dir_for,
     load_transcript,
@@ -80,6 +81,36 @@ def test_invalid_cache_is_rebuilt(tmp_path: Path, caplog: pytest.LogCaptureFixtu
     assert info.title == "A video"
     assert len(runner.calls) == 1
     assert "Ignoring invalid cache file" in caplog.text
+
+
+def test_work_dir_for_reports_an_unusable_cache_dir(tmp_path: Path) -> None:
+    (tmp_path / "cache").write_text("not a directory", encoding="utf-8")
+    with pytest.raises(CacheError, match="Cannot create the work directory .*Check cache_dir"):
+        _ = work_dir_for(tmp_path / "cache", "abcdefghijk")
+
+
+def test_cache_with_invalid_utf8_is_rebuilt(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    (tmp_path / "video.json").write_bytes(b"\xff\xfe not utf-8")
+    runner = CountingRunner()
+    with caplog.at_level(logging.WARNING):
+        info = load_video_info("abcdefghijk", YtDlp(["yt-dlp"], None, runner), tmp_path)
+    assert info.title == "A video"
+    assert "Ignoring invalid cache file" in caplog.text
+
+
+def test_load_video_info_reports_a_failed_cache_write(tmp_path: Path) -> None:
+    # A directory in place of the cache file can be neither read (so it is ignored) nor written.
+    (tmp_path / "video.json").mkdir()
+    runner = CountingRunner()
+    with pytest.raises(CacheError, match=r"Cannot write the cache file .*video\.json"):
+        _ = load_video_info("abcdefghijk", YtDlp(["yt-dlp"], None, runner), tmp_path)
+    assert len(runner.calls) == 1
+
+
+def test_load_transcript_reports_a_failed_cache_write(tmp_path: Path) -> None:
+    (tmp_path / "transcript.json").mkdir()
+    with pytest.raises(CacheError, match=r"Cannot write the cache file .*transcript\.json"):
+        _ = load_transcript(VideoInfo(id="abcdefghijk", title="A video"), FakeProvider(), tmp_path)
 
 
 def test_load_transcript_caches(tmp_path: Path) -> None:
@@ -173,6 +204,33 @@ def test_write_guide_reports_a_failed_write_and_keeps_the_raw_reply(tmp_path: Pa
     with pytest.raises(GuideError, match="Cannot write .*raw reply is kept in"):
         _ = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "$title", generator, work_dir, output_dir, TODAY, force=True)
     assert (work_dir / "guide.md").read_text(encoding="utf-8") == REPLY
+
+
+def test_write_guide_reports_an_unsaved_prompt_before_generating(tmp_path: Path) -> None:
+    work_dir = tmp_path / "work"
+    (work_dir / "prompt.md").mkdir(parents=True)
+    generator = FakeGenerator(REPLY)
+    with pytest.raises(CacheError, match=r"Cannot write the cache file .*prompt\.md"):
+        _ = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "$title", generator, work_dir, tmp_path / "out", TODAY)
+    assert generator.prompts == []
+
+
+def test_write_guide_still_writes_the_guide_when_the_raw_reply_is_not_saved(tmp_path: Path) -> None:
+    work_dir = tmp_path / "work"
+    (work_dir / "guide.md").mkdir(parents=True)
+    result = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "$title", FakeGenerator(REPLY), work_dir, tmp_path, TODAY)
+    assert result.path.read_text(encoding="utf-8").startswith("# Guide")
+    assert result.raw_reply_error is not None
+    assert "Cannot write the cache file" in result.raw_reply_error
+
+
+def test_write_guide_says_when_the_generation_is_lost(tmp_path: Path) -> None:
+    work_dir, output_dir = tmp_path / "work", tmp_path / "out"
+    (work_dir / "guide.md").mkdir(parents=True)
+    (output_dir / "Watching Guide - 20261008 - A video part 1.md").mkdir(parents=True)
+    generator = FakeGenerator(REPLY)
+    with pytest.raises(GuideError, match="could not be saved either, so the generation is lost"):
+        _ = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "$title", generator, work_dir, output_dir, TODAY, force=True)
 
 
 def test_write_guide_rejects_bad_template_before_generating(tmp_path: Path) -> None:
