@@ -486,6 +486,18 @@ def test_guide_html_failure_keeps_the_guide_and_exits_1(
     assert (tmp_path / "Watching Guide - 20261008 - A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
 
 
+def test_guide_write_failure_exits_1_with_a_message(
+    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
+) -> None:
+    (tmp_path / "Watching Guide - 20261008 - A video.md").mkdir()
+    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--force", "--config", str(config_path)]
+    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
+    assert result.exit_code == 1
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "Error: Cannot write" in result.output
+    assert "raw reply is kept in" in result.output
+
+
 def test_browse_html_flag_on_a_kept_guide(
     browse_setup: list[str], guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
 ) -> None:

@@ -254,16 +254,27 @@ def write_guide(
         GuideResult: The guide's path and the link check result.
 
     Raises:
-        GuideError: If the guide file exists and `force` is not set, the template is invalid, or generation fails.
+        GuideError: If the guide file exists and `force` is not set, the template is invalid, the output directory
+            cannot be created, generation fails, or the guide file cannot be written.
     """
     path = output_dir / guide_filename(video)
     if path.exists() and not force:
         raise GuideError(f"{path} already exists. Use --force to overwrite it.")
     prompt = render_prompt(template, video, transcript, today)
+    # Create the directory before generating, so a bad output directory does not cost a generation.
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise GuideError(f"Cannot create the output directory {output_dir} ({exc}).") from exc
     (work_dir / "prompt.md").write_text(prompt, encoding="utf-8")
     reply = generator.generate(prompt, video, work_dir)
-    (work_dir / "guide.md").write_text(reply, encoding="utf-8")
+    raw_reply_path = work_dir / "guide.md"
+    raw_reply_path.write_text(reply, encoding="utf-8")
     links = check_timestamp_links(clean_output(reply), video)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    path.write_text(links.markdown, encoding="utf-8")
+    try:
+        path.write_text(links.markdown, encoding="utf-8")
+    except OSError as exc:
+        raise GuideError(
+            f"Cannot write {path} ({exc}). The generator's raw reply is kept in {raw_reply_path}."
+        ) from exc
     return GuideResult(path=path, links=links)

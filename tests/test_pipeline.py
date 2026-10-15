@@ -154,6 +154,27 @@ def test_write_guide_refuses_to_overwrite_before_generating(tmp_path: Path) -> N
     assert existing.read_text(encoding="utf-8").startswith("# Guide")
 
 
+def test_write_guide_checks_the_output_directory_before_generating(tmp_path: Path) -> None:
+    (tmp_path / "a-file").write_text("not a directory", encoding="utf-8")
+    generator = FakeGenerator(REPLY)
+    with pytest.raises(GuideError, match="Cannot create the output directory"):
+        _ = write_guide(
+            GUIDE_VIDEO, GUIDE_TRANSCRIPT, "$title", generator, tmp_path, tmp_path / "a-file" / "out", TODAY
+        )
+    assert generator.prompts == []
+
+
+def test_write_guide_reports_a_failed_write_and_keeps_the_raw_reply(tmp_path: Path) -> None:
+    work_dir, output_dir = tmp_path / "work", tmp_path / "out"
+    work_dir.mkdir()
+    # A directory where the guide should go makes the write fail after generating.
+    (output_dir / "Watching Guide - 20261008 - A video part 1.md").mkdir(parents=True)
+    generator = FakeGenerator(REPLY)
+    with pytest.raises(GuideError, match="Cannot write .*raw reply is kept in"):
+        _ = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "$title", generator, work_dir, output_dir, TODAY, force=True)
+    assert (work_dir / "guide.md").read_text(encoding="utf-8") == REPLY
+
+
 def test_write_guide_rejects_bad_template_before_generating(tmp_path: Path) -> None:
     generator = FakeGenerator(REPLY)
     with pytest.raises(GuideError, match="Unknown placeholder"):
