@@ -32,6 +32,7 @@ from .config import AppConfig
 from .subtitles import PROVIDER_NAME as SUBTITLES_PROVIDER, YtDlpSubtitleProvider
 from .claude_cli import GENERATOR_NAME as CLAUDE_CLI_GENERATOR, ClaudeCliOptions, ClaudeCliGenerator
 from .transcript import Transcript, TranscriptProvider
+from .front_matter import metadata_from_video, render_front_matter
 
 LOGGER = logging.getLogger(__name__)
 
@@ -273,7 +274,7 @@ def write_guide(
     today: datetime.date,
     force: bool = False,
 ) -> GuideResult:
-    """Generate a guide and write it to `output_dir`.
+    """Generate a guide and write it to `output_dir`, with the video's metadata as front matter.
 
     The output path is checked before generating, so an existing guide does not cost a generation. The prompt and
     the raw reply are kept in the work directory. A raw reply that cannot be saved does not stop the guide from being
@@ -316,8 +317,9 @@ def write_guide(
     except CacheError as exc:
         raw_reply_error = str(exc)
     links = check_timestamp_links(clean_output(reply), video)
+    front_matter = render_front_matter(metadata_from_video(video, today))
     try:
-        path.write_text(links.markdown, encoding="utf-8")
+        path.write_text(front_matter + links.markdown, encoding="utf-8")
     except OSError as exc:
         if raw_reply_error is None:
             fallback = f"The generator's raw reply is kept in {raw_reply_path}."

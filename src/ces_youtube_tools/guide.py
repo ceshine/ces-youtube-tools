@@ -255,23 +255,22 @@ def clean_output(markdown: str) -> str:
     return text + "\n"
 
 
-def _is_valid_upload_date(upload_date: str | None) -> bool:
-    """Check that a yt-dlp upload date is a real calendar date written as `YYYYMMDD`.
+def parse_upload_date(upload_date: str | None) -> datetime.date | None:
+    """Parse a yt-dlp upload date written as `YYYYMMDD`.
 
     Args:
         upload_date (str | None): The date, or None if unknown.
 
     Returns:
-        bool: True if the date is eight ASCII digits that form a valid date.
+        datetime.date | None: The date, or None if it is unknown or not eight ASCII digits that form a valid date.
     """
     # The regex rejects the other forms `fromisoformat` accepts, such as `2026-10-08` and week dates.
     if not upload_date or not _UPLOAD_DATE.fullmatch(upload_date):
-        return False
+        return None
     try:
-        datetime.date.fromisoformat(upload_date)
+        return datetime.date.fromisoformat(upload_date)
     except ValueError:
-        return False
-    return True
+        return None
 
 
 def guide_filename(video: VideoInfo) -> str:
@@ -291,6 +290,6 @@ def guide_filename(video: VideoInfo) -> str:
     # work on code points, so a character built from several (an emoji sequence, a letter plus an accent) may be split.
     title = title.encode("utf-8")[:_MAX_TITLE_BYTES].decode("utf-8", errors="ignore")
     title = title.rstrip(" .") or video.id
-    if _is_valid_upload_date(video.upload_date):
+    if parse_upload_date(video.upload_date) is not None:
         return f"Watching Guide - {video.upload_date} - {title}.md"
     return f"Watching Guide - {title}.md"

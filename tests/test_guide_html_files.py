@@ -57,6 +57,38 @@ def test_write_guide_page_without_video_id_names_the_file(guides: Path) -> None:
     assert not (guides / "nolinks.html").exists()
 
 
+def test_write_guide_page_reads_the_front_matter(guides: Path) -> None:
+    front_matter = "---\nvideo_id: BBBBBBBBBBB\nmembers_only: true\n---\n\n"
+    (guides / "a.md").write_text(front_matter + FIXTURE.read_text(encoding="utf-8"), encoding="utf-8")
+    page = write_guide_page(guides / "a.md").read_text(encoding="utf-8")
+    body = page.split("<body>")[1]
+    assert 'var VIDEO_ID = "BBBBBBBBBBB";' in page
+    assert '<p class="members-hint">' in body
+    assert "video_id" not in body
+    assert "<hr" not in body
+
+
+def test_write_guide_page_explicit_id_beats_front_matter(guides: Path) -> None:
+    (guides / "nolinks.md").write_text("---\nvideo_id: BBBBBBBBBBB\n---\n# No links\n", encoding="utf-8")
+    page = write_guide_page(guides / "nolinks.md", video_id="AAAAAAAAAAA").read_text(encoding="utf-8")
+    assert 'var VIDEO_ID = "AAAAAAAAAAA";' in page
+
+
+def test_write_guide_page_without_members_only_in_front_matter_has_no_hint(guides: Path) -> None:
+    (guides / "nolinks.md").write_text(
+        "---\nvideo_id: BBBBBBBBBBB\nmembers_only: null\n---\n# No links\n", encoding="utf-8"
+    )
+    page = write_guide_page(guides / "nolinks.md").read_text(encoding="utf-8")
+    assert '<p class="members-hint">' not in page.split("<body>")[1]
+
+
+def test_write_guide_page_invalid_front_matter_names_the_file(guides: Path) -> None:
+    (guides / "a.md").write_text("---\nmembers_only: maybe\n---\n# Guide\n", encoding="utf-8")
+    with pytest.raises(GuideHtmlError, match=r"a\.md: invalid front matter"):
+        write_guide_page(guides / "a.md")
+    assert not (guides / "a.html").exists()
+
+
 def test_expand_paths_single_file(guides: Path) -> None:
     assert expand_paths(["a.md"], guides) == [guides / "a.md"]
 

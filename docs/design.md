@@ -165,6 +165,8 @@ cd <session_dir> && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude --print --tools "" -
 5. **Output**: `Watching Guide - <YYYYMMDD> - <title>.md`, named by the upload date (left out when unknown or
    malformed), in `--output-dir`, else `guide.output_dir`, else the current directory. The date prefix makes guides
    sort by upload date. An existing file is refused before generating (no wasted generation) unless `--force`.
+   The file starts with front matter written from `VideoInfo` (see "Guides stay Markdown, with front matter"
+   below); the raw reply in the work directory has none.
 
 The default template asks for the structure of the hand-written sample guide: title, date and channel line, overview
 paragraph, "Watch the full video" and "How to use this guide" lines, then numbered segments with a linked range, a
@@ -249,10 +251,11 @@ built:
   for them when a video compares items), `javascript:` and similar link targets are rejected by markdown-it itself,
   and `typographer` with smart quotes turns `"quotes"` and `--` into curly quotes and an en dash. Pandoc (an external
   binary) and rendering in the browser (needs JavaScript and a network connection to show anything) were rejected.
-- The video is found from the guide's own links (the most common `v=` value; a link that cannot be parsed is
-  skipped). `render_guide_page` rejects any ID that is not 11 characters of `A-Za-z0-9_-`, whichever caller passed it,
-  because the template puts the ID in a URL and a JavaScript string without escaping. This check is what keeps the
-  template safe. `html` reports a guide with no video link and skips it; `--html` passes the video's ID itself.
+- The video is found from the front matter's `video_id`, else from the guide's own links (the most common `v=`
+  value; a link that cannot be parsed is skipped). `render_guide_page` rejects any ID that is not 11 characters of
+  `A-Za-z0-9_-`, whichever caller passed it, because the template puts the ID in a URL and a JavaScript string
+  without escaping. This check is what keeps the template safe. `html` reports a guide with no video link and skips
+  it; `--html` passes the video's ID itself.
 - `guide --html` and `browse --html` write the page next to the new guide, after the guide is written, from the
   corrected Markdown. The page is replaced whenever the guide is written (a new guide, `guide --force`, or an
   overwrite confirmed in `browse`), so it never lags behind the guide. When `browse` keeps an existing guide, the
@@ -288,7 +291,8 @@ built:
 - For a members-only video (yt-dlp `availability` is `subscriber_only`), `--html` adds a static hint under the player
   (`$members_hint` in the template): if the player asks the viewer to join, the browser is not sending the YouTube
   sign-in to the iframe, and in Firefox the fix is to turn off Enhanced Tracking Protection for the page. The hint is
-  hidden together with the player. `html PATH` does not know the availability, so its pages have no hint.
+  hidden together with the player. `html PATH` takes it from the guide's front matter (`members_only: true`), so
+  guides written before front matter existed get no hint.
 - Light theme only. Fonts (Literata, Inter) come from Google Fonts with `display=swap`, so system fonts show at once
   when offline.
 - The code is in `guide_html.py`, not `html.py`, which would shadow the standard library's `html` in some imports and
@@ -330,6 +334,100 @@ built:
    (verified in Firefox, see the implementation notes); the page cannot detect the case. Still to check by hand:
    Chrome cookie settings and embedding turned off (see the plan). `youtube-nocookie.com` was ruled out as a default
    (see "Out of scope" in the plan).
+7. Guide metadata and a published site: front matter (done), then backfilling older guides and the `site` command
+   (planned). See "Planned: guide metadata and a private site" below.
+
+## Planned: guide metadata and a private site
+
+Publish the HTML pages as a static site on Cloudflare Pages, with an index page, so guides can be read on any device
+without `serve`. A real HTTPS origin also satisfies the embedded player, which refuses `file://` pages.
+
+### Guides stay Markdown, with front matter
+
+The model keeps writing Markdown. Switching its output to JSON was rejected:
+
+- The page depends only on timestamp links, not on the guide's structure (see "HTML pages and `serve`"). A Markdown
+  reply that drifts from the prompt still renders; a JSON reply that drifts fails to parse and the generation is lost.
+- Exact quotes in double quotes would all need escaping inside JSON strings, and tables would become nested arrays.
+- The `.md` file must stay readable and hand-editable, and hand-written guides must keep working with `html`.
+- `GuideGenerator` returns a string. A JSON contract would require structured output from every future generator.
+- What the index page needs is metadata, which comes from `VideoInfo`, not from the model. Structure the site may want
+  later (a table of contents, a one-paragraph blurb) can be read from markdown-it tokens, as `guide_title` does.
+
+The tool, not the model, writes front matter at the top of each guide (`front_matter.py`, done). `write_guide`
+fills it from `VideoInfo`:
+
+```yaml
+---
+video_id: abcdefghijk
+title: 'A video: part 1'          # the YouTube title, not the guide's heading
+channel: A channel
+channel_id: UCxxxxxxxxxxxxxxxxxxxxxx
+upload_date: 2026-10-08           # null when unknown or malformed
+duration: 600                     # seconds
+members_only: false               # true for availability subscriber_only; null when yt-dlp did not report it
+generated: 2026-10-09
+---
+```
+
+- Format: YAML between `---` lines, which most Markdown tools read (Obsidian, Eleventy, Pandoc). It is written and
+  read with PyYAML (`safe_dump`, `safe_load`) and validated with a Pydantic model (`GuideMetadata`). PyYAML quotes
+  strings that would read back as another type (a title such as `yes` or `2026`), which a hand-rolled writer would
+  get wrong. Every key is always written, unknown values as `null`, so all guides have the same shape. Lines are
+  never folded, so a long title stays on one line.
+- Reading: front matter starts at a `---` first line and ends at the next `---` line; without both, the whole file
+  is Markdown. Every field is optional and unknown keys (for example, tags added in a notes app) are ignored, because
+  a guide may be hand-edited. Invalid YAML, a block that is not `key: value` lines, or a value of the wrong type is
+  an error that names the file (and, for invalid YAML, the line). A hand-written guide whose first line is a `---`
+  rule is read as front matter, as in Jekyll, Eleventy and Pandoc; start it with a blank line instead.
+- `guide_html` removes the front matter before rendering (otherwise markdown-it would show it as a rule and a
+  heading) and takes the video ID and the members-only hint from it when the caller does not pass them. Guides
+  without front matter fall back to the links. A `video_id` from the front matter is still checked by
+  `render_guide_page`, like any other.
+- `members_only` has three states. The `site` command will treat `null` (unknown) as members-only.
+- The generator and model are not recorded yet: `GuideGenerator` does not report them. Add them if comparing guides
+  across models becomes useful.
+- Older guides can be backfilled from the cached `video.json` (the video ID comes from the guide's links). Not built
+  yet.
+
+### `site` command
+
+`ces-youtube-tools site [DIR] -o OUT` (planned) writes the whole site into `OUT`: one page per guide, `index.html`,
+`robots.txt` and a `_headers` file. Deploying is `npx wrangler pages deploy OUT`, kept outside the tool.
+
+- Built in Python with the existing page template, not with a static site generator such as Eleventy. Eleventy would
+  add a Node toolchain to repeat rendering this project already does, and its Markdown setup passes raw HTML through
+  by default, undoing `"html": False`, which keeps a `<script>` in model output from running.
+- The index lists guides newest upload first, with channel, length and a members-only badge.
+- `OUT` is rebuilt from scratch on every run, because a deployment uploads every file in the folder and a stale page
+  would stay published. To avoid deleting the wrong folder, `site` only clears a folder it created (marked by a file
+  it writes there).
+
+### Access: the site is private
+
+Hiding the site is not enough; it must be private. `robots.txt` only asks crawlers to stay away. Links leak through
+browser history sync, shared links and referrers, and `*.pages.dev` host names are public. An index page puts every
+guide one click from the front page.
+
+- The whole Pages project is behind Cloudflare Access, with a policy that allows only the owner's email. This covers
+  every host name that serves the project: `<project>.pages.dev`, the preview deployments (`*.<project>.pages.dev`)
+  and any custom domain. An uncovered host name serves the whole site to anyone.
+- `X-Robots-Tag: noindex` (in `_headers`) and a `robots.txt` that disallows everything are extra layers, not the
+  protection.
+- Members-only guides are left out of a build unless `--include-members-only` is given. A guide without front matter
+  (availability unknown) counts as members-only. This keeps them unpublished if the Access policy is ever missing or
+  misconfigured.
+- Why members-only guides need this: a guide carries the substance of the video (every segment summarized, exact
+  quotes, numbers, tables), which is what members pay for. YouTube's player blocks the video for non-members, but
+  that check does not cover the guide's text. Publishing it would distribute a derivative of the creator's
+  members-only content, and the video IDs tie it to the owner's membership.
+- Check after setting up or changing Access, without a browser session: every host name must answer with a redirect
+  to `<team>.cloudflareaccess.com`, not with the page.
+
+  ```
+  curl -sI https://<project>.pages.dev/ | grep -i -E '^(HTTP|location)'
+  curl -sI https://<hash>.<project>.pages.dev/ | grep -i -E '^(HTTP|location)'
+  ```
 
 ## Planned: interactive config session
 

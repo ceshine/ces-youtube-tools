@@ -9,6 +9,7 @@ requires-python = ">=3.13"
 dependencies = [
     "markdown-it-py>=4.2.0",
     "pydantic>=2.14.0",
+    "pyyaml>=6.0.3",
     "questionary>=2.1.1",
     "rich>=15.0.0",
     "tomli-w>=1.2.0",
@@ -32,4 +33,5 @@ extend-ignore = ["I001"]
 [dependency-groups]
 dev = [
     "pytest>=9.1.1",
+    "types-pyyaml>=6.0.12.20260906",
 ]

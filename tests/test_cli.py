@@ -10,6 +10,7 @@ from ces_youtube_tools.ytdlp import YtDlp, YtDlpError
 from ces_youtube_tools.config import AppConfig, load_config, save_config, ChannelConfig
 from ces_youtube_tools.youtube import VideoSummary
 from ces_youtube_tools.transcript import Transcript, TranscriptSegment
+from ces_youtube_tools.front_matter import split_front_matter
 
 RUNNER = CliRunner()
 CHANNEL = ChannelConfig(name="3Blue1Brown", url="https://www.youtube.com/@3blue1brown", channel_id="UCYO")
@@ -239,6 +240,10 @@ def test_transcript_bad_video(config_path: Path) -> None:
     assert "Not a YouTube video" in result.output
 
 
+def guide_body(path: Path) -> str:
+    return split_front_matter(path.read_text(encoding="utf-8"))[1]
+
+
 GUIDE_REPLY = "# Watching Guide: A video\n\n[0:05](https://www.youtube.com/watch?v=3i2C3IB3PaA&t=5s)\n"
 
 
@@ -280,7 +285,7 @@ def test_guide_writes_to_the_current_directory_by_default(
     monkeypatch.chdir(workdir)
     result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "--config", str(config_path)], env={"COLUMNS": "300"})
     assert result.exit_code == 0, result.output
-    assert (workdir / "Watching Guide - 20261008 - A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
+    assert guide_body(workdir / "Watching Guide - 20261008 - A video.md") == GUIDE_REPLY
     assert "Using the built-in prompt template" in result.output
     assert "1 timestamp links, 0 labels corrected." in result.output
     assert "[0:05 | 5s] Hello." in guide_setup.prompts[0]
@@ -415,7 +420,7 @@ def test_browse_channel_argument_and_overwrite_prompt(
 
     result = RUNNER.invoke(APP, args, input="1\ny\n")
     assert result.exit_code == 0, result.output
-    assert existing.read_text(encoding="utf-8") == GUIDE_REPLY
+    assert guide_body(existing) == GUIDE_REPLY
 
 
 @pytest.mark.parametrize("answers", ["q\n", "1\nq\n"])
@@ -476,7 +481,7 @@ def test_guide_force_html_replaces_the_existing_page(
     args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--force", "--config", str(config_path)]
     result = RUNNER.invoke(APP, args)
     assert result.exit_code == 0, result.output
-    assert (tmp_path / "Watching Guide - 20261008 - A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
+    assert guide_body(tmp_path / "Watching Guide - 20261008 - A video.md") == GUIDE_REPLY
     assert 'var VIDEO_ID = "3i2C3IB3PaA";' in (tmp_path / "Watching Guide - 20261008 - A video.html").read_text(
         encoding="utf-8"
     )
@@ -494,7 +499,7 @@ def test_guide_html_failure_keeps_the_guide_and_exits_1(
     result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--config", str(config_path)])
     assert result.exit_code == 1
     assert "cannot write the page" in result.output
-    assert (tmp_path / "Watching Guide - 20261008 - A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
+    assert guide_body(tmp_path / "Watching Guide - 20261008 - A video.md") == GUIDE_REPLY
 
 
 def test_guide_write_failure_exits_1_with_a_message(
@@ -527,7 +532,7 @@ def test_guide_warns_when_the_raw_reply_is_not_saved(
     result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
     assert result.exit_code == 0, result.output
     assert "Warning: the raw reply was not kept in the cache: Cannot write the cache file" in result.output
-    assert (tmp_path / "out" / "Watching Guide - 20261008 - A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
+    assert guide_body(tmp_path / "out" / "Watching Guide - 20261008 - A video.md") == GUIDE_REPLY
 
 
 def test_guide_error_shows_square_brackets_in_the_title(
@@ -597,7 +602,7 @@ def test_guide_without_upload_date_leaves_the_date_out_of_the_file_name(
     args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--config", str(config_path)]
     result = RUNNER.invoke(APP, args)
     assert result.exit_code == 0, result.output
-    assert (tmp_path / "Watching Guide - A video.md").read_text(encoding="utf-8") == GUIDE_REPLY
+    assert guide_body(tmp_path / "Watching Guide - A video.md") == GUIDE_REPLY
     assert (tmp_path / "Watching Guide - A video.html").exists()
 
 

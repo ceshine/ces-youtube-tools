@@ -23,6 +23,7 @@ from ces_youtube_tools.pipeline import (
 from ces_youtube_tools.subtitles import YtDlpSubtitleProvider
 from ces_youtube_tools.claude_cli import ClaudeCliGenerator
 from ces_youtube_tools.transcript import Transcript, TranscriptSegment
+from ces_youtube_tools.front_matter import split_front_matter
 
 VIDEO_JSON = {"id": "abcdefghijk", "title": "A video", "formats": [{"url": "https://signed.example/x"}]}
 
@@ -154,6 +155,12 @@ GUIDE_VIDEO = VideoInfo(id="abcdefghijk", title="A video: part 1", duration=600,
 GUIDE_TRANSCRIPT = Transcript(
     video_id="abcdefghijk", source="fake", language="en", segments=[TranscriptSegment(start=0, end=1, text="hi")]
 )
+
+
+def guide_body(path: Path) -> str:
+    return split_front_matter(path.read_text(encoding="utf-8"))[1]
+
+
 REPLY = "```markdown\n# Guide\n\n[1:10](https://www.youtube.com/watch?v=abcdefghijk&t=67s)\n```"
 
 
@@ -163,9 +170,19 @@ def test_write_guide(tmp_path: Path) -> None:
     work_dir.mkdir()
     result = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "Guide for $title", generator, work_dir, output_dir, TODAY)
     assert result.path == output_dir / "Watching Guide - 20261008 - A video part 1.md"
-    assert (
-        result.path.read_text(encoding="utf-8")
-        == "# Guide\n\n[1:07](https://www.youtube.com/watch?v=abcdefghijk&t=67s)\n"
+    assert result.path.read_text(encoding="utf-8") == (
+        "---\n"
+        "video_id: abcdefghijk\n"
+        "title: 'A video: part 1'\n"
+        "channel: null\n"
+        "channel_id: null\n"
+        "upload_date: 2026-10-08\n"
+        "duration: 600\n"
+        "members_only: null\n"
+        "generated: 2026-10-09\n"
+        "---\n"
+        "\n"
+        "# Guide\n\n[1:07](https://www.youtube.com/watch?v=abcdefghijk&t=67s)\n"
     )
     assert (result.links.links, result.links.relabeled) == (1, 1)
     assert generator.prompts == ["Guide for A video: part 1"]
@@ -182,7 +199,7 @@ def test_write_guide_refuses_to_overwrite_before_generating(tmp_path: Path) -> N
     assert generator.prompts == []
     assert existing.read_text(encoding="utf-8") == "mine"
     _ = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "$title", generator, tmp_path, tmp_path, TODAY, force=True)
-    assert existing.read_text(encoding="utf-8").startswith("# Guide")
+    assert guide_body(existing).startswith("# Guide")
 
 
 def test_write_guide_checks_the_output_directory_before_generating(tmp_path: Path) -> None:
@@ -219,7 +236,7 @@ def test_write_guide_still_writes_the_guide_when_the_raw_reply_is_not_saved(tmp_
     work_dir = tmp_path / "work"
     (work_dir / "guide.md").mkdir(parents=True)
     result = write_guide(GUIDE_VIDEO, GUIDE_TRANSCRIPT, "$title", FakeGenerator(REPLY), work_dir, tmp_path, TODAY)
-    assert result.path.read_text(encoding="utf-8").startswith("# Guide")
+    assert guide_body(result.path).startswith("# Guide")
     assert result.raw_reply_error is not None
     assert "Cannot write the cache file" in result.raw_reply_error
 

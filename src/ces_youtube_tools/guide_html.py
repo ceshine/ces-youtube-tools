@@ -11,6 +11,8 @@ from collections import Counter
 
 from markdown_it import MarkdownIt
 
+from .front_matter import FrontMatterError, split_front_matter
+
 LOGGER = logging.getLogger(__name__)
 
 _TITLE_PREFIX = "Watching Guide:"
@@ -106,7 +108,7 @@ def render_guide_page(markdown: str, video_id: str, fallback_title: str, members
     """Build the full HTML page for a guide, with the video's player embedded.
 
     Args:
-        markdown (str): The guide.
+        markdown (str): The guide, without front matter.
         video_id (str): The YouTube video ID. It is put into a URL and a JavaScript string without escaping, so it
             must be 11 characters from `A-Z`, `a-z`, `0-9`, `_` and `-`.
         fallback_title (str): The page title to use when the guide has no level-one heading.
@@ -134,30 +136,39 @@ def write_guide_page(
 ) -> Path:
     """Convert a Markdown guide file to an HTML page file next to it.
 
+    The guide's front matter, if any, is left out of the page. It supplies the video ID and the members-only hint
+    when the arguments do not.
+
     Args:
         markdown_path (Path): The guide.
-        video_id (str | None): The video ID. None means to read it from the guide's links.
+        video_id (str | None): The video ID. None means to read it from the front matter, else the guide's links.
         overwrite (bool): Replace the page if it already exists.
-        members_only (bool): The video is members-only, so the page gets a hint about the player.
+        members_only (bool): The video is members-only, so the page gets a hint about the player. The hint is also
+            added when the front matter says so.
 
     Returns:
         Path: The page, named like the guide with an `.html` suffix.
 
     Raises:
         PageExistsError: If the page exists and `overwrite` is False. Nothing is read or written.
-        GuideHtmlError: If the guide cannot be read, has no video ID, or the ID is invalid. The message names the
-            file.
+        GuideHtmlError: If the guide cannot be read, its front matter is invalid, it has no video ID, or the ID is
+            invalid. The message names the file.
     """
     target = markdown_path.with_suffix(".html")
     if target.exists() and not overwrite:
         raise PageExistsError(f"{target} already exists")
     try:
-        markdown = markdown_path.read_text(encoding="utf-8")
+        text = markdown_path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
         raise GuideHtmlError(f"{markdown_path}: cannot read the guide ({exc})") from exc
-    video_id = video_id or find_video_id(markdown)
+    try:
+        metadata, markdown = split_front_matter(text)
+    except FrontMatterError as exc:
+        raise GuideHtmlError(f"{markdown_path}: {exc}") from exc
+    video_id = video_id or metadata.video_id or find_video_id(markdown)
     if video_id is None:
         raise GuideHtmlError(f"{markdown_path}: no YouTube video link found, so the video is unknown")
+    members_only = members_only or metadata.members_only is True
     try:
         page = render_guide_page(markdown, video_id, markdown_path.stem, members_only)
     except GuideHtmlError as exc:
