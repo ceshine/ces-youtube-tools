@@ -455,53 +455,6 @@ def test_browse_errors(config_path: Path) -> None:
     assert "Configured channels: 3Blue1Brown" in result.output
 
 
-def test_guide_html_flag_writes_the_page_next_to_the_guide(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
-) -> None:
-    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--config", str(config_path)])
-    assert result.exit_code == 0, result.output
-    page = (tmp_path / "Watching Guide - 20261008 - A video.html").read_text(encoding="utf-8")
-    assert 'var VIDEO_ID = "3i2C3IB3PaA";' in page
-    assert "<title>A video</title>" in page
-
-
-def test_guide_without_html_flag_writes_no_page(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
-) -> None:
-    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)])
-    assert result.exit_code == 0, result.output
-    assert not list(tmp_path.glob("*.html"))
-
-
-def test_guide_force_html_replaces_the_existing_page(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
-) -> None:
-    (tmp_path / "Watching Guide - 20261008 - A video.md").write_text("old", encoding="utf-8")
-    (tmp_path / "Watching Guide - 20261008 - A video.html").write_text("old", encoding="utf-8")
-    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--force", "--config", str(config_path)]
-    result = RUNNER.invoke(APP, args)
-    assert result.exit_code == 0, result.output
-    assert guide_body(tmp_path / "Watching Guide - 20261008 - A video.md") == GUIDE_REPLY
-    assert 'var VIDEO_ID = "3i2C3IB3PaA";' in (tmp_path / "Watching Guide - 20261008 - A video.html").read_text(
-        encoding="utf-8"
-    )
-
-
-def test_guide_html_failure_keeps_the_guide_and_exits_1(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def fail(
-        markdown_path: Path, video_id: str | None = None, overwrite: bool = False, members_only: bool = False
-    ) -> Path:
-        raise cli.GuideHtmlError(f"{markdown_path}: cannot write the page")
-
-    monkeypatch.setattr(cli, "write_guide_page", fail)
-    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--config", str(config_path)])
-    assert result.exit_code == 1
-    assert "cannot write the page" in result.output
-    assert guide_body(tmp_path / "Watching Guide - 20261008 - A video.md") == GUIDE_REPLY
-
-
 def test_guide_write_failure_exits_1_with_a_message(
     guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
 ) -> None:
@@ -562,36 +515,6 @@ def test_guide_error_keeps_the_ytdlp_extractor_tag(
     assert "ERROR: [youtube] 3i2C3IB3PaA: Join this channel" in result.output
 
 
-def test_browse_html_flag_on_a_kept_guide(
-    browse_setup: list[str], guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
-) -> None:
-    existing = tmp_path / "Watching Guide - 20261008 - A video.md"
-    existing.write_text("mine", encoding="utf-8")
-    args = ["browse", "3blue1brown", "-o", str(tmp_path), "--html", "--config", str(config_path)]
-    result = RUNNER.invoke(APP, args, input="1\nn\n")
-    assert result.exit_code == 0, result.output
-    assert guide_setup.prompts == []
-    page = tmp_path / "Watching Guide - 20261008 - A video.html"
-    assert "aaaaaaaaaaa" in page.read_text(encoding="utf-8")
-
-    page.write_text("hand-edited", encoding="utf-8")
-    result = RUNNER.invoke(APP, args, input="1\nn\n", env={"COLUMNS": "300"})
-    assert result.exit_code == 0, result.output
-    assert page.read_text(encoding="utf-8") == "hand-edited"
-    assert "already exists, kept" in result.output
-
-
-def test_browse_html_flag_replaces_the_page_when_the_guide_is_overwritten(
-    browse_setup: list[str], guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
-) -> None:
-    (tmp_path / "Watching Guide - 20261008 - A video.md").write_text("mine", encoding="utf-8")
-    (tmp_path / "Watching Guide - 20261008 - A video.html").write_text("old", encoding="utf-8")
-    args = ["browse", "3blue1brown", "-o", str(tmp_path), "--html", "--config", str(config_path)]
-    result = RUNNER.invoke(APP, args, input="1\ny\n")
-    assert result.exit_code == 0, result.output
-    assert "<h1>" in (tmp_path / "Watching Guide - 20261008 - A video.html").read_text(encoding="utf-8")
-
-
 def test_guide_without_upload_date_leaves_the_date_out_of_the_file_name(
     guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -599,27 +522,7 @@ def test_guide_without_upload_date_leaves_the_date_out_of_the_file_name(
         return VideoInfo(id=video_id, title="A video", duration=60)
 
     monkeypatch.setattr(cli, "load_video_info", undated_info)
-    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--config", str(config_path)]
+    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)]
     result = RUNNER.invoke(APP, args)
     assert result.exit_code == 0, result.output
     assert guide_body(tmp_path / "Watching Guide - A video.md") == GUIDE_REPLY
-    assert (tmp_path / "Watching Guide - A video.html").exists()
-
-
-def test_guide_html_members_only_video_gets_the_hint(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def members_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
-        return VideoInfo(
-            id=video_id, title="A video", duration=60, upload_date="20261008", availability="subscriber_only"
-        )
-
-    page = tmp_path / "Watching Guide - 20261008 - A video.html"
-    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--html", "--config", str(config_path)]
-    assert RUNNER.invoke(APP, args).exit_code == 0
-    assert '<p class="members-hint">' not in page.read_text(encoding="utf-8").split("<body>")[1]
-
-    monkeypatch.setattr(cli, "load_video_info", members_info)
-    result = RUNNER.invoke(APP, [*args, "--force"])
-    assert result.exit_code == 0, result.output
-    assert '<p class="members-hint">' in page.read_text(encoding="utf-8").split("<body>")[1]

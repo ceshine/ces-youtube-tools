@@ -140,9 +140,8 @@ Checked on 2026-10-09 with headless Google Chrome and the HTML guide page templa
   for a members-only video, then compare with tracking protection on and off for that site.
   A full extraction of a members-only video also reports `availability: subscriber_only` (confirmed by the user on
   2026-10-09, through the hint that `guide --html` adds to the page for such videos).
-- `ces-youtube-tools serve` (added after this check) is tested only with Python's `http.client` against a local server
-  and a mocked browser opener, not with a real browser and video through the command: not yet verified end to end.
-  Recheck: `uv run ces-youtube-tools html DIR && uv run ces-youtube-tools serve DIR`, open a page and click a timestamp.
+- The `serve` and `html` commands built on this check were removed on 2026-10-20; the site on Cloudflare Pages
+  replaces them. Whether the player works on the deployed pages is tracked under "Cloudflare Pages and Access" below.
 
 Recheck: write a page with the template, then compare
 `google-chrome --headless=new --virtual-time-budget=6000 --screenshot=file.png file://$PWD/page.html` with the same

@@ -70,12 +70,12 @@ ces-youtube-tools browse
 
 | Command | What it does |
 | --- | --- |
-| `browse [CHANNEL] [-n N] [-o DIR] [--refresh] [--html]` | Pick a channel and a video from numbered menus, then write its guide |
+| `browse [CHANNEL] [-n N] [-o DIR] [--refresh]` | Pick a channel and a video from numbered menus, then write its guide |
 | `list CHANNEL [-n N]` | List a configured channel's latest videos and livestream replays |
 | `transcript VIDEO [--json] [--refresh]` | Print a video's transcript to stdout |
-| `guide VIDEO [-o DIR] [--force] [--refresh] [--html]` | Write a guide for a video URL or ID |
-| `html PATH... [--overwrite]` | Turn Markdown guides (files or folders) into HTML pages with the video embedded |
-| `serve [DIR] [--port N] [--no-open]` | Serve a folder of HTML pages on localhost, so their players work |
+| `guide VIDEO [-o DIR] [--force] [--refresh]` | Write a guide for a video URL or ID |
+| `backfill PATH... [--dry-run]` | Add front matter (video metadata) to guides written before guides had it |
+| `site [DIR] [-o OUT] [--include-members-only]` | Build the guides into a static site, with the video embedded in each page |
 | `config init` | Create the config file and choose a Firefox profile |
 | `config profile` | Choose a different Firefox profile |
 | `config add-channel CHANNEL [--members] [-y]` | Look up a channel and add it |
@@ -87,28 +87,30 @@ ces-youtube-tools browse
 Every command takes `--config PATH` to use a different config file. In the menus, type a number to choose, press Enter
 for the default, or type `q` to quit.
 
-## HTML pages
+## The guides as a website
 
-A guide can also be an HTML page that embeds the video's player. Clicking a timestamp moves the player to that moment,
-so you read and watch on one page.
+`site` turns a folder of guides into a static site for Cloudflare Pages: one page per guide, with the video's player
+embedded so that clicking a timestamp moves the player, and an index of all guides, newest upload first.
 
 ```bash
-ces-youtube-tools browse --html               # write the guide and its page
-ces-youtube-tools html ~/guides               # add pages to guides you already have
-ces-youtube-tools serve ~/guides              # open them in the browser
+ces-youtube-tools site -o ~/guides-site   # build from guide.output_dir
+./deploy.sh                               # check Access, build into _site, deploy
 ```
 
-- `html` takes Markdown files and folders (the `.md` files directly inside a folder). Each page is written next to its
-  guide. An existing page is kept with a warning unless you pass `--overwrite`. When `guide --html` or
-  `browse --html` writes a guide, it replaces that guide's page too.
-- YouTube refuses to play an embedded video on a page opened from disk (Error 153), so use `serve`. It listens on
-  `127.0.0.1` only. Opened from disk, a page is still a readable guide whose timestamps open YouTube.
-- A page needs a network connection for the player and fonts.
+- The output folder is cleared and rebuilt on every run. `site` only clears a folder that is empty or that an earlier
+  build wrote, and never one that holds a guide.
+- Members-only guides, and guides without front matter, are left out unless you pass `--include-members-only`. Deploy
+  such a build only to a Pages project behind Cloudflare Access: see "Access: the site is private" in
+  [docs/design.md](docs/design.md).
+- `deploy.sh` deploys to the project named in `wrangler.toml`. It stops unless the site redirects to the Cloudflare
+  Access login, then builds with `--include-members-only` and runs `npx wrangler pages deploy`.
+- YouTube refuses to play an embedded video on a page opened from disk (Error 153). Opened from disk, a page is still a
+  readable guide whose timestamps open YouTube.
 - **Members-only videos:** the player shows a "become a member" prompt unless your browser sends your YouTube sign-in
-  to the embedded player. In Firefox, turn off Enhanced Tracking Protection for the page (the shield icon in the
-  address bar); Firefox keeps the setting for `localhost`. Pages written by `guide --html` and `browse --html` for a
-  members-only video say this under the player. Chrome may need third-party cookies allowed for `localhost`
-  (not yet verified). Without that, the timestamps still work as links to YouTube in a new tab (Ctrl+click).
+  to the embedded player. In Firefox, turn off Enhanced Tracking Protection for the site (the shield icon in the
+  address bar). Pages for members-only videos say this under the player. Chrome may need third-party cookies allowed
+  for the site (not yet verified). Without that, the timestamps still work as links to YouTube in a new tab
+  (Ctrl+click).
 
 ## Configuration
 
@@ -137,6 +139,9 @@ prompt_template = "~/.config/ces-youtube-tools/guide_prompt.md"
 [guide.options.claude-cli]
 model = "opus"       # optional
 effort = "high"      # optional
+
+[site]
+output_dir = "~/guides-site"   # where `site` writes the site; cleared on each build
 ```
 
 Edit `guide_prompt.md` to change the structure and tone of the guides. Run `ces-youtube-tools config show` to see every
@@ -150,7 +155,8 @@ and a cache write only adds cost. Set `prompt_caching = true` under `[guide.opti
 - **Guides:** `Watching Guide - <YYYYMMDD> - <title>.md`, named by the upload date (left out when unknown or
   malformed), in `--output-dir`, else `guide.output_dir`, else the current directory. An existing guide is not
   overwritten unless you pass `--force`.
-- **HTML pages:** `<same name>.html`, next to each guide.
+- **Site:** `<video id>.html` for each guide, plus `index.html`, `robots.txt` and `_headers`, in `-o OUT`, else
+  `site.output_dir`.
 - **Cache:** `~/.cache/ces-youtube-tools/<video id>/` holds the video metadata, subtitles, transcript, and the prompt
   and raw reply of the last generation. A rerun repeats only the failed step; `--refresh` ignores the cache.
 

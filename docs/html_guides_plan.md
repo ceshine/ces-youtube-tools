@@ -1,13 +1,14 @@
 # Plan: HTML watching guides with an embedded player
 
 Status: implemented (steps 1-7 done, 2026-10-09). This file is kept as a record of the steps and of what is still to
-verify by hand. Where it and the code differ, the code and [design.md](design.md) win.
+verify by hand. Where it and the code differ, the code and [design.md](design.md) win. The `html` and `serve`
+commands and the `--html` flag were removed on 2026-10-20; the `site` command replaces them.
 
 ## Goal
 
 Turn a Markdown watching guide into a standalone HTML page that embeds the video's player, so that clicking a
 timestamp moves the player. The decisions behind it (conversion, page template, player behavior, `html`, `serve` and
-`--html`) are recorded in [design.md](design.md), under "HTML pages and `serve`". Observed YouTube behavior is in
+`--html`) are recorded in [design.md](design.md), under "Guide pages". Observed YouTube behavior is in
 [implementation_notes.md](implementation_notes.md).
 
 ## Steps

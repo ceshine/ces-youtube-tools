@@ -4,7 +4,6 @@ import re
 import time
 import inspect
 import datetime
-import webbrowser
 from pathlib import Path
 from collections.abc import Callable
 from typing import Any, TypeVar, Annotated
@@ -16,7 +15,6 @@ from rich.console import Console
 
 from .menu import QuitMenu, parse_choice
 from .guide import GuideError, guide_filename, default_template
-from .serve import ServeError, make_server, DEFAULT_PORT
 from .video import VideoInfo, parse_video_id
 from .ytdlp import YtDlp, YtDlpError
 from .config import ChannelConfig
@@ -41,7 +39,7 @@ from .pipeline import CacheError, work_dir_for, load_transcript, load_video_info
 from .pipeline import write_guide, load_prompt_template, make_guide_generator
 from .claude_cli import GENERATOR_NAME, ClaudeCliOptions
 from .formatting import format_age, format_duration
-from .guide_html import expand_paths, GuideHtmlError, PageExistsError, write_guide_page
+from .guide_html import expand_paths, GuideHtmlError
 from .transcript import TranscriptError
 from .static_site import SiteError, write_site, collect_pages
 
@@ -565,7 +563,6 @@ def make_guide(
     ] = None,
     force: Annotated[bool, typer.Option("--force", help="Overwrite an existing guide file.")] = False,
     refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcript.")] = False,
-    html: Annotated[bool, typer.Option("--html", help="Also write an HTML page with the video embedded.")] = False,
     config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
 ) -> None:
     """Generate a watching guide for a video and write it as Markdown.
@@ -577,7 +574,6 @@ def make_guide(
         output_dir (Path | None): Directory for the guide file.
         force (bool): Overwrite an existing guide file.
         refresh (bool): Ignore cached metadata and transcript.
-        html (bool): Also write an HTML page next to the guide, replacing an existing one.
         config_path (Path): Path of the configuration file.
 
     Returns:
@@ -591,57 +587,7 @@ def make_guide(
         video_id = parse_video_id(video)
     except ValueError as exc:
         raise _fail(str(exc)) from exc
-    _run_guide(
-        config, video_id, output_dir or config.guide.output_dir or Path.cwd(), force=force, refresh=refresh, html=html
-    )
-
-
-@command(APP, "html")
-def make_html(
-    paths: Annotated[list[str], typer.Argument(help="Markdown guides, or folders that hold them.")],
-    overwrite: Annotated[bool, typer.Option("--overwrite", help="Replace pages that already exist.")] = False,
-) -> None:
-    """Convert Markdown watching guides into HTML pages with the video embedded.
-
-    Each page is written next to its guide. An existing page is kept, with a warning, unless `--overwrite` is given. A folder stands for the `.md` files directly
-    inside it, and other files are ignored. The page's player only works when served from localhost: see `serve`.
-
-    Args:
-        paths (list[str]): Markdown guides, or folders that hold them.
-        overwrite (bool): Replace pages that already exist.
-
-    Returns:
-        None
-
-    Raises:
-        typer.Exit: If a path does not exist or a guide cannot be converted.
-    """
-    try:
-        files = expand_paths(paths, Path.cwd())
-    except GuideHtmlError as exc:
-        raise _fail(str(exc)) from exc
-    written = skipped = failed = 0
-    for file in files:
-        try:
-            target = write_guide_page(file, overwrite=overwrite)
-        except PageExistsError as exc:
-            STDERR.print(
-                f"[yellow]Warning:[/yellow] {escape(str(exc))}, skipped. Use --overwrite to replace it.",
-                highlight=False,
-                soft_wrap=True,
-            )
-            skipped += 1
-            continue
-        except GuideHtmlError as exc:
-            STDERR.print(f"[red]Error:[/red] {escape(str(exc))}", highlight=False, soft_wrap=True)
-            skipped += 1
-            failed += 1
-            continue
-        CONSOLE.print(f"Wrote {target}", markup=False, highlight=False)
-        written += 1
-    CONSOLE.print(f"{written} written, {skipped} skipped.")
-    if failed:
-        raise typer.Exit(code=1)
+    _run_guide(config, video_id, output_dir or config.guide.output_dir or Path.cwd(), force=force, refresh=refresh)
 
 
 @command(APP, "backfill")
@@ -774,52 +720,6 @@ def build_site(
     CONSOLE.print(f"Deploy with: npx wrangler pages deploy {out_dir}", markup=False, highlight=False, soft_wrap=True)
 
 
-@command(APP, "serve")
-def serve_guides(
-    directory: Annotated[
-        Path | None, typer.Argument(help="Folder to serve. Default: the configured guide.output_dir.")
-    ] = None,
-    port: Annotated[int, typer.Option("--port", help="Port to listen on.")] = DEFAULT_PORT,
-    no_open: Annotated[bool, typer.Option("--no-open", help="Do not open the browser.")] = False,
-    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
-) -> None:
-    """Serve a folder of guide pages on localhost, so their embedded players work.
-
-    YouTube refuses to play an embedded video on a page opened from disk. The server listens on 127.0.0.1 only, and
-    runs until Ctrl+C.
-
-    Args:
-        directory (Path | None): Folder to serve.
-        port (int): Port to listen on.
-        no_open (bool): Do not open the browser.
-        config_path (Path): Path of the configuration file.
-
-    Returns:
-        None
-
-    Raises:
-        typer.Exit: If there is no folder to serve or the server cannot start.
-    """
-    if directory is None:
-        directory = _load(config_path).guide.output_dir
-        if directory is None:
-            raise _fail("No folder given and guide.output_dir is not set. Pass the folder to serve.")
-    try:
-        server = make_server(directory, port)
-    except ServeError as exc:
-        raise _fail(str(exc)) from exc
-    url = f"http://localhost:{server.server_address[1]}/"
-    CONSOLE.print(f"Serving {directory} at {url} (Ctrl+C to stop)", markup=False, highlight=False)
-    if not no_open:
-        _ = webbrowser.open(url)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        CONSOLE.print("Stopped.")
-    finally:
-        server.server_close()
-
-
 def _run_guide(
     config: AppConfig,
     video_id: str,
@@ -828,7 +728,6 @@ def _run_guide(
     force: bool,
     refresh: bool,
     ask_to_overwrite: bool = False,
-    html: bool = False,
 ) -> None:
     """Fetch a video's transcript, generate its guide, write it and report the result.
 
@@ -839,14 +738,12 @@ def _run_guide(
         force (bool): Overwrite an existing guide file.
         refresh (bool): Ignore cached metadata and transcript.
         ask_to_overwrite (bool): If the guide file exists, ask whether to overwrite it instead of failing.
-        html (bool): Also write the HTML page next to the guide. The page is replaced when the guide is written, and
-            kept (with a warning) when an existing guide is kept.
 
     Returns:
         None
 
     Raises:
-        typer.Exit: If any step fails. The Markdown guide stays written if only the HTML page fails.
+        typer.Exit: If any step fails.
     """
     try:
         ytdlp = _make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
@@ -867,8 +764,6 @@ def _run_guide(
         if ask_to_overwrite and not force and existing.exists():
             if not typer.confirm(f"{existing} already exists. Overwrite it?", default=False):
                 CONSOLE.print("Kept the existing guide.")
-                if html:
-                    _write_page(existing, info.id, overwrite=False, members_only=info.availability == "subscriber_only")
                 return
             force = True
         with STDERR.status("Fetching transcript..."):
@@ -901,38 +796,6 @@ def _run_guide(
             highlight=False,
             soft_wrap=True,
         )
-    if html:
-        _write_page(result.path, info.id, overwrite=True, members_only=info.availability == "subscriber_only")
-
-
-def _write_page(markdown_path: Path, video_id: str, *, overwrite: bool, members_only: bool) -> None:
-    """Write the HTML page of a guide that is already on disk and report the result.
-
-    Args:
-        markdown_path (Path): The guide.
-        video_id (str): The video the guide is about.
-        overwrite (bool): Replace an existing page. If False, an existing page is kept with a warning.
-        members_only (bool): The video is members-only, so the page gets a hint about the player.
-
-    Returns:
-        None
-
-    Raises:
-        typer.Exit: If the page cannot be written.
-    """
-    try:
-        target = write_guide_page(markdown_path, video_id, overwrite=overwrite, members_only=members_only)
-    except PageExistsError as exc:
-        STDERR.print(
-            f"[yellow]Warning:[/yellow] {escape(str(exc))}, kept. "
-            "Use `ces-youtube-tools html --overwrite` to replace it.",
-            highlight=False,
-            soft_wrap=True,
-        )
-        return
-    except GuideHtmlError as exc:
-        raise _fail(str(exc)) from exc
-    CONSOLE.print(f"Wrote {target}", markup=False, highlight=False)
 
 
 def _channels_table(channels: list[ChannelConfig]) -> Table:
@@ -962,7 +825,6 @@ def browse(
         Path | None, typer.Option("--output-dir", "-o", help="Where to write the guide. Overrides the config.")
     ] = None,
     refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcript.")] = False,
-    html: Annotated[bool, typer.Option("--html", help="Also write an HTML page with the video embedded.")] = False,
     config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
 ) -> None:
     """Pick a channel and one of its latest videos, then generate the video's watching guide.
@@ -972,7 +834,6 @@ def browse(
         limit (int): Number of videos to show.
         output_dir (Path | None): Directory for the guide file.
         refresh (bool): Ignore cached metadata and transcript.
-        html (bool): Also write an HTML page next to the guide. A kept guide still gets a page if it has none.
         config_path (Path): Path of the configuration file.
 
     Returns:
@@ -1013,7 +874,6 @@ def browse(
         force=False,
         refresh=refresh,
         ask_to_overwrite=True,
-        html=html,
     )
 
 

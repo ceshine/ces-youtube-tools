@@ -303,52 +303,27 @@ $body
   var note = document.getElementById("player-note");
   controls.hidden = false;
 
-  // Show a note made of text and {code: "..."} parts. Built with textContent, because the folder path comes from
-  // the page's URL.
-  function showNote(parts) {
-    note.textContent = "";
-    parts.forEach(function (part) {
-      if (typeof part === "string") {
-        note.appendChild(document.createTextNode(part));
-      } else {
-        var code = document.createElement("code");
-        code.textContent = part.code;
-        note.appendChild(code);
-      }
-    });
+  function showNote(text) {
+    note.textContent = text;
     note.hidden = false;
   }
 
-  function hidePlayer(parts) {
+  function hidePlayer(text) {
     playerReady = false;
     document.documentElement.classList.add("no-player");
-    showNote(parts);
-  }
-
-  function serveNote(prefix) {
-    var folder = "<folder of this page>";
-    if (window.location.protocol === "file:") {
-      var path = decodeURIComponent(window.location.pathname);
-      folder = path.slice(0, path.lastIndexOf("/")) || "/";
-    }
-    return [
-      prefix + " To use it, run ",
-      { code: "ces-youtube-tools serve \"" + folder + "\"" },
-      " and open this page from the address it prints. Until then, timestamps open YouTube."
-    ];
+    showNote(text);
   }
 
   function errorNote(code) {
     if (code === 153) {
-      return serveNote("YouTube refused to load the player (error 153).");
+      return "YouTube refused to load the player (error 153), which happens when the page sends no referrer, so " +
+        "timestamps open YouTube.";
     }
     if (code === 100 || code === 101 || code === 150) {
-      return [
-        "YouTube does not allow this video to be played here (it may be private, removed, or not allowed on other " +
-          "sites), so timestamps open YouTube."
-      ];
+      return "YouTube does not allow this video to be played here (it may be private, removed, or not allowed on " +
+        "other sites), so timestamps open YouTube.";
     }
-    return ["The video player reported an error (code " + code + "), so timestamps open YouTube."];
+    return "The video player reported an error (code " + code + "), so timestamps open YouTube.";
   }
 
   try {
@@ -476,7 +451,10 @@ $body
   if (window.location.protocol === "file:") {
     // The player is already hidden (see <head>). Remove it so it stops loading.
     document.getElementById("player").remove();
-    hidePlayer(serveNote("The video player only works when this page is served over HTTP."));
+    hidePlayer(
+      "The video player does not work on a page opened from disk; open it from the published site. On this page, " +
+        "timestamps open YouTube."
+    );
     return;
   }
 
@@ -497,7 +475,7 @@ $body
   api.src = "https://www.youtube.com/iframe_api";
   api.onerror = function () {
     // The player itself may still work, so keep it visible.
-    showNote(["The YouTube player script could not be loaded, so timestamps open YouTube."]);
+    showNote("The YouTube player script could not be loaded, so timestamps open YouTube.");
   };
   document.head.appendChild(api);
 })();

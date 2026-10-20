@@ -26,10 +26,9 @@ provider are surveyed in [asr_options.md](asr_options.md).
                  · yt-dlp-subs (v1)                  · claude-cli (v1)
                  · audio transcription (later)       · openai-api, other CLIs (later)
 
- HTML page (optional)
-   Markdown file ─► guide_html ─► "<same name>.html" (embedded player) ─► ces-youtube-tools serve ─► browser
-                    · `guide --html`, `browse --html`: right after the guide is written
-                    · `html PATH...`: guides written earlier
+ ces-youtube-tools site [DIR]          (static site)
+   Markdown files ─► guide_html ─► "<video id>.html" (embedded player) + index.html ─► OUT
+   deploy.sh: check Access ─► site -o _site ─► npx wrangler pages deploy ─► Cloudflare Pages, behind Access
 ```
 
 ## Authentication
@@ -237,17 +236,13 @@ Menus are typed for now (`menu.parse_choice`): a number picks an item, an empty 
 is one, `q` quits with status 0, and anything else repeats the question with a hint. The Firefox profile picker in
 `config init` / `config profile` uses the same helper.
 
-## HTML pages and `serve`
+## Guide pages
 
-A guide can be turned into a standalone HTML page that embeds the video's player, so that clicking a timestamp moves
-the player instead of opening YouTube. The steps taken are in [html_guides_plan.md](html_guides_plan.md). What was
-built:
+A guide is turned into a standalone HTML page that embeds the video's player, so that clicking a timestamp moves the
+player instead of opening YouTube (`guide_html.py`). The `site` command writes these pages; see "`site` command"
+below. The first steps are in [html_guides_plan.md](html_guides_plan.md), which describes the `html` and `serve`
+commands that `site` has since replaced. What was built:
 
-- `ces-youtube-tools html PATH... [--overwrite]` (`guide_html.py`). A path is a Markdown file or a folder (its `.md`
-  files, not its subfolders). Each page is written next to its guide, as `<same name>.html`; there is no output
-  directory option, so two guides can never write the same page. An existing page is kept with a warning unless
-  `--overwrite` is given. Files that are not `.md` are ignored, but a run that leaves no `.md` file is an error. A
-  guide that cannot be converted (for example, no video link) is reported and makes the exit status 1.
 - Conversion uses `markdown-it-py` (a direct dependency, although `rich` already pulls it in, because the code imports
   it) with raw HTML disabled, because a guide is model output and a `<script>` in it must be shown as text. The
   `commonmark` preset would pass raw HTML through, so `"html": False` is required. Tables are enabled (the prompt asks
@@ -257,17 +252,11 @@ built:
 - The video is found from the front matter's `video_id`, else from the guide's own links (the most common `v=`
   value; a link that cannot be parsed is skipped). `render_guide_page` rejects any ID that is not 11 characters of
   `A-Za-z0-9_-`, whichever caller passed it, because the template puts the ID in a URL and a JavaScript string
-  without escaping. This check is what keeps the template safe. `html` reports a guide with no video link and skips
-  it; `--html` passes the video's ID itself.
-- `guide --html` and `browse --html` write the page next to the new guide, after the guide is written, from the
-  corrected Markdown. The page is replaced whenever the guide is written (a new guide, `guide --force`, or an
-  overwrite confirmed in `browse`), so it never lags behind the guide. When `browse` keeps an existing guide, the
-  page is written only if missing; an existing page is kept with a warning (`html --overwrite` regenerates it). If
-  the page fails, the Markdown guide stays and the exit status is 1.
-- The page template is `templates/guide_page.html`, filled with `string.Template` (`$title`, `$video_id`, `$body`; a
-  literal `$` must be written `$$`). CSS and JavaScript are inline, so one file is the whole page. It is not
-  user-editable yet. The title comes from the guide's first level-one heading (without "Watching Guide: "), else the
-  file name.
+  without escaping. This check is what keeps the template safe. `site` reports a guide with no video ID as a problem.
+- The page template is `templates/guide_page.html`, filled with `string.Template` (`$title`, `$video_id`, `$body`,
+  `$members_hint`, `$index_link`; a literal `$` must be written `$$`). CSS and JavaScript are inline, so one file is the
+  whole page. It is not user-editable yet. The title comes from the guide's first level-one heading (without
+  "Watching Guide: "), else the file name.
 - The page depends only on timestamp links, not on the guide's structure, because a model's output, an edited prompt
   template or a hand-written guide may not follow the prompt. Style hints (`li.stamped`, `p.range`, `p.labeled`) are
   classes a short script adds by looking at how an element starts; without them the plain element styles apply.
@@ -276,9 +265,10 @@ built:
   optional toggle (kept in `localStorage`, on by default) scrolls the player into view. Middle clicks and clicks with
   Ctrl, Cmd, Shift or Alt, links to other videos, and links clicked while the player is not ready, is hidden or has
   reported an error keep their normal behavior (open YouTube).
-- The player is hidden, with a note that timestamps open YouTube, when the page is opened from disk (the note gives
-  the `serve` command) and when the player reports an error (153: use `serve`; 100, 101, 150: private, removed or not
-  embeddable; others: shown as a number). Without JavaScript, the page is a readable guide whose links open YouTube.
+- The player is hidden, with a note that timestamps open YouTube, when the page is opened from disk (the note says to
+  open the published site) and when the player reports an error (153: the page sent no referrer; 100, 101, 150: private,
+  removed or not embeddable; others: shown as a number). Notes are plain text (`textContent`). Without JavaScript, the
+  page is a readable guide whose links open YouTube.
 - Layout, the same on every screen size: the player at the top (16:9, centered, limited width) scrolls away with the
   page, so the guide gets the whole window; below it, the scroll toggle (hidden without JavaScript; `localStorage` is
   read and written inside `try`/`catch`, because some browsers block it for `file://` pages); then the guide, at most
@@ -288,30 +278,24 @@ built:
   toggle.
 - The only external resources are the YouTube player and its API script (both need a network connection anyway) and
   the fonts.
-- On a `file://` page the player is hidden before the page is drawn and the `<iframe>` is removed so it stops
-  loading; the note shows the folder from the page's URL (inserted as text, not HTML). If only the IFrame API script
-  fails to load, the player stays visible (it may still play) and the note says timestamps open YouTube.
-- For a members-only video (yt-dlp `availability` is `subscriber_only`), `--html` adds a static hint under the player
-  (`$members_hint` in the template): if the player asks the viewer to join, the browser is not sending the YouTube
-  sign-in to the iframe, and in Firefox the fix is to turn off Enhanced Tracking Protection for the page. The hint is
-  hidden together with the player. `html PATH` takes it from the guide's front matter (`members_only: true`), so
-  guides written before front matter existed get no hint.
+- On a `file://` page the player is hidden before the page is drawn and the `<iframe>` is removed so it stops loading.
+  If only the IFrame API script fails to load, the player stays visible (it may still play) and the note says timestamps
+  open YouTube.
+- For a members-only video (`members_only: true` in the front matter, from yt-dlp's `availability` of
+  `subscriber_only`), the page gets a static hint under the player (`$members_hint` in the template): if the player
+  asks the viewer to join, the browser is not sending the YouTube sign-in to the iframe, and in Firefox the fix is to
+  turn off Enhanced Tracking Protection for the page. The hint is hidden together with the player. A guide without
+  front matter gets no hint.
 - Light theme only. Fonts (Literata, Inter) come from Google Fonts with `display=swap`, so system fonts show at once
   when offline.
 - The code is in `guide_html.py`, not `html.py`, which would shadow the standard library's `html` in some imports and
   in reading.
-- `ces-youtube-tools serve [DIR] [--port 8765] [--no-open]` (`serve.py`) exists because YouTube refuses to play an
-  embedded video on a page opened from disk (Error 153; see "The embedded player refuses `file://` pages" in
-  [implementation_notes.md](implementation_notes.md), checked 2026-10-09). The player works from `localhost`.
-  - It binds to `127.0.0.1` only, so the guides are not reachable from other machines.
-  - It answers 403 when the `Host` header is not `127.0.0.1:<port>` or `localhost:<port>`. Without this, a web page
-    could point its own domain at `127.0.0.1` (DNS rebinding) and read the folder through the browser.
-  - `DIR` defaults to `guide.output_dir`, never to the current directory, which may hold browser cookie copies or
-    `claude` session logs.
-  - It uses `ThreadingHTTPServer` with `SimpleHTTPRequestHandler`, so the folder listing is the index page for now.
-    Request logs go to the module logger at debug level, not stderr.
-  - A port already in use is an error that suggests `--port`. Ctrl+C stops the server with status 0.
-  - The default port is fixed, because `localStorage` is kept per origin and the origin includes the port.
+- Removed on 2026-10-20, replaced by `site`: `html PATH... [--overwrite]`, which wrote each page next to its guide;
+  `serve`, a server on `127.0.0.1`, because the player refuses pages opened from disk (Error 153; see "The embedded
+  player refuses `file://` pages" in [implementation_notes.md](implementation_notes.md)); and `--html` on `guide` and
+  `browse`. Pages on the site come from Cloudflare Pages over HTTPS, where the player works, and can be read on any
+  device. `html` pages already written next to guides are left alone; `site` reads only the `.md` files.
+  `expand_paths` (files and folders to guides) stays in `guide_html.py` for `backfill` and `site`.
 
 ## CLI conventions
 
@@ -332,28 +316,29 @@ built:
    above.
 5. `browse`: interactive channel and video menus on top of steps 1–4. (Done, with a typed menu.) See "Browse step"
    above. Revisit the prompt library together with the interactive config session below.
-6. HTML pages: `html`, `serve`, and the `--html` flag on `guide` and `browse`. (Done.) See "HTML pages and `serve`"
-   above. Members-only videos play in the embedded player only if the browser lets the iframe send YouTube's cookies
-   (verified in Firefox, see the implementation notes); the page cannot detect the case. Still to check by hand:
-   Chrome cookie settings and embedding turned off (see the plan). `youtube-nocookie.com` was ruled out as a default
-   (see "Out of scope" in the plan).
-7. Guide metadata and a published site: front matter, `backfill`, the `site` command, and Cloudflare Access with the
-   first deploy (done, 2026-10-20), then removing `html` and `serve`, which `site` replaces (planned). See "Guide
-   metadata and a private site" below.
+6. HTML pages: `html`, `serve`, and the `--html` flag on `guide` and `browse`. (Done; removed in step 7, replaced by
+   `site`.) See "Guide pages" above. Members-only videos play in the embedded player only if the browser lets the iframe
+   send YouTube's cookies (verified in Firefox, see the implementation notes); the page cannot detect the case. Still to
+   check by hand: Chrome cookie settings and embedding turned off (see the plan). `youtube-nocookie.com` was ruled out
+   as a default (see "Out of scope" in the plan).
+7. Guide metadata and a published site: front matter, `backfill`, the `site` command, Cloudflare Access with the
+   first deploy, `deploy.sh`, and removing `html`, `serve` and `--html`, which `site` replaces. (Done, 2026-10-20.)
+   See "Guide metadata and a private site" below.
 
 ## Guide metadata and a private site
 
-Publish the HTML pages as a static site on Cloudflare Pages, with an index page, so guides can be read on any device
-without `serve`. A real HTTPS origin also satisfies the embedded player, which refuses `file://` pages.
+Publish the guide pages as a static site on Cloudflare Pages, with an index page, so guides can be read on any
+device. A real HTTPS origin also satisfies the embedded player, which refuses `file://` pages; before the site, that
+took a local server (`serve`, now removed).
 
 ### Guides stay Markdown, with front matter
 
 The model keeps writing Markdown. Switching its output to JSON was rejected:
 
-- The page depends only on timestamp links, not on the guide's structure (see "HTML pages and `serve`"). A Markdown
+- The page depends only on timestamp links, not on the guide's structure (see "Guide pages"). A Markdown
   reply that drifts from the prompt still renders; a JSON reply that drifts fails to parse and the generation is lost.
 - Exact quotes in double quotes would all need escaping inside JSON strings, and tables would become nested arrays.
-- The `.md` file must stay readable and hand-editable, and hand-written guides must keep working with `html`.
+- The `.md` file must stay readable and hand-editable, and hand-written guides must keep working with `site`.
 - `GuideGenerator` returns a string. A JSON contract would require structured output from every future generator.
 - What the index page needs is metadata, which comes from `VideoInfo`, not from the model. Structure the site may want
   later (a table of contents, a one-paragraph blurb) can be read from markdown-it tokens, as `guide_title` does.
@@ -384,16 +369,16 @@ generated: 2026-10-09
   a guide may be hand-edited. Invalid YAML, a block that is not `key: value` lines, or a value of the wrong type is
   an error that names the file (and, for invalid YAML, the line). A hand-written guide whose first line is a `---`
   rule is read as front matter, as in Jekyll, Eleventy and Pandoc; start it with a blank line instead.
-- `guide_html` removes the front matter before rendering (otherwise markdown-it would show it as a rule and a
-  heading) and takes the video ID and the members-only hint from it when the caller does not pass them. Guides
-  without front matter fall back to the links. A `video_id` from the front matter is still checked by
+- `site` removes the front matter before rendering (otherwise markdown-it would show it as a rule and a heading) and
+  takes the video ID and the members-only hint from it. Guides without front matter fall back to the links for the
+  video ID. A `video_id` from the front matter is still checked by
   `render_guide_page`, like any other.
-- `members_only` has three states. The `site` command will treat `null` (unknown) as members-only.
+- `members_only` has three states. The `site` command treats `null` (unknown) as members-only.
 - The generator and model are not recorded yet: `GuideGenerator` does not report them. Add them if comparing guides
   across models becomes useful.
 
 `ces-youtube-tools backfill PATH... [--dry-run]` (`backfill.py`, done) adds front matter to guides written before it
-existed. Paths work as in `html`.
+existed. A path is a Markdown file or a folder (its `.md` files, not its subfolders).
 
 - The video ID comes from the guide's links (`find_video_id`). The metadata comes from the cached `video.json`, else
   it is fetched with `load_video_info` (yt-dlp with cookies, because members-only videos need them) and cached.
@@ -409,14 +394,13 @@ existed. Paths work as in `html`.
   For a symlinked guide, the file it points to is written and the link is kept.
 - `generated` is `null`: nothing recorded when the guide was written, and file times change when files are copied.
 - `--dry-run` runs the first pass, including fetching (which fills the cache), and lists the guides it would write.
-- HTML pages are not touched. The `html` command is to be removed once the `site` command exists.
 
 ### `site` command
 
 `ces-youtube-tools site [DIR] [-o OUT] [--include-members-only]` (`static_site.py`, done) writes the whole site into
 `OUT`: one page per guide, `index.html`, `robots.txt` and a `_headers` file. `DIR` defaults to `guide.output_dir`, and
-its `.md` files are the guides, as in `html`. `OUT` defaults to `site.output_dir`; with neither, the command fails
-rather than picking a folder to clear. Deploying is kept outside the tool; the command prints
+its `.md` files (not its subfolders) are the guides. `OUT` defaults to `site.output_dir`; with neither, the command
+fails rather than picking a folder to clear. Deploying is kept outside the tool; the command prints
 `npx wrangler pages deploy OUT`.
 
 - `deploy.sh` in the repository root is how the site is deployed. It checks that Access still guards the site (see
@@ -436,8 +420,7 @@ rather than picking a folder to clear. Deploying is kept outside the tool; the c
 - A page is named after its video, `<video_id>.html`: the ID is checked to be URL-safe, and the URL stays the same
   when the guide's file is renamed. Two guides for the same video are an error. Links use the `.html` names, so the
   folder also works from disk; Cloudflare Pages redirects them to the names without `.html`.
-- Each page gets an "All guides" link to `index.html` above the player (`render_guide_page(link_to_index=True)`);
-  `html` pages do not.
+- Each page gets an "All guides" link to `index.html` above the player (`render_guide_page(link_to_index=True)`).
 - The index (`templates/site_index.html`) lists guides newest upload first (no date last, then by title), with the
   upload date, channel, length, and a badge for members-only or unknown availability. The title is the YouTube title
   from the front matter, else the guide's heading, else the file name.
@@ -455,7 +438,6 @@ rather than picking a folder to clear. Deploying is kept outside the tool; the c
 - `_headers` sets `X-Robots-Tag: noindex, nofollow` and `Referrer-Policy: strict-origin-when-cross-origin` for every
   path. The referrer policy is the browsers' default, stated so it cannot be tightened by accident: with
   `no-referrer` the embedded player fails with Error 153, as on `file://` pages (see the implementation notes).
-- The page's notes about Error 153 still name `serve`; they change when `serve` is removed.
 
 ### Access: the site is private
 

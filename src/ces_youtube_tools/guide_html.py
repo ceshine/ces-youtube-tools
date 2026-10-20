@@ -11,8 +11,6 @@ from collections import Counter
 
 from markdown_it import MarkdownIt
 
-from .front_matter import FrontMatterError, split_front_matter
-
 LOGGER = logging.getLogger(__name__)
 
 _TITLE_PREFIX = "Watching Guide:"
@@ -31,10 +29,6 @@ _INDEX_LINK = '  <nav class="site-nav"><a href="index.html">&larr; All guides</a
 
 class GuideHtmlError(Exception):
     """Raised when a guide cannot be turned into an HTML page."""
-
-
-class PageExistsError(GuideHtmlError):
-    """Raised when the page already exists and may not be overwritten."""
 
 
 def markdown_to_html(markdown: str) -> str:
@@ -134,56 +128,6 @@ def render_guide_page(
         members_hint=_MEMBERS_HINT if members_only else "",
         index_link=_INDEX_LINK if link_to_index else "",
     )
-
-
-def write_guide_page(
-    markdown_path: Path, video_id: str | None = None, overwrite: bool = False, members_only: bool = False
-) -> Path:
-    """Convert a Markdown guide file to an HTML page file next to it.
-
-    The guide's front matter, if any, is left out of the page. It supplies the video ID and the members-only hint
-    when the arguments do not.
-
-    Args:
-        markdown_path (Path): The guide.
-        video_id (str | None): The video ID. None means to read it from the front matter, else the guide's links.
-        overwrite (bool): Replace the page if it already exists.
-        members_only (bool): The video is members-only, so the page gets a hint about the player. The hint is also
-            added when the front matter says so.
-
-    Returns:
-        Path: The page, named like the guide with an `.html` suffix.
-
-    Raises:
-        PageExistsError: If the page exists and `overwrite` is False. Nothing is read or written.
-        GuideHtmlError: If the guide cannot be read, its front matter is invalid, it has no video ID, or the ID is
-            invalid. The message names the file.
-    """
-    target = markdown_path.with_suffix(".html")
-    if target.exists() and not overwrite:
-        raise PageExistsError(f"{target} already exists")
-    try:
-        text = markdown_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        raise GuideHtmlError(f"{markdown_path}: cannot read the guide ({exc})") from exc
-    try:
-        metadata, markdown = split_front_matter(text)
-    except FrontMatterError as exc:
-        raise GuideHtmlError(f"{markdown_path}: {exc}") from exc
-    video_id = video_id or metadata.video_id or find_video_id(markdown)
-    if video_id is None:
-        raise GuideHtmlError(f"{markdown_path}: no YouTube video link found, so the video is unknown")
-    members_only = members_only or metadata.members_only is True
-    try:
-        page = render_guide_page(markdown, video_id, markdown_path.stem, members_only)
-    except GuideHtmlError as exc:
-        raise GuideHtmlError(f"{markdown_path}: {exc}") from exc
-    try:
-        target.write_text(page, encoding="utf-8")
-    except OSError as exc:
-        raise GuideHtmlError(f"{markdown_path}: cannot write {target} ({exc})") from exc
-    LOGGER.debug("Wrote %s", target)
-    return target
 
 
 def expand_paths(paths: list[str], cwd: Path) -> list[Path]:
