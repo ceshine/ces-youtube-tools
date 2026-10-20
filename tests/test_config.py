@@ -21,6 +21,7 @@ def test_defaults() -> None:
     assert config.transcript.provider == "yt-dlp-subs"
     assert config.guide.generator == "claude-cli"
     assert config.guide.output_dir is None
+    assert config.site.output_dir is None
 
 
 def test_round_trip(tmp_path: Path) -> None:
@@ -29,6 +30,7 @@ def test_round_trip(tmp_path: Path) -> None:
     config.auth.firefox_profile = Path("/p/abc.Profile 1")
     config.channels.append(ChannelConfig(name="A", url="https://www.youtube.com/@a", channel_id="UCa", members=True))
     config.guide.options["claude-cli"] = {"model": "opus"}
+    config.site.output_dir = Path("/p/site")
     save_config(config, path)
     assert load_config(path) == config
 
@@ -43,8 +45,10 @@ def test_unset_optional_values_are_omitted(tmp_path: Path) -> None:
 
 def test_paths_expand_home(tmp_path: Path) -> None:
     path = tmp_path / "config.toml"
-    path.write_text('[guide]\noutput_dir = "~/guides"\n', encoding="utf-8")
-    assert load_config(path).guide.output_dir == Path.home() / "guides"
+    path.write_text('[guide]\noutput_dir = "~/guides"\n\n[site]\noutput_dir = "~/site"\n', encoding="utf-8")
+    config = load_config(path)
+    assert config.guide.output_dir == Path.home() / "guides"
+    assert config.site.output_dir == Path.home() / "site"
 
 
 def test_missing_file(tmp_path: Path) -> None:

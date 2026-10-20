@@ -82,6 +82,9 @@ model = "opus"            # optional; default: Claude Code's default model
 effort = "high"           # optional
 session_dir = "~/.cache/ces-youtube-tools/claude-sessions"   # optional; unset = no session log is kept
 # command = ["claude"], bare = false, prompt_caching = false, timeout_seconds = 1800, extra_args = []
+
+[site]
+output_dir = "~/guides-site"   # where `site` writes the site, cleared on each build; unset = pass `-o`
 ```
 
 - `ytdlp_command` defaults to `uvx ... @latest` because YouTube changes often break older yt-dlp releases.
@@ -334,8 +337,9 @@ built:
    (verified in Firefox, see the implementation notes); the page cannot detect the case. Still to check by hand:
    Chrome cookie settings and embedding turned off (see the plan). `youtube-nocookie.com` was ruled out as a default
    (see "Out of scope" in the plan).
-7. Guide metadata and a published site: front matter and `backfill` (done), then the `site` command (planned), which
-   replaces `html` and `serve`. See "Planned: guide metadata and a private site" below.
+7. Guide metadata and a published site: front matter, `backfill` and the `site` command (done), then removing `html`
+   and `serve`, which `site` replaces, and setting up Cloudflare Access (planned). See "Planned: guide metadata and a
+   private site" below.
 
 ## Planned: guide metadata and a private site
 
@@ -409,16 +413,42 @@ existed. Paths work as in `html`.
 
 ### `site` command
 
-`ces-youtube-tools site [DIR] -o OUT` (planned) writes the whole site into `OUT`: one page per guide, `index.html`,
-`robots.txt` and a `_headers` file. Deploying is `npx wrangler pages deploy OUT`, kept outside the tool.
+`ces-youtube-tools site [DIR] [-o OUT] [--include-members-only]` (`static_site.py`, done) writes the whole site into
+`OUT`: one page per guide, `index.html`, `robots.txt` and a `_headers` file. `DIR` defaults to `guide.output_dir`, and
+its `.md` files are the guides, as in `html`. `OUT` defaults to `site.output_dir`; with neither, the command fails
+rather than picking a folder to clear. Deploying is `npx wrangler pages deploy OUT`, kept outside the tool; the
+command prints it.
+
+- `--include-members-only` has no config setting on purpose: publishing members-only guides is a choice made for one
+  build, not a default that a later build inherits.
 
 - Built in Python with the existing page template, not with a static site generator such as Eleventy. Eleventy would
   add a Node toolchain to repeat rendering this project already does, and its Markdown setup passes raw HTML through
   by default, undoing `"html": False`, which keeps a `<script>` in model output from running.
-- The index lists guides newest upload first, with channel, length and a members-only badge.
+- The module is `static_site.py`, not `site.py`, which would shadow the standard library's `site` module.
+- A page is named after its video, `<video_id>.html`: the ID is checked to be URL-safe, and the URL stays the same
+  when the guide's file is renamed. Two guides for the same video are an error. Links use the `.html` names, so the
+  folder also works from disk; Cloudflare Pages redirects them to the names without `.html`.
+- Each page gets an "All guides" link to `index.html` above the player (`render_guide_page(link_to_index=True)`);
+  `html` pages do not.
+- The index (`templates/site_index.html`) lists guides newest upload first (no date last, then by title), with the
+  upload date, channel, length, and a badge for members-only or unknown availability. The title is the YouTube title
+  from the front matter, else the guide's heading, else the file name.
+- Two passes, as in `backfill`. The first reads and renders every guide in memory and reports all problems together
+  (unreadable file, invalid front matter, no video ID, two guides for one video); if there is any, `OUT` is not
+  touched and the exit status is 1. The front matter of guides that are left out is checked too.
 - `OUT` is rebuilt from scratch on every run, because a deployment uploads every file in the folder and a stale page
-  would stay published. To avoid deleting the wrong folder, `site` only clears a folder it created (marked by a file
-  it writes there).
+  would stay published. To avoid deleting the wrong folder, `site` only clears a folder that is empty or holds its
+  marker file (`.ces-youtube-tools-site`, which is deployed too; it says the folder is cleared on each build). `OUT`
+  may not hold any guide that was read, published or left out, directly or in a subfolder, marker or not; for a
+  symlinked guide, neither the link's folder nor the target's. The check uses the guide files themselves, not the
+  `DIR` argument, so it cannot disagree with how the guides were found (`~` in `DIR` once slipped past a check on
+  `DIR`). `~` in `OUT` is expanded too, for `--out=~/x`, which the shell does not expand. Symbolic links in `OUT` are
+  removed, not followed. If writing fails after `OUT` was cleared, the error says the folder is incomplete.
+- `_headers` sets `X-Robots-Tag: noindex, nofollow` and `Referrer-Policy: strict-origin-when-cross-origin` for every
+  path. The referrer policy is the browsers' default, stated so it cannot be tightened by accident: with
+  `no-referrer` the embedded player fails with Error 153, as on `file://` pages (see the implementation notes).
+- The page's notes about Error 153 still name `serve`; they change when `serve` is removed.
 
 ### Access: the site is private
 

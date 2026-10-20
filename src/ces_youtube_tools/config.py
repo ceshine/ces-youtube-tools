@@ -102,6 +102,21 @@ class GuideConfig(BaseModel):
     expand_paths = field_validator("prompt_template", "output_dir")(_expand_path)
 
 
+class SiteConfig(BaseModel):
+    """Static site settings.
+
+    Attributes:
+        output_dir (Path | None): Where `site` writes the site. None means it must be given with `--out`.
+    """
+
+    output_dir: Path | None = Field(
+        default=None,
+        description="Where `site` writes the site; cleared on each build. Unset means `--out` must be given.",
+    )
+
+    expand_paths = field_validator("output_dir")(_expand_path)
+
+
 class AppConfig(BaseModel):
     """Top-level configuration.
 
@@ -112,6 +127,7 @@ class AppConfig(BaseModel):
         channels (list[ChannelConfig]): Frequently used channels.
         transcript (TranscriptConfig): Transcript provider settings.
         guide (GuideConfig): Guide generator settings.
+        site (SiteConfig): Static site settings.
     """
 
     ytdlp_command: list[str] = Field(
@@ -122,6 +138,7 @@ class AppConfig(BaseModel):
     channels: list[ChannelConfig] = Field(default_factory=list, description="Frequently used channels.")
     transcript: TranscriptConfig = Field(default_factory=TranscriptConfig, description="Transcript provider settings.")
     guide: GuideConfig = Field(default_factory=GuideConfig, description="Guide generator settings.")
+    site: SiteConfig = Field(default_factory=SiteConfig, description="Static site settings.")
 
     expand_paths = field_validator("cache_dir")(_expand_path)
 

@@ -51,6 +51,14 @@ body {
   margin: 0 auto;
   padding: 16px 16px 0;
 }
+.site-nav {
+  margin: 0 0 10px;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.site-nav a { text-decoration: none; }
+.site-nav a:hover { text-decoration: underline; }
 .player-frame {
   position: relative;
   aspect-ratio: 16 / 9;
@@ -265,7 +273,7 @@ hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
 </head>
 <body>
 <div class="player-area">
-  <div class="player-frame">
+$index_link  <div class="player-frame">
     <iframe id="player"
       src="https://www.youtube.com/embed/$video_id?enablejsapi=1&amp;rel=0"
       title="YouTube video player"

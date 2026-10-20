@@ -26,6 +26,7 @@ _MEMBERS_HINT = (
     "icon in the address bar); other browsers may need third-party cookies allowed for this site. Until then, "
     "timestamps still open YouTube when you Ctrl+click them.</p>\n"
 )
+_INDEX_LINK = '  <nav class="site-nav"><a href="index.html">&larr; All guides</a></nav>\n'
 
 
 class GuideHtmlError(Exception):
@@ -104,7 +105,9 @@ def guide_title(markdown: str, fallback: str) -> str:
     return fallback
 
 
-def render_guide_page(markdown: str, video_id: str, fallback_title: str, members_only: bool = False) -> str:
+def render_guide_page(
+    markdown: str, video_id: str, fallback_title: str, members_only: bool = False, link_to_index: bool = False
+) -> str:
     """Build the full HTML page for a guide, with the video's player embedded.
 
     Args:
@@ -113,6 +116,7 @@ def render_guide_page(markdown: str, video_id: str, fallback_title: str, members
             must be 11 characters from `A-Z`, `a-z`, `0-9`, `_` and `-`.
         fallback_title (str): The page title to use when the guide has no level-one heading.
         members_only (bool): Add a hint under the player about letting the browser send the YouTube sign-in.
+        link_to_index (bool): Add a link to `index.html` above the player, for pages of the site.
 
     Returns:
         str: The complete page.
@@ -128,6 +132,7 @@ def render_guide_page(markdown: str, video_id: str, fallback_title: str, members
         video_id=video_id,
         body=markdown_to_html(markdown),
         members_hint=_MEMBERS_HINT if members_only else "",
+        index_link=_INDEX_LINK if link_to_index else "",
     )
 
 
