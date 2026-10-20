@@ -324,6 +324,10 @@ commands that `site` has since replaced. What was built:
 7. Guide metadata and a published site: front matter, `backfill`, the `site` command, Cloudflare Access with the
    first deploy, `deploy.sh`, and removing `html`, `serve` and `--html`, which `site` replaces. (Done, 2026-10-20.)
    See "Guide metadata and a private site" below.
+8. Serve the site over HTTP only: remove the guide page's `file://` handling and make the site's links extensionless.
+   (Planned.) See "`site` command" below.
+9. An interactive index: sorting, grouping and filtering in the browser, from a JSON payload, with `node --test`
+   tests. (Planned.) See "Planned: an interactive index" below.
 
 ## Guide metadata and a private site
 
@@ -418,8 +422,17 @@ fails rather than picking a folder to clear. Deploying is kept outside the tool;
   by default, undoing `"html": False`, which keeps a `<script>` in model output from running.
 - The module is `static_site.py`, not `site.py`, which would shadow the standard library's `site` module.
 - A page is named after its video, `<video_id>.html`: the ID is checked to be URL-safe, and the URL stays the same
-  when the guide's file is renamed. Two guides for the same video are an error. Links use the `.html` names, so the
-  folder also works from disk; Cloudflare Pages redirects them to the names without `.html`.
+  when the guide's file is renamed. Two guides for the same video are an error. Links use the `.html` names, which
+  Cloudflare Pages redirects (308, not yet verified) to the names without `.html`; extensionless links are planned
+  (see below).
+- The site is served only over HTTP: by Cloudflare Pages, or locally with `npx wrangler pages dev _site`, which is
+  expected to serve the build the way Pages does, extensionless names and `_headers` included (not yet verified).
+  Opening the built files from disk (`file://`) is not supported, decided on 2026-10-21: nobody reads the site that
+  way, the embedded player refuses such pages anyway (Error 153), and supporting it constrained the link format and
+  the index script. The Markdown guides stay readable without the site. Planned, as one change: remove the guide
+  page's `file://` handling (the early check in `<head>`, the branch that removes the player, and its note; opened
+  from disk, the player's Error 153 is still caught by the error note), and make links extensionless (`<video_id>`
+  and `./`), so a click no longer goes through a redirect.
 - Each page gets an "All guides" link to `index.html` above the player (`render_guide_page(link_to_index=True)`).
 - The index (`templates/site_index.html`) lists guides newest upload first (no date last, then by title), with the
   upload date, channel, length, and a badge for members-only or unknown availability. The title is the YouTube title
@@ -473,6 +486,53 @@ guide one click from the front page.
   checked with the commands above before anything else was published; see "Cloudflare Pages and Access" in
   [implementation_notes.md](implementation_notes.md). A custom domain, if one is added, must be added to the Access
   application and checked the same way.
+
+### Planned: an interactive index
+
+The index is to be sorted, grouped and filtered in the browser. `site` writes the list of published guides into the
+page as JSON, and a script renders it.
+
+- Why in the browser: the site is static, so the browser is the only place a reader can change the view, and a change
+  needs no rebuild. The data is small (a few hundred bytes per guide). Only the owner reads the site, through Access,
+  in a modern browser, so the index may require JavaScript; a `<noscript>` line says so. Guide pages keep working
+  without it.
+- The payload is inline, in `<script type="application/json" id="guides">`, read with `JSON.parse`. Not a separate
+  `guides.json`: inline means no second request, and no loading or error state to handle. The browser never runs a
+  JSON script block, so it holds data only.
+- Escaping: `json.dumps` leaves `<` as is, so a title containing `</script>` would end the block early. `site` writes
+  `<`, `>` and `&` as `\u003c`, `\u003e` and `\u0026`, which `JSON.parse` turns back into the same characters. This
+  is the payload's only escaping step, and it gets a test with such a title.
+- Contents: built from the published pages only (`SiteBuild.pages`, never `left_out`), with only what the index shows:
+  `video_id` (the link is `<video_id>`, see "`site` command"), `title`, `channel`, `upload_date` (ISO date or `null`),
+  `duration` (seconds or `null`) and `members_only` (`true`, `false` or `null`). No description and no guide text. A
+  test checks that a left-out guide's ID is not in the page.
+- Rendering uses `createElement` and `textContent`, never `innerHTML`: titles and channel names come from YouTube and
+  are untrusted. This replaces the `html.escape` calls in `_index_item`.
+- The view (sort key and order, grouping, filter text) is kept in the URL hash, such as `#sort=channel&group=month`,
+  so reloading, the back button and saved links keep it. `localStorage` may remember the preferred default, read and
+  written inside `try`/`catch` as on the guide page.
+- The default view stays what the index shows today: newest upload first, no date last, then by title.
+- No pagination at first. Pagination breaks Ctrl+F and scanning the list; grouping (by channel or month) and the
+  filter help more. If the list grows too long, render it in steps ("show more") before numbered pages. With the data
+  in memory, either is a slice of the array.
+- No template engine. Jinja2 was considered for loops and automatic escaping in the index, but with the rendering in
+  the browser the template keeps only a few placeholders (`$guides_json`, `$count`), and `string.Template` is enough.
+  `$count` fills only the text shown before the script runs; the script then sets the count and the sort label from
+  the current view, since a filter or another sort makes the built text wrong. Reconsider a template engine if HTML
+  built at build time grows elsewhere.
+- Code layout: the script is `templates/site_index.mjs`, an ES module written to `OUT` as `index.mjs` and loaded with
+  `<script type="module" src="index.mjs">`. The `.mjs` name makes Node load it as a module without a `package.json`
+  or relying on its syntax detection; Cloudflare Pages is expected to serve it as JavaScript, which module scripts
+  require (not yet verified). It is not inlined, so the tests import the same file. The pure functions
+  (sorting, grouping, filtering, reading and writing the hash) are exported with `export function` and kept apart
+  from the code that touches the page, which runs only when there is a `document`, so importing the file in Node has
+  no side effects. Module scripts do not load from `file://` pages, which the site no longer supports (see "`site`
+  command").
+- Tests: `node --test` files in `tests/js/` (`*.test.mjs`) import the pure functions and test them. A pytest test
+  collects those files with `pathlib` and passes them to `node --test` by name (Node 21 and later read a folder
+  argument as a module path, not a folder of tests), and fails with Node's output if they fail; it is skipped when
+  `node` is not on `PATH`, so `uv run pytest` still works without Node. The Python side (payload, escaping, left-out
+  guides, `index.mjs` written) is tested in pytest as usual.
 
 ## Planned: interactive config session
 
