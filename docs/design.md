@@ -337,11 +337,11 @@ built:
    (verified in Firefox, see the implementation notes); the page cannot detect the case. Still to check by hand:
    Chrome cookie settings and embedding turned off (see the plan). `youtube-nocookie.com` was ruled out as a default
    (see "Out of scope" in the plan).
-7. Guide metadata and a published site: front matter, `backfill` and the `site` command (done), then removing `html`
-   and `serve`, which `site` replaces, and setting up Cloudflare Access (planned). See "Planned: guide metadata and a
-   private site" below.
+7. Guide metadata and a published site: front matter, `backfill`, the `site` command, and Cloudflare Access with the
+   first deploy (done, 2026-10-20), then removing `html` and `serve`, which `site` replaces (planned). See "Guide
+   metadata and a private site" below.
 
-## Planned: guide metadata and a private site
+## Guide metadata and a private site
 
 Publish the HTML pages as a static site on Cloudflare Pages, with an index page, so guides can be read on any device
 without `serve`. A real HTTPS origin also satisfies the embedded player, which refuses `file://` pages.
@@ -475,6 +475,13 @@ guide one click from the front page.
   curl -sI https://<project>.pages.dev/ | grep -i -E '^(HTTP|location)'
   curl -sI https://<hash>.<project>.pages.dev/ | grep -i -E '^(HTTP|location)'
   ```
+
+  `npx wrangler pages deployment list --project-name <project>` lists the `<hash>` host names.
+- Set up on 2026-10-20 (done): the Pages project `ces-youtube-watching-guides`, behind an Access application that
+  covers `ces-youtube-watching-guides.pages.dev` and `*.ces-youtube-watching-guides.pages.dev`. Both host names were
+  checked with the commands above before anything else was published; see "Cloudflare Pages and Access" in
+  [implementation_notes.md](implementation_notes.md). A custom domain, if one is added, must be added to the Access
+  application and checked the same way.
 
 ## Planned: interactive config session
 

@@ -1,8 +1,8 @@
 # Implementation notes
 
-How the external systems this tool depends on (YouTube, yt-dlp, Firefox, the `claude` CLI) actually behave, as
-found by testing. Any of it can change without notice, so every entry records when it was checked and how to check it
-again. For what we decided to build, see [design.md](design.md).
+How the external systems this tool depends on (YouTube, yt-dlp, Firefox, the `claude` CLI, Cloudflare) actually
+behave, as found by testing. Any of it can change without notice, so every entry records when it was checked and how
+to check it again. For what we decided to build, see [design.md](design.md).
 
 Recheck commands use these shell variables:
 
@@ -377,3 +377,35 @@ Checked on 2026-10-09 against the Claude API reference bundled with Claude Code 
 
 Recheck: the input content types in the Messages API documentation (`shared/live-sources.md` in the `claude-api`
 skill), or `client.models.retrieve(<model>).capabilities` from the Models API.
+
+## Cloudflare Pages and Access
+
+### Access covers preview deployments through the wildcard host name
+
+Checked on 2026-10-20 with `curl` (no browser session) against the project `ces-youtube-watching-guides`, after its
+first deployment (`wrangler` 4.151.3, built from commit `26bfc93`). The Access application lists
+`ces-youtube-watching-guides.pages.dev` and `*.ces-youtube-watching-guides.pages.dev`.
+
+| Host name | Result |
+| --- | --- |
+| `ces-youtube-watching-guides.pages.dev` (production) | `HTTP/2 302` to `https://ceshine.cloudflareaccess.com/cdn-cgi/access/login/ces-youtube-watching-guides.pages.dev?...` |
+| `77bf24d5.ces-youtube-watching-guides.pages.dev` (the deployment's own URL) | `HTTP/2 302` to the same login, naming `77bf24d5.ces-youtube-watching-guides.pages.dev` |
+
+- The deployment host name was never added to Access by name, so the wildcard entry is what covers it. Every
+  deployment gets a new `<hash>` host name, and earlier deployments keep serving their files there, so the wildcard
+  entry is required.
+- The login URL's `meta` token (a JWT) names the requested host name and has `"auth_status":"NONE"`, so the redirect
+  comes from Access and not from the site.
+- `wrangler pages deployment list` shows the git commit a deployment was made from (`Source`).
+- Not yet verified: that `_headers` is applied (`X-Robots-Tag`, `Referrer-Policy`), since unauthenticated requests
+  never reach the site; and that the embedded player works on the deployed pages (it needs the page's origin as the
+  `Referer`, see "The embedded player refuses `file://` pages"). Recheck, signed in through Access in a browser: open
+  a guide page, check the response headers in the developer tools, and click a timestamp.
+
+Recheck the redirects:
+
+```sh
+curl -sI https://ces-youtube-watching-guides.pages.dev/ | grep -i -E '^(HTTP|location)'
+npx wrangler pages deployment list --project-name ces-youtube-watching-guides   # lists the <hash> host names
+curl -sI https://<hash>.ces-youtube-watching-guides.pages.dev/ | grep -i -E '^(HTTP|location)'
+```
