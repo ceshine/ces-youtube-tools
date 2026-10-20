@@ -6,6 +6,7 @@ from ces_youtube_tools.video import VideoInfo
 from ces_youtube_tools.front_matter import (
     GuideMetadata,
     FrontMatterError,
+    has_front_matter,
     split_front_matter,
     metadata_from_video,
     render_front_matter,
@@ -116,3 +117,19 @@ def test_split_front_matter_reports_the_file_line_of_a_yaml_error() -> None:
     with pytest.raises(FrontMatterError) as info:
         _ = split_front_matter("---\nvideo_id: abcdefghijk\ntitle: a: b\n---\n# Guide\n")
     assert str(info.value) == "the front matter is not valid YAML at line 3: mapping values are not allowed here"
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("---\nvideo_id: abcdefghijk\n---\n# Guide\n", True),
+        ("---\n---\n# Guide\n", True),
+        ("---\nnot: [valid\n---\n", True),
+        ("---\r\ntitle: x\r\n---\r\n", True),
+        ("---\nno closing line\n", False),
+        ("# Guide\n\n---\n\nmore\n---\n", False),
+        ("", False),
+    ],
+)
+def test_has_front_matter(text: str, expected: bool) -> None:
+    assert has_front_matter(text) is expected

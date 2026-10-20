@@ -46,12 +46,12 @@ class GuideMetadata(BaseModel):
     generated: datetime.date | None = None
 
 
-def metadata_from_video(video: VideoInfo, generated: datetime.date) -> GuideMetadata:
+def metadata_from_video(video: VideoInfo, generated: datetime.date | None) -> GuideMetadata:
     """Build a guide's metadata from the video's.
 
     Args:
         video (VideoInfo): The video.
-        generated (datetime.date): The date the guide is written.
+        generated (datetime.date | None): The date the guide is written, or None if unknown.
 
     Returns:
         GuideMetadata: The metadata. `members_only` is None when yt-dlp did not report the video's availability.
@@ -81,6 +81,32 @@ def render_front_matter(metadata: GuideMetadata) -> str:
     return f"{_DELIMITER}\n{body}{_DELIMITER}\n\n"
 
 
+def _block_end(lines: list[str]) -> int | None:
+    """Find the closing `---` line of a front matter block.
+
+    Args:
+        lines (list[str]): The guide's lines.
+
+    Returns:
+        int | None: The index of the closing line, or None if the guide has no closed block starting on its first line.
+    """
+    if not lines or lines[0].rstrip() != _DELIMITER:
+        return None
+    return next((index for index in range(1, len(lines)) if lines[index].rstrip() == _DELIMITER), None)
+
+
+def has_front_matter(text: str) -> bool:
+    """Check whether a guide starts with a front matter block, valid or not.
+
+    Args:
+        text (str): The guide file's text.
+
+    Returns:
+        bool: True if the first line is `---` and a later line closes the block.
+    """
+    return _block_end(text.splitlines(keepends=True)) is not None
+
+
 def split_front_matter(text: str) -> tuple[GuideMetadata, str]:
     """Separate a guide's front matter from its Markdown.
 
@@ -99,9 +125,7 @@ def split_front_matter(text: str) -> tuple[GuideMetadata, str]:
             wrong type.
     """
     lines = text.splitlines(keepends=True)
-    if not lines or lines[0].rstrip() != _DELIMITER:
-        return GuideMetadata(), text
-    end = next((index for index in range(1, len(lines)) if lines[index].rstrip() == _DELIMITER), None)
+    end = _block_end(lines)
     if end is None:
         return GuideMetadata(), text
     try:

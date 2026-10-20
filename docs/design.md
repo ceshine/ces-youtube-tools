@@ -334,8 +334,8 @@ built:
    (verified in Firefox, see the implementation notes); the page cannot detect the case. Still to check by hand:
    Chrome cookie settings and embedding turned off (see the plan). `youtube-nocookie.com` was ruled out as a default
    (see "Out of scope" in the plan).
-7. Guide metadata and a published site: front matter (done), then backfilling older guides and the `site` command
-   (planned). See "Planned: guide metadata and a private site" below.
+7. Guide metadata and a published site: front matter and `backfill` (done), then the `site` command (planned), which
+   replaces `html` and `serve`. See "Planned: guide metadata and a private site" below.
 
 ## Planned: guide metadata and a private site
 
@@ -387,8 +387,25 @@ generated: 2026-10-09
 - `members_only` has three states. The `site` command will treat `null` (unknown) as members-only.
 - The generator and model are not recorded yet: `GuideGenerator` does not report them. Add them if comparing guides
   across models becomes useful.
-- Older guides can be backfilled from the cached `video.json` (the video ID comes from the guide's links). Not built
-  yet.
+
+`ces-youtube-tools backfill PATH... [--dry-run]` (`backfill.py`, done) adds front matter to guides written before it
+existed. Paths work as in `html`.
+
+- The video ID comes from the guide's links (`find_video_id`). The metadata comes from the cached `video.json`, else
+  it is fetched with `load_video_info` (yt-dlp with cookies, because members-only videos need them) and cached.
+  Fetching is the default, so every backfilled guide gets complete metadata.
+- Two passes. The first reads every guide and loads every video's metadata, and reports all failures together (no
+  video link, unreadable file, yt-dlp or cache error). If any guide fails, no guide is changed and the exit status
+  is 1. The second pass writes the guides. A write failure stops it with a message saying how many were written;
+  running again skips them.
+- A guide with a front matter block, valid or not (`has_front_matter`), is skipped, so the command can be run again
+  safely and never stacks a second block on a hand-edited one.
+- The front matter goes above the guide's bytes, unchanged (line endings included). The new file is written next to
+  the guide (`.<name>.tmp`, with the guide's permissions) and moved over it, so a failure never leaves half a guide.
+  For a symlinked guide, the file it points to is written and the link is kept.
+- `generated` is `null`: nothing recorded when the guide was written, and file times change when files are copied.
+- `--dry-run` runs the first pass, including fetching (which fills the cache), and lists the guides it would write.
+- HTML pages are not touched. The `html` command is to be removed once the `site` command exists.
 
 ### `site` command
 
