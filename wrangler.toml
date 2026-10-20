@@ -1,0 +1,4 @@
+name = "ces-youtube-watching-guides"
+compatibility_date = "2026-10-20"
+# deploy.sh builds the site into this folder with `site -o _site`.
+pages_build_output_dir = "_site"

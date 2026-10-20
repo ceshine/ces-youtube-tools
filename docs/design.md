@@ -416,11 +416,18 @@ existed. Paths work as in `html`.
 `ces-youtube-tools site [DIR] [-o OUT] [--include-members-only]` (`static_site.py`, done) writes the whole site into
 `OUT`: one page per guide, `index.html`, `robots.txt` and a `_headers` file. `DIR` defaults to `guide.output_dir`, and
 its `.md` files are the guides, as in `html`. `OUT` defaults to `site.output_dir`; with neither, the command fails
-rather than picking a folder to clear. Deploying is `npx wrangler pages deploy OUT`, kept outside the tool; the
-command prints it.
+rather than picking a folder to clear. Deploying is kept outside the tool; the command prints
+`npx wrangler pages deploy OUT`.
 
-- `--include-members-only` has no config setting on purpose: publishing members-only guides is a choice made for one
-  build, not a default that a later build inherits.
+- `deploy.sh` in the repository root is how the site is deployed. It checks that Access still guards the site (see
+  below), builds with `site -o _site --include-members-only`, and runs `npx wrangler pages deploy --branch=main`, so
+  it always deploys to production, the host name it checked, whatever git branch is checked out. `wrangler.toml`
+  names the Pages project and sets `pages_build_output_dir = "_site"`, so the script passes `-o _site` rather than
+  relying on `site.output_dir`. `_site` and wrangler's `.wrangler` cache folder are gitignored. Wrangler is not
+  pinned: `npx -y` runs the latest version.
+- `--include-members-only` has no config setting on purpose: a build for any other destination leaves members-only
+  guides out unless asked. `deploy.sh` passes it because it deploys only to this project, which is behind Access,
+  and refuses to deploy if Access is not in front of it.
 
 - Built in Python with the existing page template, not with a static site generator such as Eleventy. Eleventy would
   add a Node toolchain to repeat rendering this project already does, and its Markdown setup passes raw HTML through
@@ -463,7 +470,9 @@ guide one click from the front page.
   protection.
 - Members-only guides are left out of a build unless `--include-members-only` is given. A guide without front matter
   (availability unknown) counts as members-only. This keeps them unpublished if the Access policy is ever missing or
-  misconfigured.
+  misconfigured. `deploy.sh` includes them, so instead it first requests `https://<project>.pages.dev/` without a
+  session and stops unless the answer redirects to `<team>.cloudflareaccess.com`. This checks the production host
+  name only; the wildcard entry for deployment host names is checked by hand, with the commands below.
 - Why members-only guides need this: a guide carries the substance of the video (every segment summarized, exact
   quotes, numbers, tables), which is what members pay for. YouTube's player blocks the video for non-members, but
   that check does not cover the guide's text. Publishing it would distribute a derivative of the creator's
