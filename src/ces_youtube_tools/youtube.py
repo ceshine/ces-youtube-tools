@@ -3,6 +3,7 @@
 import re
 import heapq
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel
@@ -153,7 +154,21 @@ def _to_summary(entry: dict[str, Any], members_only: bool) -> VideoSummary:
     )
 
 
-def fetch_playlist(url: str, ytdlp: YtDlp, limit: int, members_only: bool = False) -> list[VideoSummary]:
+@dataclass(frozen=True)
+class PlaylistFetch:
+    """The newest entries of one playlist.
+
+    Attributes:
+        videos (list[VideoSummary]): Entries in playlist order (newest first).
+        full (bool): Whether yt-dlp returned as many entries as were asked for, counting entries dropped for having
+            no ID. The playlist may then hold more.
+    """
+
+    videos: list[VideoSummary]
+    full: bool
+
+
+def fetch_playlist(url: str, ytdlp: YtDlp, limit: int, members_only: bool = False) -> PlaylistFetch:
     """Fetch the newest entries of a playlist, with approximate publish times.
 
     Args:
@@ -163,8 +178,8 @@ def fetch_playlist(url: str, ytdlp: YtDlp, limit: int, members_only: bool = Fals
         members_only (bool): Mark the entries as members-only.
 
     Returns:
-        list[VideoSummary]: Entries in playlist order (newest first). Empty if the playlist does not exist, e.g. a
-            channel without livestreams or memberships.
+        PlaylistFetch: The entries. Empty and not full if the playlist does not exist, e.g. a channel without
+            livestreams or memberships.
 
     Raises:
         YtDlpError: If yt-dlp fails for another reason.
@@ -174,10 +189,12 @@ def fetch_playlist(url: str, ytdlp: YtDlp, limit: int, members_only: bool = Fals
         data = ytdlp.run_json(args)
     except YtDlpError as exc:
         if _MISSING_PLAYLIST_MESSAGE in str(exc):
-            return []
+            return PlaylistFetch(videos=[], full=False)
         raise
-    entries: list[dict[str, Any]] = [entry for entry in data.get("entries") or [] if entry and entry.get("id")]
-    return [_to_summary(entry, members_only) for entry in entries]
+    # Count the raw entries: a playlist with a dropped entry would otherwise look exhausted.
+    raw_entries: list[dict[str, Any] | None] = data.get("entries") or []
+    entries: list[dict[str, Any]] = [entry for entry in raw_entries if entry and entry.get("id")]
+    return PlaylistFetch(videos=[_to_summary(entry, members_only) for entry in entries], full=len(raw_entries) >= limit)
 
 
 def merge_newest_first(playlists: list[list[VideoSummary]]) -> list[VideoSummary]:
@@ -201,6 +218,37 @@ def merge_newest_first(playlists: list[list[VideoSummary]]) -> list[VideoSummary
     return result
 
 
+def _fetch_merged(channel: ChannelConfig, ytdlp: YtDlp, depth: int) -> tuple[list[VideoSummary], bool]:
+    """Fetch a channel's upload playlists in parallel and merge them newest first.
+
+    Members-only playlists are fetched only when the channel has `members` set. Livestreams that are live now or
+    upcoming are left out.
+
+    Args:
+        channel (ChannelConfig): The channel.
+        ytdlp (YtDlp): The yt-dlp runner. Cookies are not needed.
+        depth (int): Number of entries to fetch from each playlist.
+
+    Returns:
+        tuple[list[VideoSummary], bool]: The merged videos, and whether any playlist was full, so may hold more.
+
+    Raises:
+        YtDlpError: If yt-dlp fails for a reason other than a missing playlist.
+    """
+    sources = [(prefix, False) for prefix in PUBLIC_PLAYLIST_PREFIXES]
+    if channel.members:
+        sources += [(prefix, True) for prefix in MEMBERS_PLAYLIST_PREFIXES]
+    with ThreadPoolExecutor(max_workers=len(sources)) as pool:
+        futures = [
+            pool.submit(fetch_playlist, channel_playlist_url(channel.channel_id, prefix), ytdlp, depth, members_only)
+            for prefix, members_only in sources
+        ]
+        fetches = [future.result() for future in futures]
+    merged = merge_newest_first([fetch.videos for fetch in fetches])
+    videos = [video for video in merged if video.live_status not in _SKIPPED_LIVE_STATUSES]
+    return videos, any(fetch.full for fetch in fetches)
+
+
 def list_latest_videos(channel: ChannelConfig, ytdlp: YtDlp, limit: int = 20) -> list[VideoSummary]:
     """List a channel's latest videos and livestream replays, newest first, excluding Shorts.
 
@@ -218,14 +266,91 @@ def list_latest_videos(channel: ChannelConfig, ytdlp: YtDlp, limit: int = 20) ->
     Raises:
         YtDlpError: If yt-dlp fails for a reason other than a missing playlist.
     """
-    sources = [(prefix, False) for prefix in PUBLIC_PLAYLIST_PREFIXES]
-    if channel.members:
-        sources += [(prefix, True) for prefix in MEMBERS_PLAYLIST_PREFIXES]
-    with ThreadPoolExecutor(max_workers=len(sources)) as pool:
-        futures = [
-            pool.submit(fetch_playlist, channel_playlist_url(channel.channel_id, prefix), ytdlp, limit, members_only)
-            for prefix, members_only in sources
-        ]
-        playlists = [future.result() for future in futures]
-    videos = [video for video in merge_newest_first(playlists) if video.live_status not in _SKIPPED_LIVE_STATUSES]
-    return videos[:limit]
+    return _fetch_merged(channel, ytdlp, limit)[0][:limit]
+
+
+class VideoPager:
+    """Lists a channel's videos a page at a time, newest first, like `list_latest_videos`.
+
+    Each new page fetches every playlist again, deeper, and drops the videos already shown. A later fetch can order
+    the videos differently (approximate timestamps are re-derived, new uploads shift the list, dropped livestreams
+    let deeper entries move up), so slicing the merged list could skip a video or show one twice.
+
+    Args:
+        channel (ChannelConfig): The channel.
+        ytdlp (YtDlp): The yt-dlp runner. Cookies are not needed.
+        page_size (int): Number of videos per page.
+
+    Attributes:
+        channel (ChannelConfig): The channel.
+        ytdlp (YtDlp): The yt-dlp runner.
+        page_size (int): Number of videos per page. The last page can hold fewer.
+
+    Raises:
+        ValueError: If `page_size` is less than 1.
+    """
+
+    def __init__(self, channel: ChannelConfig, ytdlp: YtDlp, page_size: int) -> None:
+        if page_size < 1:
+            raise ValueError(f"Page size should be at least 1: {page_size}")
+        self.channel: ChannelConfig = channel
+        self.ytdlp: YtDlp = ytdlp
+        self.page_size: int = page_size
+        self._pages: list[list[VideoSummary]] = []
+        self._has_more: bool = True
+
+    @property
+    def page_count(self) -> int:
+        """Number of pages fetched so far.
+
+        Returns:
+            int: The count.
+        """
+        return len(self._pages)
+
+    @property
+    def has_more(self) -> bool:
+        """Whether there may be videos after the last fetched page.
+
+        It can only be wrong by saying yes: the next page is then empty, and this becomes False.
+
+        Returns:
+            bool: True if the next page may hold videos.
+        """
+        return self._has_more
+
+    def fetched(self) -> list[VideoSummary]:
+        """All videos on the fetched pages, in page order (newest first).
+
+        Returns:
+            list[VideoSummary]: The videos.
+        """
+        return [video for page in self._pages for video in page]
+
+    def page(self, number: int) -> list[VideoSummary]:
+        """Return a page, fetching it if it is the one after the last fetched page.
+
+        A fetch that fails leaves the pager as it was, so it can be retried.
+
+        Args:
+            number (int): 1-based page number, at most `page_count + 1`.
+
+        Returns:
+            list[VideoSummary]: The page's videos. Empty, and not kept, when no videos are left.
+
+        Raises:
+            ValueError: If the page is neither fetched nor the next one.
+            YtDlpError: If yt-dlp fails for a reason other than a missing playlist.
+        """
+        if 1 <= number <= len(self._pages):
+            return self._pages[number - 1]
+        if number != len(self._pages) + 1:
+            raise ValueError(f"Cannot fetch page {number} after {len(self._pages)} fetched pages")
+        shown = {video.id for video in self.fetched()}
+        merged, any_full = _fetch_merged(self.channel, self.ytdlp, len(shown) + self.page_size + 1)
+        left = [video for video in merged if video.id not in shown]
+        page = left[: self.page_size]
+        self._has_more = bool(page) and (len(left) > self.page_size or any_full)
+        if page:
+            self._pages.append(page)
+        return page

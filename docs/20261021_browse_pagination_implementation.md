@@ -128,6 +128,9 @@ anyway, so `--playlist-start` would not save requests.
   - Ctrl+C on page 2 prints "Bye." and exits 0.
 - Docs in the same commit:
   - [design.md](design.md): step 3 of "Browse step"; the paging design (fetch deeper, drop shown IDs, what
-    `has_more` means) in "Video listing"; "claimed in menu order" in "Browse step" becomes "claimed in listing order
+    `has_more` means) in "Video listing", with its ordering limit: when live or upcoming entries are dropped from
+    the top of a playlist, the `+ 1` margin can fall short, and a not-yet-fetched entry of that playlist that is
+    newer than a page's last video tops the next page instead (no video is skipped or repeated;
+    `list_latest_videos` has the same limit); "claimed in menu order" in "Browse step" becomes "claimed in listing order
     (newest first across pages)"; and an entry in "Build order".
   - README: the `browse` lines, including that `a` and `i` also tick the page entries.

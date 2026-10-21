@@ -92,6 +92,26 @@ interleave playlists, not to order entries within one. `merge_newest_first` keep
 Recheck:
 `$Y --extractor-args youtubetab:approximate_date --flat-playlist --playlist-end 3 -J "https://www.youtube.com/playlist?list=UULF$ID"`
 
+### Playlists are read 100 entries per request, always from the start
+
+Checked on 2026-10-22 with yt-dlp 2026.08.19 and `@TheYoungTurks`' `UULF` playlist, with and without
+`--extractor-args youtubetab:approximate_date` (as `fetch_playlist` passes it), with the same results. The playlist
+web page holds the first 100 entries, and each continuation request (`page N: Downloading API JSON` in `-v` output) adds 100 more:
+`--playlist-end 100` made no continuation request, 101 made one, 250 made two. `--playlist-start 201
+--playlist-end 250` still made both continuation requests, so a start offset saves no requests. `VideoPager`
+therefore fetches each page from the start, deeper each time: at 20 videos per page, pages 1 to 4 cost one request
+per playlist (depths 21 to 81), and page 5 (depth 101) two.
+
+Recheck (count the `Downloading` lines):
+
+```sh
+for R in "--playlist-end 100" "--playlist-end 101" "--playlist-start 201 --playlist-end 250"; do
+  echo "== $R"
+  $Y -v --flat-playlist --extractor-args youtubetab:approximate_date $R --print id \
+    "https://www.youtube.com/playlist?list=UULF$ID" 2>&1 | grep Downloading | grep -v item
+done
+```
+
 ### Titles differ between listings
 
 The same video can have different titles in different listings, and between runs. `bg4f_7W_Rr0` appeared as "How A
