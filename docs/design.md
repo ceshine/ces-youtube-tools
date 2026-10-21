@@ -327,7 +327,8 @@ commands that `site` has since replaced. What was built:
 8. Serve the site over HTTP only: remove the guide page's `file://` handling (done, 2026-10-21) and make the site's
    links extensionless (planned). See "`site` command" below.
 9. An interactive index: sorting, grouping and filtering in the browser, from a JSON payload, with `node --test`
-   tests. (Planned.) See "Planned: an interactive index" below.
+   tests, after recording publish and generation times in the guides. (Planned.) See "Planned: publish and generation
+   times" and "Planned: an interactive index" below.
 
 ## Guide metadata and a private site
 
@@ -399,6 +400,33 @@ existed. A path is a Markdown file or a folder (its `.md` files, not its subfold
 - `generated` is `null`: nothing recorded when the guide was written, and file times change when files are copied.
 - `--dry-run` runs the first pass, including fetching (which fills the cache), and lists the guides it would write.
 
+### Planned: publish and generation times
+
+Decided on 2026-10-21, for the interactive index (below), which sorts by these. The steps are Step 1 in
+[20261021_interactive_index_implementation.md](20261021_interactive_index_implementation.md).
+
+- `upload_date` is a UTC day (or, with no exact time, a US/Pacific day or the page's date text, per yt-dlp's source, not
+  yet verified), so US afternoon uploads read a day early in Asia/Taipei. yt-dlp also reports `timestamp` and, for
+  streams, `release_timestamp` (when the stream started; `timestamp` was about when it ended), which the tool drops
+  today. See "Upload dates are UTC days" in [implementation_notes.md](implementation_notes.md).
+- The publish time is `release_timestamp`, else `timestamp`; `upload_date` is the fallback when both are missing.
+- Front matter records times in UTC, as strings such as `2026-10-14T16:03:12Z`: a new `published` key, and
+  `generated` becomes the time the guide was written. `upload_date` stays as yt-dlp reports it.
+- File names take the publish time's day in `guide.file_name_timezone` (an IANA name; default: the system's time
+  zone), so a guide is named by the day it was published where the owner lives. The prompt's `$upload_date` is the
+  same day.
+- The prompt no longer asks for the `$today · $channel` line under the heading: the front matter holds both dates,
+  and a copy in the text can disagree with it.
+- Because names can change, `guide` refuses a video that already has a guide in the output folder under any name
+  (unless `--force`), and `backfill` rewrites the front matter of every guide and renames it to the new rule. It keeps
+  a `generated` that is set, fills a `null` one with the publish time (an approximation, chosen over reading the
+  guides' date line for simplicity), and keeps keys it does not know.
+- `backfill` is no longer all-or-nothing: a guide with a problem of its own (no video ID, invalid front matter,
+  metadata that cannot be loaded) is left as it is and listed, and the others are written; problems between guides
+  (two guides for one video, a new name already taken) still stop the run before anything is written. Since every
+  guide is rewritten on every run, one deleted or private video would otherwise block every run.
+- The index turns the UTC times into days in the browser's time zone.
+
 ### `site` command
 
 `ces-youtube-tools site [DIR] [-o OUT] [--include-members-only]` (`static_site.py`, done) writes the whole site into
@@ -423,8 +451,9 @@ fails rather than picking a folder to clear. Deploying is kept outside the tool;
 - The module is `static_site.py`, not `site.py`, which would shadow the standard library's `site` module.
 - A page is named after its video, `<video_id>.html`: the ID is checked to be URL-safe, and the URL stays the same
   when the guide's file is renamed. Two guides for the same video are an error. Links use the `.html` names, which
-  Cloudflare Pages redirects (308, not yet verified) to the names without `.html`; extensionless links are planned
-  (see below).
+  Cloudflare Pages redirects (308, not yet verified) to the names without `.html`. Pages serves `/<video_id>` from
+  `<video_id>.html` (checked on 2026-10-21, see the implementation notes), so extensionless links, which are
+  planned (see below), will work.
 - The site is served only over HTTP: by Cloudflare Pages, or locally with `npx wrangler pages dev _site`, which is
   expected to serve the build the way Pages does, extensionless names and `_headers` included (not yet verified).
   Opening the built files from disk (`file://`) is not supported, decided on 2026-10-21: nobody reads the site that
@@ -503,9 +532,10 @@ page as JSON, and a script renders it.
   `<`, `>` and `&` as `\u003c`, `\u003e` and `\u0026`, which `JSON.parse` turns back into the same characters. This
   is the payload's only escaping step, and it gets a test with such a title.
 - Contents: built from the published pages only (`SiteBuild.pages`, never `left_out`), with only what the index shows:
-  `video_id` (the link is `<video_id>`, see "`site` command"), `title`, `channel`, `upload_date` (ISO date or `null`),
-  `duration` (seconds or `null`) and `members_only` (`true`, `false` or `null`). No description and no guide text. A
-  test checks that a left-out guide's ID is not in the page.
+  `video_id` (the link is `<video_id>`, see "`site` command"), `title`, `channel`, `published` and `generated` (UTC
+  times, see "Planned: publish and generation times"; an ISO date for an old date-only `generated`), `upload_date`
+  (ISO date, used only without `published`), `duration` (seconds) and `members_only` (`true` or `false`), each
+  `null` when unknown. No description and no guide text. A test checks that a left-out guide's ID is not in the page.
 - Rendering uses `createElement` and `textContent`, never `innerHTML`: titles and channel names come from YouTube and
   are untrusted. This replaces the `html.escape` calls in `_index_item`.
 - The view (sort key and order, grouping, filter text) is kept in the URL hash, such as `#sort=channel&group=month`,
@@ -514,7 +544,9 @@ page as JSON, and a script renders it.
   left. A view in the hash wins over the stored one. The filter text is not stored, so a later visit never starts
   with guides hidden. Read and written inside `try`/`catch`, as on the guide page. Details in
   [20261021_interactive_index_implementation.md](20261021_interactive_index_implementation.md), Step D.
-- The default view stays what the index shows today: newest upload first, no date last, then by title.
+- The default view sorts by publish date, newest first, then by channel, then by title; the second date sort is the
+  generation date, also then by channel and title (decided on 2026-10-21). Each date is a day in the browser's time
+  zone. Guides without the date come last.
 - No pagination at first. Pagination breaks Ctrl+F and scanning the list; grouping (by channel or month) and the
   filter help more. If the list grows too long, render it in steps ("show more") before numbered pages. With the data
   in memory, either is a slice of the array.

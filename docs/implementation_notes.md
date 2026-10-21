@@ -211,6 +211,35 @@ Checked on 2026-10-09 with `$Y -J --skip-download <video URL>` (with cookies for
 
 Recheck: `$Y -J --skip-download https://www.youtube.com/watch?v=GlYgs6v2YfU | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d['subtitles']), len(d['automatic_captions']), len(d.get('chapters') or []))"`
 
+### Upload dates are UTC days; exact times are in `timestamp` and `release_timestamp`
+
+Checked on 2026-10-21 with yt-dlp 2026.08.19 and cookies, on three David Pakman and Luke Beasley videos and one
+members-only TYT video:
+
+| Video | `live_status` | `upload_date` | `timestamp` (UTC) | `release_timestamp` (UTC) | Asia/Taipei day |
+| --- | --- | --- | --- | --- | --- |
+| `VtuqHVL6dPk` | `was_live` | 20261007 | 2026-10-07 20:31 | 2026-10-07 18:57 | 20261008 |
+| `7SF8GJT0pxo` | `not_live` | 20261014 | 2026-10-14 19:00 | none | 20261015 |
+| `REttiUk0ihw` | `not_live` | 20261016 | 2026-10-16 19:00 | none | 20261017 |
+| `aA8hOuWCJvQ` | `not_live` (members-only) | 20261017 | 2026-10-17 01:51 | none | 20261017 |
+
+- Every video had `timestamp`, to the second, members-only included. `upload_date` was its UTC day, which matches
+  yt-dlp's source: it takes the day from `timestamp` in UTC when YouTube gives a time with a time zone.
+- US afternoon uploads fall on the next day in Asia/Taipei, so the UTC `upload_date` reads a day early there; that is
+  the "off" date seen in guide file names.
+- For the stream replay, `release_timestamp` was when the stream started, and `timestamp` was 5644 seconds later,
+  close to the stream's length (5369 seconds) plus a few minutes: about when the stream ended, not when it was
+  scheduled. Both are on the same UTC day here; a stream across midnight UTC would differ.
+- Not yet verified: premieres, scheduled streams, and videos whose `timestamp` is missing (yt-dlp then falls back to
+  a date-only `uploadDate`, in US/Pacific per its source comment, or the page's date text).
+- Without cookies, the same calls failed with "Sign in to confirm you're not a bot".
+
+Recheck:
+
+```sh
+$Y --cookies-from-browser "$CK" --skip-download --print "%(id)s %(live_status)s %(upload_date)s %(timestamp)s %(release_timestamp)s" VtuqHVL6dPk 7SF8GJT0pxo REttiUk0ihw aA8hOuWCJvQ
+```
+
 ### The default command uses `@latest`
 
 `uvx --from "yt-dlp[default,curl-cffi]@latest" yt-dlp` picks up new yt-dlp releases, which matters because YouTube
@@ -408,3 +437,15 @@ curl -sI https://ces-youtube-watching-guides.pages.dev/ | grep -i -E '^(HTTP|loc
 npx wrangler pages deployment list --project-name ces-youtube-watching-guides   # lists the <hash> host names
 curl -sI https://<hash>.ces-youtube-watching-guides.pages.dev/ | grep -i -E '^(HTTP|location)'
 ```
+
+### Pages serves `/<video_id>` from `<video_id>.html`
+
+Checked on 2026-10-21 by the owner, in a browser signed in through Access, on the production host name
+(`ces-youtube-watching-guides.pages.dev`): `/<video_id>` serves the page `<video_id>.html`. So extensionless links
+work on Pages.
+
+- Not yet verified: that `/<video_id>.html` redirects (308) to `/<video_id>`; that `npx wrangler pages dev` serves
+  extensionless names the same way.
+- Recheck, signed in through Access in a browser: open `https://ces-youtube-watching-guides.pages.dev/<video_id>` for
+  a published guide. `curl` cannot check it, because Access answers requests without a session with its login
+  redirect.
