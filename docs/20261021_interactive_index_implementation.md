@@ -6,9 +6,7 @@ and 9); this file lists the steps to build it. Each step passes the tests and ca
 
 ## Open decisions
 
-- Scope of Step C: sort, group (channel, month) and a text filter, as below; or also a members-only filter or
-  grouping by year.
-- Sort keys besides the two dates in Step C: keep title, channel and length, or offer only the two dates.
+None left.
 
 Decided on 2026-10-21:
 
@@ -22,6 +20,9 @@ Decided on 2026-10-21:
 - Steps B to D use no third-party JavaScript library, from a CDN or vendored; the built-ins cover sorting,
   grouping, dates and the hash. See "No third-party JavaScript library" in "Planned: an interactive index" in
   [design.md](design.md), including when to reconsider.
+- Step C sorts by the two dates only: no title, channel or length sort, since grouping by channel and the filter cover
+  finding a channel or a title. No members-only filter and no grouping by year either. Any of these can be added later;
+  an unknown value in an old hash falls back to the default, so no saved link breaks.
 
 ## Step 0: extensionless links (rest of build order item 8)
 
@@ -169,7 +170,7 @@ Done on 2026-10-21. Differences from the list below:
 - The pure functions already follow Step C's rules for the two date sorts (`published`, `generated`), both orders,
   the groupings (none, channel, month) and the filter, with both empty states. So the page renders any such view the
   URL hash names when it loads, and the script writes the count line from the view (`describeView`). The title,
-  channel and length sorts wait for the open decision.
+  channel and length sorts were dropped in Step C.
 - Also exported: `DEFAULT_VIEW`, `localDay` and `guideDay` (a payload time or date as a local `YYYY-MM-DD`; grouping
   by month takes its first seven characters), `makeCollator` and `describeView`.
 - Groups use `Map.groupBy`, not `Object.groupBy`, which would list a channel named like a number first.
@@ -205,18 +206,37 @@ The plan:
 
 ## Step C: the controls
 
-Left after Step B: the controls themselves, the `hashchange` listener, writing the hash with `history.replaceState`,
-and the sort keys besides the two dates. The rules below are what Step B's functions implement.
+Done on 2026-10-21, with only the two date sorts (see the decisions above). Step B's functions already implemented the
+rules below; Step C added:
+
+- The controls, between the heading and the count line: "Sort by" (publish date, generation date), "Order" (newest
+  first, oldest first), "Group" (none, channel, month) and "Filter", a search box. They start out `hidden` and the
+  script shows them, so a page without JavaScript, or whose script failed, has no controls that do nothing.
+- `CHOICES`, exported, holds each setting's values and labels. `parseView` accepts only those values and the script
+  fills the menus from it, so the two cannot disagree. A Node test checks that every combination goes through the
+  hash unchanged and has a count-line label.
+- One `input` listener on the controls (the menus fire `input` too) renders, then writes the hash with
+  `history.replaceState`; a failure there is only logged. Safari and Firefox are said to limit how often it may be
+  called and to throw past the limit (not yet verified). A `hashchange` listener sets the controls from the hash and
+  renders.
+- Every render is guarded, not only the first, since a view can fail where the default works (only the channel and
+  month groupings use `Map.groupBy`). A failure shows the error note and hides the controls. The list is built before
+  the count line is written, so a failed view leaves the count line as it was.
+- The count line is `aria-live="polite"`, so a screen reader reads the new count after a change.
+- Checked in headless Chrome, driven by Playwright, with a synthetic build: each control, the hash written without a
+  new history entry, `hashchange` and the back button, an unknown value in the hash, the no-match state, and a
+  390-pixel-wide window. Also the failures: with `Map.groupBy` deleted, picking a grouping shows the error note and
+  hides the controls; with `replaceState` stubbed to throw, the filter still updates the list and a warning is logged.
+
+The plan, with the sort keys narrowed to the two dates:
 
 - Sort, ascending or descending (descending by default for the dates):
   - Publish date (default): the day of `published` in the browser's time zone, else `upload_date` as it is; then
     channel, then title.
   - Generation date: the day of `generated` in the browser's time zone (a date-only value as it is); then channel,
     then title.
-  - Title, channel or length, unless the open decision drops them; ties go by title.
-  - In the hash and the stored view, the keys are `published`, `generated`, `title`, `channel` and `length`.
-  - Channel and title stay A to Z when the dates are reversed. Unknown values (no date, no length) go last in both
-    directions.
+  - In the hash and the stored view, the keys are `published` and `generated`.
+  - Channel and title stay A to Z when the dates are reversed. Guides without the date go last in both directions.
 - The days are local on purpose: the stored times are UTC, and the page shows and sorts by the reader's day. A row
   shows its publish date, and also its generation date when the view sorts by it.
 - Titles and channels are compared with `Intl.Collator(undefined, { numeric: true, sensitivity: "base" })`, so "Part
@@ -224,10 +244,10 @@ and the sort keys besides the two dates. The rules below are what Step B's funct
   `casefold()` order, which only orders the payload. The Node tests pass a fixed locale.
 - Group: none (default), channel or month. Each group is `<section><h2>October 2026 · 3</h2><ol>…`. Month groups follow
   the date order, channel groups are alphabetical, and "No date" or "Unknown channel" comes last.
-- The month is that of the date the view sorts by (the publish date for the other sort keys), in the browser's time
-  zone. A date-only value (`upload_date`, an old `generated`) is never turned into a `Date`: `new Date("2026-10-01")`
-  is midnight UTC, which is still September west of UTC. Its month is its first seven characters (`2026-10`), and the
-  heading is formatted from that month with `timeZone: "UTC"`.
+- The month is that of the date the view sorts by, in the browser's time zone. A date-only value (`upload_date`, an old
+  `generated`) is never turned into a `Date`: `new Date("2026-10-01")` is midnight UTC, which is still September west of
+  UTC. Its month is its first seven characters (`2026-10`), and the heading is formatted from that month with
+  `timeZone: "UTC"`.
 - Filter: a text box matching title and channel, ignoring case after `normalize("NFKC")`; every word typed must
   match. Two empty states: "No guides yet." and "No guides match …".
 - View in the hash, such as `#sort=published&order=desc&group=month&q=rust`:
@@ -246,7 +266,7 @@ no hash. Made a required step on 2026-10-21.
 
 - What is stored: sort, order and grouping, under the key `ces-youtube-tools:index-view` (the guide page uses
   `ces-youtube-tools:scroll-to-player`). The value is the same string `formatView` writes for the hash, such as
-  `sort=title&order=asc&group=channel`, so one format and one parser (`parseView`) cover both.
+  `sort=generated&order=asc&group=channel`, so one format and one parser (`parseView`) cover both.
 - The filter text is not stored. A filter restored on a later visit would quietly hide guides, including ones added
   since; it stays in the hash, so reloading and going back keep it.
 - Which view is used on load, first match wins:

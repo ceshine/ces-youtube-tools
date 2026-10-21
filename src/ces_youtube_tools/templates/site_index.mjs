@@ -10,9 +10,13 @@
 
 export const DEFAULT_VIEW = Object.freeze({ sort: "published", order: "desc", group: "none", q: "" });
 
-const SORTS = ["published", "generated"];
-const ORDERS = ["desc", "asc"];
-const GROUPS = ["none", "channel", "month"];
+// Each setting's choices with their labels, in the order the controls list them. `parseView` accepts only these, and
+// the controls are filled from them.
+export const CHOICES = Object.freeze({
+  sort: Object.freeze({ published: "Publish date", generated: "Generation date" }),
+  order: Object.freeze({ desc: "Newest first", asc: "Oldest first" }),
+  group: Object.freeze({ none: "None", channel: "Channel", month: "Month" }),
+});
 const SORT_LABELS = {
   published: { desc: "newest publish date first", asc: "oldest publish date first" },
   generated: { desc: "newest generation date first", asc: "oldest generation date first" },
@@ -192,8 +196,8 @@ export function groupGuides(guides, view, locale) {
   return [{ label: null, guides }];
 }
 
-function pick(value, allowed, fallback) {
-  return allowed.includes(value) ? value : fallback;
+function pick(value, choices, fallback) {
+  return value !== null && Object.hasOwn(choices, value) ? value : fallback;
 }
 
 /**
@@ -208,9 +212,9 @@ function pick(value, allowed, fallback) {
 export function parseView(hash) {
   const params = new URLSearchParams(hash.replace(/^#/, ""));
   return {
-    sort: pick(params.get("sort"), SORTS, DEFAULT_VIEW.sort),
-    order: pick(params.get("order"), ORDERS, DEFAULT_VIEW.order),
-    group: pick(params.get("group"), GROUPS, DEFAULT_VIEW.group),
+    sort: pick(params.get("sort"), CHOICES.sort, DEFAULT_VIEW.sort),
+    order: pick(params.get("order"), CHOICES.order, DEFAULT_VIEW.order),
+    group: pick(params.get("group"), CHOICES.group, DEFAULT_VIEW.group),
     q: params.get("q") ?? "",
   };
 }
@@ -244,8 +248,8 @@ export function describeView(view, shown, total) {
   return `${count}${grouping}, ${SORT_LABELS[view.sort][view.order]}.`;
 }
 
-// The code below touches the page. Text from the payload goes in with `textContent` only, never `innerHTML`: titles
-// and channel names come from YouTube.
+// The code below touches the page. The controls have the IDs of the view's settings (`sort`, `order`, `group`, `q`).
+// Text from the payload goes in with `textContent` only, never `innerHTML`: titles and channel names come from YouTube.
 
 function element(tag, className, text) {
   const node = document.createElement(tag);
@@ -317,22 +321,97 @@ function listing(guides, shown, view) {
   });
 }
 
+function fillChoices(select, choices) {
+  const options = Object.entries(choices).map(([value, label]) => {
+    const option = element("option", null, label);
+    option.value = value;
+    return option;
+  });
+  select.replaceChildren(...options);
+}
+
+function setControls(view) {
+  for (const name of Object.keys(CHOICES)) {
+    document.getElementById(name).value = view[name];
+  }
+  document.getElementById("q").value = view.q;
+}
+
+function readControls() {
+  const view = { q: document.getElementById("q").value };
+  for (const name of Object.keys(CHOICES)) {
+    view[name] = document.getElementById(name).value;
+  }
+  return view;
+}
+
 function render(guides, view) {
   const shown = sortGuides(filterGuides(guides, view.q), view);
+  // Built before the page is changed, so a view that fails leaves the count line as it was.
+  const items = listing(guides, shown, view);
   document.getElementById("count").textContent = describeView(view, shown.length, guides.length);
-  document.getElementById("listing").replaceChildren(...listing(guides, shown, view));
+  document.getElementById("listing").replaceChildren(...items);
+}
+
+function writeHash(view) {
+  // `replaceState` does not fire `hashchange`, and keeps typing in the filter out of the back button's history.
+  try {
+    history.replaceState(null, "", `#${formatView(view)}`);
+  } catch (error) {
+    // Safari and Firefox are said to limit how often the History API may be called, and to throw past the limit (not
+    // yet verified). The list is already rendered; only the URL lags until the next change.
+    console.warn("The view could not be written to the URL.", error);
+  }
+}
+
+function showFailure(error) {
+  // Such as a browser without `Map.groupBy`. Say so instead of leaving a wrong or empty list, and hide the controls,
+  // which no longer work; the console keeps the error.
+  const note = element("p", "empty", "The list of guides could not be shown; the browser console has the error.");
+  document.getElementById("listing").replaceChildren(note);
+  document.getElementById("controls").hidden = true;
+  throw error;
+}
+
+// Every render is guarded, not only the first: a view can fail where the default one works. Only the channel and
+// month groupings use `Map.groupBy`, for example.
+function guarded(listener) {
+  return () => {
+    try {
+      listener();
+    } catch (error) {
+      showFailure(error);
+    }
+  };
 }
 
 function main() {
+  let guides;
+  const showHash = () => {
+    const view = parseView(location.hash);
+    setControls(view);
+    render(guides, view);
+  };
+  const showControls = () => {
+    const view = readControls();
+    render(guides, view);
+    writeHash(view);
+  };
   try {
-    const guides = JSON.parse(document.getElementById("guides").textContent);
-    render(guides, parseView(location.hash));
+    guides = JSON.parse(document.getElementById("guides").textContent);
+    for (const [name, choices] of Object.entries(CHOICES)) {
+      fillChoices(document.getElementById(name), choices);
+    }
+    showHash();
   } catch (error) {
-    // Such as a browser without `Map.groupBy`. Say so instead of leaving the list empty; the console keeps the error.
-    const note = element("p", "empty", "The list of guides could not be shown; the browser console has the error.");
-    document.getElementById("listing").replaceChildren(note);
-    throw error;
+    showFailure(error);
   }
+  // The hash edited by hand, or back and forward between hashes.
+  window.addEventListener("hashchange", guarded(showHash));
+  const controls = document.getElementById("controls");
+  // `input` bubbles from the selects too.
+  controls.addEventListener("input", guarded(showControls));
+  controls.hidden = false;
 }
 
 if (typeof document !== "undefined") {

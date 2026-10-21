@@ -22,6 +22,8 @@
   --accent-soft: #e2eeee;
   --pill-text: #134f58;
   --row-hover: #e8f0ef;
+  --field: #fff;
+  --field-border: #cfc8b9;
 }
 
 * { box-sizing: border-box; }
@@ -49,6 +51,30 @@ h1 {
   line-height: 1.25;
   margin: 1.3em 0 0.2em;
 }
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin: 1em 0 0.8em;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  color: var(--muted);
+}
+/* `display: flex` above would otherwise win over the browser's `[hidden] { display: none }`. */
+.controls[hidden] { display: none; }
+.controls label { display: flex; align-items: center; gap: 6px; }
+.controls .filter { flex: 1 1 16em; }
+.controls select, .controls input {
+  font: inherit;
+  color: var(--text);
+  background: var(--field);
+  border: 1px solid var(--field-border);
+  border-radius: 6px;
+  padding: 4px 8px;
+}
+.controls input { flex: 1; min-width: 0; }
+.controls select:focus-visible, .controls input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .count {
   margin: 0 0 1.5em;
   font-family: var(--font-ui);
@@ -109,7 +135,13 @@ h1 {
 <body>
 <main>
 <h1>Watching guides</h1>
-<p class="count" id="count">$count.</p>
+<div class="controls" id="controls" hidden>
+<label>Sort by <select id="sort"></select></label>
+<label>Order <select id="order"></select></label>
+<label>Group <select id="group"></select></label>
+<label class="filter">Filter <input type="search" id="q" placeholder="Title or channel" autocomplete="off"></label>
+</div>
+<p class="count" id="count" aria-live="polite">$count.</p>
 <noscript><p class="empty">The list of guides needs JavaScript.</p></noscript>
 <div id="listing"></div>
 </main>

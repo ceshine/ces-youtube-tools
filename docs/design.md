@@ -350,10 +350,11 @@ commands that `site` has since replaced. What was built:
    See "Guide metadata and a private site" below.
 8. Serve the site over HTTP only: remove the guide page's `file://` handling and make the site's links
    extensionless. (Done, 2026-10-21.) See "`site` command" below.
-9. An interactive index: sorting, grouping and filtering in the browser, from a JSON payload, with `node --test`
-   tests, after recording publish and generation times in the guides. (In progress: since 2026-10-21, the guides
-   record the times, and a script renders the index from the payload, in the view the URL hash names; the controls
-   are still to come.) See "Publish and generation times" and "Planned: an interactive index" below.
+9. An interactive index: sorting, grouping and filtering in the browser, from a JSON payload, with `node --test` tests,
+   after recording publish and generation times in the guides. (In progress: since 2026-10-21, the guides record the
+   times, and the index is sorted, grouped and filtered in the browser from controls, with the view in the URL hash;
+   remembering the view in `localStorage` is still to come.) See "Publish and generation times" and "Planned: an
+   interactive index" below.
 
 ## Guide metadata and a private site
 
@@ -513,11 +514,12 @@ the tool; the command prints `npx wrangler pages deploy OUT`.
   early check in `<head>`, the branch that removed the player, and its note) was removed on 2026-10-21; opened from
   disk, the player's Error 153 is still caught by the error note. Links were made extensionless on 2026-10-21.
 - Each page gets an "All guides" link to `./` above the player (`render_guide_page(link_to_index=True)`).
-- The index (`templates/site_index.html`) holds the published guides as a JSON payload (`index_payload`), and its
-  script (`templates/site_index.mjs`, written as `index.mjs`) lists them: by default newest publish date first (no
-  date last), then by channel and title, with the publish date, channel, length, and a badge for members-only or
-  unknown availability. Until the script runs, the page shows only the count. The title is the YouTube title from the
-  front matter, else the guide's heading, else the file name. See "Planned: an interactive index".
+- The index (`templates/site_index.html`) holds the published guides as a JSON payload (`index_payload`), and its script
+  (`templates/site_index.mjs`, written as `index.mjs`) lists them: by default newest publish date first (no date last),
+  then by channel and title, with the publish date, channel, length, and a badge for members-only or unknown
+  availability. Menus and a search box above the list change the sort, the grouping and the filter. Until the script
+  runs, the page shows only the count. The title is the YouTube title from the front matter, else the guide's heading,
+  else the file name. See "Planned: an interactive index".
 - Two passes, as in `backfill`. The first reads and renders every guide in memory and reports all problems together
   (unreadable file, invalid front matter, no video ID, two guides for one video); if there is any, `OUT` is not
   touched and the exit status is 1. The front matter of guides that are left out is checked too.
@@ -590,7 +592,7 @@ page as JSON, and a script renders it.
   `null` when unknown. No description and no guide text. A test checks that a left-out guide's ID is not in the page.
 - Rendering uses `createElement` and `textContent`, never `innerHTML`: titles and channel names come from YouTube and
   are untrusted. This replaced the `html.escape` calls of the list built in Python (`_index_item`, removed in Step B).
-- The view (sort key and order, grouping, filter text) is kept in the URL hash, such as `#sort=channel&group=month`,
+- The view (sort key and order, grouping, filter text) is kept in the URL hash, such as `#sort=generated&group=month`,
   so reloading, the back button and saved links keep it. `localStorage` remembers the last sort, order and grouping
   (decided on 2026-10-21), so the guide pages' "All guides" link, which carries no hash, opens the index as it was
   left. A view in the hash wins over the stored one. The filter text is not stored, so a later visit never starts
@@ -599,6 +601,15 @@ page as JSON, and a script renders it.
 - The default view sorts by publish date, newest first, then by channel, then by title; the second date sort is the
   generation date, also then by channel and title (decided on 2026-10-21). Each date is a day in the browser's time
   zone. Guides without the date come last.
+- Only the two dates are sort keys (decided on 2026-10-21). Sorting by title, channel or length was considered;
+  grouping by channel and the filter cover finding a channel or a title. There is no members-only filter or grouping
+  by year either. An unknown value in the hash falls back to the default, so adding or dropping a choice later breaks
+  no saved link.
+- Controls above the list: menus for the sort, the order and the grouping, and a search box for the filter. The
+  script fills the menus from the same table (`CHOICES`) that `parseView` checks the hash against. A change is written
+  to the hash with `history.replaceState`, so typing in the filter adds no back-button entries, and a `hashchange`
+  (the hash edited by hand, or back and forward) sets the controls and renders again. The controls are `hidden` until
+  the script shows them.
 - No pagination at first. Pagination breaks Ctrl+F and scanning the list; grouping (by channel or month) and the
   filter help more. If the list grows too long, render it in steps ("show more") before numbered pages. With the data
   in memory, either is a slice of the array.

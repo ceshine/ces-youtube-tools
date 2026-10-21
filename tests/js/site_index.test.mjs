@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
+  CHOICES,
   DEFAULT_VIEW,
   localDay,
   parseView,
@@ -182,6 +183,21 @@ test("formatView writes what parseView reads", () => {
   assert.equal(formatView(DEFAULT_VIEW), "sort=published&order=desc&group=none");
   const filtered = view({ sort: "generated", group: "month", q: "a & b #1" });
   assert.deepEqual(parseView(`#${formatView(filtered)}`), filtered);
+});
+
+test("every choice of the controls is a view the hash keeps and the count line describes", () => {
+  for (const name of Object.keys(CHOICES)) {
+    assert.ok(Object.hasOwn(CHOICES[name], DEFAULT_VIEW[name]), `the default ${name} is a choice`);
+  }
+  for (const sort of Object.keys(CHOICES.sort)) {
+    for (const order of Object.keys(CHOICES.order)) {
+      for (const group of Object.keys(CHOICES.group)) {
+        const choice = view({ sort, order, group });
+        assert.deepEqual(parseView(`#${formatView(choice)}`), choice);
+        assert.match(describeView(choice, 2, 2), /^2 guides, .+ first\.$/);
+      }
+    }
+  }
 });
 
 test("describeView says what the list shows", () => {

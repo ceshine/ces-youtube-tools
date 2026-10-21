@@ -90,8 +90,9 @@ for the default, or type `q` to quit.
 ## The guides as a website
 
 `site` turns a folder of guides into a static site for Cloudflare Pages: one page per guide, with the video's player
-embedded so that clicking a timestamp moves the player, and an index of all guides, newest first. The index is
-listed by a script, so it needs JavaScript.
+embedded so that clicking a timestamp moves the player, and an index of all guides that can be sorted by publish or
+generation date, grouped by channel or month, and filtered by title or channel. The index is listed by a script, so it
+needs JavaScript.
 
 ```bash
 ces-youtube-tools site -o ~/guides-site   # build from guide.output_dir
