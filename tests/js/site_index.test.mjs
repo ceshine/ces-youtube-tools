@@ -15,6 +15,9 @@ import {
   describeView,
   filterGuides,
   formatDuration,
+  initialView,
+  saveView,
+  STORAGE_KEY,
 } from "../../src/ces_youtube_tools/templates/site_index.mjs";
 
 const LOCALE = "en";
@@ -42,6 +45,24 @@ function view(fields = {}) {
 
 function ids(guides) {
   return guides.map((entry) => entry.video_id);
+}
+
+// A stand-in for `localStorage`; `items` shows what was stored.
+function memoryStorage(entries = {}) {
+  const items = new Map(Object.entries(entries));
+  return {
+    items,
+    getItem: (key) => (items.has(key) ? items.get(key) : null),
+    setItem: (key, value) => items.set(key, String(value)),
+    removeItem: (key) => items.delete(key),
+  };
+}
+
+function brokenStorage() {
+  const fail = () => {
+    throw new Error("storage is blocked");
+  };
+  return { getItem: fail, setItem: fail, removeItem: fail };
 }
 
 test("formatDuration matches Python's format_duration", () => {
@@ -205,4 +226,44 @@ test("describeView says what the list shows", () => {
   assert.equal(describeView(view(), 0, 0), "0 guides, newest publish date first.");
   const grouped = view({ sort: "generated", order: "asc", group: "month" });
   assert.equal(describeView(grouped, 1, 3), "1 of 3 guides, grouped by month, oldest generation date first.");
+});
+
+test("the hash beats the stored view, which beats the default and asks for the hash to be rewritten", () => {
+  const storage = memoryStorage({ [STORAGE_KEY]: "sort=generated&order=asc&group=channel" });
+  assert.deepEqual(initialView("#group=month", storage), { view: view({ group: "month" }), rewriteHash: false });
+  assert.deepEqual(initialView("#q=rust", storage), { view: view({ q: "rust" }), rewriteHash: false });
+  const stored = { view: view({ sort: "generated", order: "asc", group: "channel" }), rewriteHash: true };
+  assert.deepEqual(initialView("", storage), stored);
+  assert.deepEqual(initialView("#", storage), stored);
+  assert.deepEqual(initialView("#foo=1", storage), stored);
+  assert.deepEqual(initialView("", memoryStorage()), { view: DEFAULT_VIEW, rewriteHash: false });
+});
+
+test("a stored value is read like a hash, without its filter text", () => {
+  const read = (value) => initialView("", memoryStorage({ [STORAGE_KEY]: value })).view;
+  assert.deepEqual(read("sort=title&group=channel"), view({ group: "channel" }));
+  assert.deepEqual(read("group=month&q=rust"), view({ group: "month" }));
+  assert.deepEqual(initialView("", memoryStorage({ [STORAGE_KEY]: "not a view" })), {
+    view: DEFAULT_VIEW,
+    rewriteHash: false,
+  });
+});
+
+test("saveView leaves out the filter text, and removes the key for the default view", () => {
+  const storage = memoryStorage();
+  saveView(storage, view({ sort: "generated", order: "asc", group: "channel", q: "rust" }));
+  assert.deepEqual([...storage.items], [[STORAGE_KEY, "sort=generated&order=asc&group=channel"]]);
+  saveView(storage, view({ q: "rust" }));
+  assert.deepEqual([...storage.items], []);
+});
+
+test("without working storage the index shows the hash or the default, and only warns", (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  assert.deepEqual(initialView("", brokenStorage()), { view: DEFAULT_VIEW, rewriteHash: false });
+  saveView(brokenStorage(), view({ group: "month" }));
+  assert.equal(warn.mock.callCount(), 2);
+  assert.deepEqual(initialView("#group=month", null), { view: view({ group: "month" }), rewriteHash: false });
+  assert.deepEqual(initialView("", null), { view: DEFAULT_VIEW, rewriteHash: false });
+  saveView(null, view({ group: "month" }));
+  assert.equal(warn.mock.callCount(), 2);
 });

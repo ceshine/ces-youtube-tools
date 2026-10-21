@@ -1,5 +1,6 @@
 // The index page's script, written to the site as `index.mjs`. It reads the guides from the page's JSON block and
-// renders the view named in the URL hash, such as `#sort=generated&group=month&q=rust`.
+// renders the view named in the URL hash, such as `#sort=generated&group=month&q=rust`. Without one, it renders the
+// sort, order and grouping it remembered in `localStorage`.
 //
 // The pure functions are exported for the Node tests in `tests/js/`. Only `main()` touches the page, and it runs only
 // when there is a `document`, so importing this file in Node has no side effects.
@@ -233,6 +234,73 @@ export function formatView(view) {
   return params.toString();
 }
 
+// The key `localStorage` keeps the last sort, order and grouping under, as `formatView` writes them. The guide page
+// keeps its toggle under `ces-youtube-tools:scroll-to-player`.
+export const STORAGE_KEY = "ces-youtube-tools:index-view";
+
+function namesAny(text, names) {
+  const params = new URLSearchParams(text.replace(/^#/, ""));
+  return names.some((name) => params.has(name));
+}
+
+function readStored(storage) {
+  if (storage === null) {
+    return null;
+  }
+  try {
+    return storage.getItem(STORAGE_KEY);
+  } catch (error) {
+    console.warn("The remembered view could not be read.", error);
+    return null;
+  }
+}
+
+/**
+ * Choose the view shown when the page loads: the hash's, else the stored one, else the default.
+ *
+ * The filter text is never taken from storage, so a later visit does not start with guides hidden.
+ *
+ * @param {string} hash The URL hash, with or without the `#`.
+ * @param {Storage | null} storage `localStorage`, or null when the browser does not give it.
+ * @returns {{view: object, rewriteHash: boolean}} The view, and whether it came from storage, in which case the hash
+ *     should be written to show it.
+ */
+export function initialView(hash, storage) {
+  if (namesAny(hash, Object.keys(DEFAULT_VIEW))) {
+    return { view: parseView(hash), rewriteHash: false };
+  }
+  const stored = readStored(storage);
+  if (typeof stored === "string" && namesAny(stored, Object.keys(CHOICES))) {
+    return { view: { ...parseView(stored), q: "" }, rewriteHash: true };
+  }
+  return { view: { ...DEFAULT_VIEW }, rewriteHash: false };
+}
+
+/**
+ * Remember a view's sort, order and grouping; for the default view, forget any stored one.
+ *
+ * Removing the key for the default lets a later build change the default without an old stored value hiding it.
+ *
+ * @param {Storage | null} storage `localStorage`, or null when the browser does not give it; null does nothing.
+ * @param {object} view The view; its filter text is not stored.
+ */
+export function saveView(storage, view) {
+  if (storage === null) {
+    return;
+  }
+  const kept = { ...view, q: "" };
+  try {
+    if (Object.keys(CHOICES).every((name) => kept[name] === DEFAULT_VIEW[name])) {
+      storage.removeItem(STORAGE_KEY);
+    } else {
+      storage.setItem(STORAGE_KEY, formatView(kept));
+    }
+  } catch (error) {
+    // Such as blocked site data or a full quota. The index works for this visit; only the next one starts afresh.
+    console.warn("The view could not be remembered.", error);
+  }
+}
+
 /**
  * Describe what the list shows, for the line under the heading.
  *
@@ -385,25 +453,56 @@ function guarded(listener) {
   };
 }
 
+function browserStorage() {
+  // Reading the property itself can throw, such as when the browser blocks site data.
+  try {
+    return window.localStorage ?? null;
+  } catch (error) {
+    console.warn("The view will not be remembered: the browser gives no storage.", error);
+    return null;
+  }
+}
+
 function main() {
   let guides;
-  const showHash = () => {
-    const view = parseView(location.hash);
+  let storage = null;
+  // Whether the first view came from storage.
+  let restored = false;
+  // Every view shown is remembered, wherever it comes from, since it is the view on screen.
+  const show = (view) => {
     setControls(view);
     render(guides, view);
+    saveView(storage, view);
   };
+  const showHash = () => show(parseView(location.hash));
   const showControls = () => {
     const view = readControls();
     render(guides, view);
     writeHash(view);
+    saveView(storage, view);
+  };
+  const resetView = () => {
+    show(DEFAULT_VIEW);
+    writeHash(DEFAULT_VIEW);
   };
   try {
     guides = JSON.parse(document.getElementById("guides").textContent);
     for (const [name, choices] of Object.entries(CHOICES)) {
       fillChoices(document.getElementById(name), choices);
     }
-    showHash();
+    storage = browserStorage();
+    const { view, rewriteHash } = initialView(location.hash, storage);
+    restored = rewriteHash;
+    show(view);
+    if (rewriteHash) {
+      writeHash(view);
+    }
   } catch (error) {
+    if (restored) {
+      // A stored view that fails would fail on every visit without a hash, with "Reset view" hidden along with the
+      // other controls. Forget it, so the next visit starts from the default. A failing hash keeps the stored view.
+      saveView(storage, DEFAULT_VIEW);
+    }
     showFailure(error);
   }
   // The hash edited by hand, or back and forward between hashes.
@@ -411,6 +510,7 @@ function main() {
   const controls = document.getElementById("controls");
   // `input` bubbles from the selects too.
   controls.addEventListener("input", guarded(showControls));
+  document.getElementById("reset").addEventListener("click", guarded(resetView));
   controls.hidden = false;
 }
 

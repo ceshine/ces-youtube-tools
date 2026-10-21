@@ -351,10 +351,8 @@ commands that `site` has since replaced. What was built:
 8. Serve the site over HTTP only: remove the guide page's `file://` handling and make the site's links
    extensionless. (Done, 2026-10-21.) See "`site` command" below.
 9. An interactive index: sorting, grouping and filtering in the browser, from a JSON payload, with `node --test` tests,
-   after recording publish and generation times in the guides. (In progress: since 2026-10-21, the guides record the
-   times, and the index is sorted, grouped and filtered in the browser from controls, with the view in the URL hash;
-   remembering the view in `localStorage` is still to come.) See "Publish and generation times" and "Planned: an
-   interactive index" below.
+   after recording publish and generation times in the guides. (Done, 2026-10-21.) See "Publish and generation times"
+   and "Interactive index" below.
 
 ## Guide metadata and a private site
 
@@ -519,7 +517,7 @@ the tool; the command prints `npx wrangler pages deploy OUT`.
   then by channel and title, with the publish date, channel, length, and a badge for members-only or unknown
   availability. Menus and a search box above the list change the sort, the grouping and the filter. Until the script
   runs, the page shows only the count. The title is the YouTube title from the front matter, else the guide's heading,
-  else the file name. See "Planned: an interactive index".
+  else the file name. See "Interactive index".
 - Two passes, as in `backfill`. The first reads and renders every guide in memory and reports all problems together
   (unreadable file, invalid front matter, no video ID, two guides for one video); if there is any, `OUT` is not
   touched and the exit status is 1. The front matter of guides that are left out is checked too.
@@ -570,10 +568,10 @@ guide one click from the front page.
   [implementation_notes.md](implementation_notes.md). A custom domain, if one is added, must be added to the Access
   application and checked the same way.
 
-### Planned: an interactive index
+### Interactive index
 
-The index is to be sorted, grouped and filtered in the browser. `site` writes the list of published guides into the
-page as JSON, and a script renders it.
+The index is sorted, grouped and filtered in the browser (built on 2026-10-21). `site` writes the list of published
+guides into the page as JSON, and a script renders it.
 
 - Why in the browser: the site is static, so the browser is the only place a reader can change the view, and a change
   needs no rebuild. The data is small (a few hundred bytes per guide). Only the owner reads the site, through Access,
@@ -595,8 +593,13 @@ page as JSON, and a script renders it.
 - The view (sort key and order, grouping, filter text) is kept in the URL hash, such as `#sort=generated&group=month`,
   so reloading, the back button and saved links keep it. `localStorage` remembers the last sort, order and grouping
   (decided on 2026-10-21), so the guide pages' "All guides" link, which carries no hash, opens the index as it was
-  left. A view in the hash wins over the stored one. The filter text is not stored, so a later visit never starts
-  with guides hidden. Read and written inside `try`/`catch`, as on the guide page. Details in
+  left. A view in the hash wins over the stored one, and a stored view is written into the hash when used. Every view
+  shown is stored, from the controls, the hash or the page load; the default view removes the key instead, so a later
+  build can change the default. So a link that names only the filter, such as `#q=rust`, shows the default sort and
+  grouping and removes the stored view. The filter text is not stored, so a later visit never starts with guides
+  hidden. A "Reset view" button returns to the default. A stored view that fails to render is removed, so the next
+  visit starts from the default. Read and written inside `try`/`catch`, as on the guide page; without storage the
+  index works as before, and the console has a warning. Details in
   [20261021_interactive_index_implementation.md](20261021_interactive_index_implementation.md), Step D.
 - The default view sorts by publish date, newest first, then by channel, then by title; the second date sort is the
   generation date, also then by channel and title (decided on 2026-10-21). Each date is a day in the browser's time
@@ -633,7 +636,7 @@ page as JSON, and a script renders it.
   - Availability: with the CDN down or blocked, the index would be empty (guide pages would still work), and
     `npx wrangler pages dev` would need the network.
   - Fit: list libraries such as List.js, Grid.js and Tabulator keep their own state and markup, while the view here
-    lives in the URL hash and `localStorage` (Step D); bridging the two can take more code than the sort itself.
+    lives in the URL hash and `localStorage`; bridging the two can take more code than the sort itself.
 
   Reconsider for fuzzy search (Fuse.js), a full data table (resizable columns, sorting by several keys at once,
   virtual scrolling for thousands of guides), or nested markup that hand-written `createElement` code makes hard to

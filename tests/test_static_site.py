@@ -116,6 +116,7 @@ def test_render_index_leaves_the_list_to_the_script() -> None:
     assert '<script type="module" src="index.mjs"></script>' in index
     assert "<noscript>" in index
     assert '<div class="controls" id="controls" hidden>' in index  # shown by the script
+    assert '<button type="button" id="reset">Reset view</button>' in index
     assert "<ol" not in index and "<Title>" not in index
     assert guides_block(index) == index_payload(pages)
     assert "$" not in index

@@ -1,8 +1,8 @@
 # Interactive index: implementation plan
 
-Written on 2026-10-21. The design is in "Planned: an interactive index" in [design.md](design.md) (build order items 8
-and 9); this file lists the steps to build it. Each step passes the tests and can be deployed on its own. Steps 0 and
-1 change the links and the guides' metadata; Steps A to D build the index on top of them.
+Written on 2026-10-21. The design is in "Interactive index" in [design.md](design.md) (build order items 8 and 9);
+this file lists the steps to build it. Each step passes the tests and can be deployed on its own. Steps 0 and 1 change
+the links and the guides' metadata; Steps A to D build the index on top of them. All steps were done on 2026-10-21.
 
 ## Open decisions
 
@@ -18,7 +18,7 @@ Decided on 2026-10-21:
   and the others are written; only problems between guides stop the run. It rewrites every guide on every run, so
   one deleted or private video would otherwise block every run.
 - Steps B to D use no third-party JavaScript library, from a CDN or vendored; the built-ins cover sorting,
-  grouping, dates and the hash. See "No third-party JavaScript library" in "Planned: an interactive index" in
+  grouping, dates and the hash. See "No third-party JavaScript library" in "Interactive index" in
   [design.md](design.md), including when to reconsider.
 - Step C sorts by the two dates only: no title, channel or length sort, since grouping by channel and the filter cover
   finding a channel or a title. No members-only filter and no grouping by year either. Any of these can be added later;
@@ -260,6 +260,28 @@ The plan, with the sort keys narrowed to the two dates:
 
 ## Step D: remember the view in `localStorage`
 
+Done on 2026-10-21, as planned below, with these details settled while building it:
+
+- The view a hash names on load is stored too, not only later changes: it is the view on screen, so "All guides" from
+  a guide opened next comes back to it. A stored value with a filter (only possible by hand) is cleaned on the next
+  save.
+- The hash "holds a view setting" when it has any of `sort`, `order`, `group` or `q`; a stored value is used when it
+  has any of `sort`, `order` or `group`. Otherwise (such as `not a view`) the default is used, and the hash is not
+  rewritten.
+- "Reset view" sets the controls to the default, writes the default view into the hash and removes the key.
+- A failed read or write of storage, and `localStorage` itself throwing, each log a `console.warn`. The Node tests
+  check the read and write warnings with `t.mock.method`; the one for `localStorage` throwing was checked in Chrome.
+- A hash that names only the filter, such as `#q=rust`, still wins: it shows the default sort and grouping, and so
+  removes the stored view, as a `hashchange` to it does.
+- When the first view fails to render and came from storage, the key is removed before the error note is shown, so
+  the next visit starts from the default instead of failing again with the controls (and "Reset view") hidden. A
+  failing view from the hash leaves the stored one alone.
+- Checked in headless Chrome against a synthetic build with a stub guide page: changing the view, then the stub's
+  "All guides" link (`./`) restores the sort and grouping, without the filter, and writes them into the hash; a hash
+  wins and is stored; a `hashchange` is stored; "Reset view" removes the key; with `localStorage` throwing a
+  `SecurityError`, the index works from the hash and logs one warning; with `Map.groupBy` deleted, a stored
+  `group=month` shows the error note and is removed, while a failing `#group=channel` keeps the stored view.
+
 The hash keeps the view on reload and when going back from a guide, but the guide page's "All guides" link goes to
 `./` without a hash and resets it. The index stores the last view in `localStorage` and restores it when the URL has
 no hash. Made a required step on 2026-10-21.
@@ -298,6 +320,8 @@ no hash. Made a required step on 2026-10-21.
     default.
 
 ## Docs, as each step lands
+
+All done on 2026-10-21.
 
 - [design.md](design.md): mark build order item 9 done; turn "Planned: an interactive index" into a description of
   what was built; in "`site` command", the bullet "The index ... lists guides newest upload first".

@@ -65,7 +65,7 @@ h1 {
 .controls[hidden] { display: none; }
 .controls label { display: flex; align-items: center; gap: 6px; }
 .controls .filter { flex: 1 1 16em; }
-.controls select, .controls input {
+.controls select, .controls input, .controls button {
   font: inherit;
   color: var(--text);
   background: var(--field);
@@ -74,7 +74,9 @@ h1 {
   padding: 4px 8px;
 }
 .controls input { flex: 1; min-width: 0; }
-.controls select:focus-visible, .controls input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.controls button { cursor: pointer; }
+.controls button:hover { border-color: var(--accent); color: var(--accent); }
+.controls :is(select, input, button):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .count {
   margin: 0 0 1.5em;
   font-family: var(--font-ui);
@@ -140,6 +142,7 @@ h1 {
 <label>Order <select id="order"></select></label>
 <label>Group <select id="group"></select></label>
 <label class="filter">Filter <input type="search" id="q" placeholder="Title or channel" autocomplete="off"></label>
+<button type="button" id="reset">Reset view</button>
 </div>
 <p class="count" id="count" aria-live="polite">$count.</p>
 <noscript><p class="empty">The list of guides needs JavaScript.</p></noscript>
