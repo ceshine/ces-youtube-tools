@@ -438,14 +438,15 @@ npx wrangler pages deployment list --project-name ces-youtube-watching-guides   
 curl -sI https://<hash>.ces-youtube-watching-guides.pages.dev/ | grep -i -E '^(HTTP|location)'
 ```
 
-### Pages serves `/<video_id>` from `<video_id>.html`
+### Pages serves `/<video_id>` from `<video_id>.html`, and `./` from `index.html`
 
 Checked on 2026-10-21 by the owner, in a browser signed in through Access, on the production host name
-(`ces-youtube-watching-guides.pages.dev`): `/<video_id>` serves the page `<video_id>.html`. So extensionless links
-work on Pages.
+(`ces-youtube-watching-guides.pages.dev`): `/<video_id>` serves the page `<video_id>.html`. After deploying the
+extensionless links (62d53e3) the same day, a guide page's "All guides" link (`./`) loads the index at `/`. So
+extensionless links work on Pages.
 
-- Not yet verified: that `/<video_id>.html` redirects (308) to `/<video_id>`; that `./`, the guide pages' "All
-  guides" link, serves `index.html`; that `npx wrangler pages dev` serves extensionless names the same way.
+- Not yet verified: that `/<video_id>.html` redirects (308) to `/<video_id>`; that `npx wrangler pages dev` serves
+  extensionless names the same way.
 - Recheck, signed in through Access in a browser: open `https://ces-youtube-watching-guides.pages.dev/<video_id>` for
   a published guide, then click "All guides" and check that the index loads. `curl` cannot check it, because Access
   answers requests without a session with its login redirect.

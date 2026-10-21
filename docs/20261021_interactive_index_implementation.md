@@ -29,8 +29,8 @@ Decided on 2026-10-21:
   `render_guide_page` docstring ("Add a link to `index.html`") says so.
 - Update the tests that check for `index.html` links and `.html` hrefs (`test_guide_html.py`, `test_static_site.py`).
 - Cloudflare Pages serves `/<video_id>` from `<video_id>.html` (checked on 2026-10-21 on the production host name;
-  see "Pages serves `/<video_id>`" in [implementation_notes.md](implementation_notes.md)). Not yet verified: the same
-  for `npx wrangler pages dev`, and that `./` serves `index.html`; check `./` in the browser after deploying Step 0.
+  see "Pages serves `/<video_id>`" in [implementation_notes.md](implementation_notes.md)), and `./` from `index.html`
+  (checked after deploying Step 0, the same day). Not yet verified: the same for `npx wrangler pages dev`.
 
 ## Step 1: publish and generation times
 
@@ -245,4 +245,4 @@ no hash. Made a required step on 2026-10-21.
 - [README.md](../README.md): `index.mjs` in "Where files go"; `node --test` under "Development";
   `file_name_timezone` in the config example; how guides are named and what `backfill` does now.
 - [implementation_notes.md](implementation_notes.md): what the browser shows after deploying (the content type of
-  `.mjs`, the "All guides" link to `./`), with the date and a command to recheck.
+  `.mjs`), with the date and a command to recheck.

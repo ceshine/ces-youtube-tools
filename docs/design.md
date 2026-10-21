@@ -453,7 +453,7 @@ fails rather than picking a folder to clear. Deploying is kept outside the tool;
   when the guide's file is renamed. Two guides for the same video are an error. Links leave out `.html`
   (`<video_id>`, and `./` for the index), so a click does not go through Cloudflare Pages' redirect (308, not yet
   verified) from the `.html` name. Pages serves `/<video_id>` from `<video_id>.html` (checked on 2026-10-21, see the
-  implementation notes); that it serves `index.html` for `./` is not yet verified.
+  implementation notes), and `./` from `index.html` (checked on 2026-10-21).
 - The site is served only over HTTP: by Cloudflare Pages, or locally with `npx wrangler pages dev _site`, which is
   expected to serve the build the way Pages does, extensionless names and `_headers` included (not yet verified).
   Opening the built files from disk (`file://`) is not supported, decided on 2026-10-21: nobody reads the site that
