@@ -15,7 +15,7 @@ Members-only videos work too, if you are a member of the channel.
 ```
 ces-youtube-tools browse
   1. pick a channel from your config
-  2. list its latest videos (yt-dlp, no cookies)  ─► pick one or more
+  2. list its videos, a page at a time (yt-dlp, no cookies)  ─► pick one or more
   3. for each: fetch subtitles  ─►  build a prompt  ─►  `claude` CLI  ─►  "Watching Guide - <YYYYMMDD> - <title>.md"
 ```
 
@@ -70,7 +70,7 @@ ces-youtube-tools browse
 
 | Command | What it does |
 | --- | --- |
-| `browse [CHANNEL] [-n N] [-o DIR] [--refresh]` | Pick a channel and one or more videos from arrow-key menus, then write their guides |
+| `browse [CHANNEL] [-n N] [-o DIR] [--refresh]` | Pick a channel and one or more videos (`-n` per page) from arrow-key menus, then write their guides |
 | `list CHANNEL [-n N]` | List a configured channel's latest videos and livestream replays |
 | `transcript VIDEO [--json] [--refresh]` | Print a video's transcript to stdout |
 | `guide VIDEO [-o DIR] [--force] [--refresh]` | Write a guide for a video URL or ID |
@@ -86,7 +86,10 @@ ces-youtube-tools browse
 
 Every command takes `--config PATH` to use a different config file. The Firefox profile menu in `config init` /
 `config profile` takes a number, Enter for the default, or `q` to quit. `browse`'s menus use the arrow keys: Space
-selects videos, Enter confirms, Ctrl+C quits.
+selects videos, Enter confirms, Ctrl+C quits. To reach older videos, tick "▸ Next page" (or "◂ Previous page") and
+press Enter: videos ticked so far stay selected, on any page, and Enter with no page entry ticked writes the guides
+for all of them, newest first. `a` (toggle all) and `i` (invert) tick the page entries too, so untick them before
+confirming.
 
 ## The guides as a website
 

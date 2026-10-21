@@ -37,7 +37,7 @@ from .firefox import (
     cookies_from_browser_spec,
 )
 from .pickers import pick_one, pick_many, require_terminal, NotATerminalError
-from .youtube import VideoSummary, verify_login, resolve_channel, list_latest_videos
+from .youtube import VideoPager, VideoSummary, verify_login, resolve_channel, list_latest_videos
 from .backfill import rename_guide, BackfillError, plan_backfill, write_content, describe_changes
 from .pipeline import CacheError, work_dir_for, load_transcript, load_video_info, make_transcript_provider
 from .pipeline import write_guide, guides_to_replace, load_prompt_template, make_guide_generator
@@ -962,6 +962,7 @@ def _run_guide(config: AppConfig, video_id: str, target_dir: Path, *, force: boo
 # The cells questionary's checkbox draws before each item's label: " » " (or three spaces) and "○ " or "● ". See
 # "questionary's checkbox draws five cells before each label" in docs/implementation_notes.md.
 _MENU_MARK_WIDTH = 5
+_NEXT_PAGE_LABEL = "▸ Next page (older videos)"
 
 
 @dataclass(frozen=True)
@@ -1003,6 +1004,135 @@ def _channel_label(channel: ChannelConfig) -> str:
         str: The name, marked when members-only videos are listed.
     """
     return f"{channel.name} (members-only listed)" if channel.members else channel.name
+
+
+def _video_range(pager: VideoPager, number: int) -> tuple[int, int]:
+    """Find where a fetched page's videos sit in the whole listing.
+
+    Args:
+        pager (VideoPager): The listing.
+        number (int): The page's number. The page and every page before it must be fetched.
+
+    Returns:
+        tuple[int, int]: The 1-based positions of the page's first and last videos.
+    """
+    first = sum(len(pager.page(earlier)) for earlier in range(1, number)) + 1
+    return first, first + len(pager.page(number)) - 1
+
+
+def _video_menu_title(pager: VideoPager, number: int, channel_name: str, elsewhere: int) -> str:
+    """Build the title of a page's video menu.
+
+    Args:
+        pager (VideoPager): The listing.
+        number (int): The page's number. The page must be fetched.
+        channel_name (str): The channel's name.
+        elsewhere (int): Number of videos selected on other pages.
+
+    Returns:
+        str: The title, e.g. `Videos 21–40 of NAME (3 selected on other pages) (Space selects, Enter confirms)`.
+    """
+    if number == 1:
+        title = f"Latest videos of {channel_name}"
+    else:
+        first, last = _video_range(pager, number)
+        title = f"Videos {first}–{last} of {channel_name}"
+    if elsewhere:
+        title += f" ({elsewhere} selected on other pages)"
+    return f"{title} (Space selects, Enter confirms)"
+
+
+def _fetch_next_page(pager: VideoPager, channel_name: str) -> bool:
+    """Fetch the page after the last fetched one, and say why not when it has no videos.
+
+    Args:
+        pager (VideoPager): The listing.
+        channel_name (str): The channel's name, for the status line.
+
+    Returns:
+        bool: True if the new page has videos. False if it is empty or yt-dlp failed; the pager is then unchanged
+            apart from `has_more`, so the current page can be shown again.
+
+    Raises:
+        KeyboardInterrupt: If the user pressed Ctrl+C while the page was loading. The pager is unchanged.
+    """
+    try:
+        with CONSOLE.status(f"Fetching older videos of {channel_name}..."):
+            older = pager.page(pager.page_count + 1)
+    except YtDlpError as exc:
+        _print_error(str(exc))
+        return False
+    if not older:
+        CONSOLE.print("No older videos.")
+        return False
+    return True
+
+
+def _pick_videos(pager: VideoPager, channel_name: str) -> list[VideoSummary] | None:
+    """Let the user pick videos from a channel's listing, a page at a time.
+
+    After the videos, a page's menu lists "Previous page" on pages after the first, and "Next page" when there may be
+    older videos. Ticking one of them moves to that page. The selection is kept by video ID across pages: videos
+    ticked on a page stay selected when leaving it, a page shows its earlier ticks again, and unticking a video there
+    drops it. Enter with neither page entry ticked confirms.
+
+    Args:
+        pager (VideoPager): The listing. Its first page must already be fetched and hold videos.
+        channel_name (str): The channel's name, for the menu titles.
+
+    Returns:
+        list[VideoSummary] | None: The selected videos, newest first across pages, or None if the user pressed
+            Ctrl+C in a menu or while a page was loading.
+    """
+    width = shutil.get_terminal_size().columns - _MENU_MARK_WIDTH
+    now = time.time()
+    selected: dict[str, VideoSummary] = {}
+    number = 1
+    while True:
+        videos = pager.page(number)
+        labels = [video_choice_label(video, now, width) for video in videos]
+        previous_entry: int | None = None
+        next_entry: int | None = None
+        if number > 1:
+            first, last = _video_range(pager, number - 1)
+            labels.append(f"◂ Previous page (videos {first}–{last})")
+            previous_entry = len(labels)
+        if number < pager.page_count or pager.has_more:
+            labels.append(_NEXT_PAGE_LABEL)
+            next_entry = len(labels)
+        on_page = {video.id for video in videos}
+        elsewhere = sum(1 for video_id in selected if video_id not in on_page)
+        answer = pick_many(
+            _video_menu_title(pager, number, channel_name, elsewhere),
+            labels,
+            checked={item for item, video in enumerate(videos, start=1) if video.id in selected},
+            require_selection=elsewhere == 0,
+        )
+        if answer is None:
+            return None
+        # Update the selection first, so videos ticked together with a page entry stay selected.
+        for item, video in enumerate(videos, start=1):
+            if item in answer:
+                selected[video.id] = video
+            else:
+                selected.pop(video.id, None)
+        go_previous = previous_entry in answer
+        go_next = next_entry in answer
+        if go_previous and go_next:
+            CONSOLE.print(
+                "Tick one page entry to change pages, or neither to confirm. Note that `a` and `i` tick them too.",
+                style="yellow",
+            )
+        elif go_previous:
+            number -= 1
+        elif go_next:
+            try:
+                if number < pager.page_count or _fetch_next_page(pager, channel_name):
+                    number += 1
+            except KeyboardInterrupt:  # Ctrl+C while a page loads quits, as it does in a menu
+                return None
+        else:
+            return [video for video in pager.fetched() if video.id in selected]
 
 
 def _confirm_replace(replaced: list[Path]) -> bool:
@@ -1150,22 +1280,23 @@ def _outcomes_table(videos: list[VideoSummary], outcomes: dict[str, _Outcome]) -
 @command(APP, "browse")
 def browse(
     channel: Annotated[str | None, typer.Argument(help="Channel name or ID. Omit to pick from a menu.")] = None,
-    limit: Annotated[int, typer.Option("--limit", "-n", min=1, help="Number of videos to show.")] = 20,
+    limit: Annotated[int, typer.Option("--limit", "-n", min=1, help="Number of videos per page.")] = 20,
     output_dir: Annotated[
         Path | None, typer.Option("--output-dir", "-o", help="Where to write the guides. Overrides the config.")
     ] = None,
     refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcripts.")] = False,
     config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
 ) -> None:
-    """Pick a channel and one or more of its latest videos, then generate the videos' watching guides.
+    """Pick a channel and one or more of its videos, then generate the videos' watching guides.
 
-    The menus use the arrow keys, and Space selects videos. Every question about replacing an existing guide is asked
-    before the first guide is written; the guides are then written one at a time. A video that fails does not stop
-    the others.
+    The menus use the arrow keys, and Space selects videos. Older videos are a page away: tick "Next page" or
+    "Previous page" and press Enter, and the videos selected so far stay selected. Every question about replacing an
+    existing guide is asked before the first guide is written; the guides are then written one at a time. A video
+    that fails does not stop the others.
 
     Args:
         channel (str | None): Channel name (case-insensitive) or ID from the configuration. None shows a menu.
-        limit (int): Number of videos to show.
+        limit (int): Number of videos per page.
         output_dir (Path | None): Directory for the guide files.
         refresh (bool): Ignore cached metadata and transcripts.
         config_path (Path): Path of the configuration file.
@@ -1175,7 +1306,7 @@ def browse(
 
     Raises:
         typer.Exit: If no channel is configured, the channel is unknown, there is no terminal for the menus, or a
-            step fails for any selected video. Status 0 when the user quits a menu with Ctrl+C.
+            step fails for any selected video. Status 0 when the user quits with Ctrl+C, in a menu or while videos load.
     """
     config = _load(config_path)
     if not config.channels:
@@ -1200,22 +1331,22 @@ def browse(
                 return
             found = config.channels[choice - 1]
 
+    pager = VideoPager(found, _make_ytdlp(config, with_cookies=False), limit)
     try:
         with CONSOLE.status(f"Fetching the latest videos of {found.name}..."):
-            videos = list_latest_videos(found, _make_ytdlp(config, with_cookies=False), limit)
+            first_page = pager.page(1)
     except YtDlpError as exc:
         raise _fail(str(exc)) from exc
-    if not videos:
-        CONSOLE.print(f"No videos found for {found.name}.")
-        return
-    width = shutil.get_terminal_size().columns - _MENU_MARK_WIDTH
-    now = time.time()
-    labels = [video_choice_label(video, now, width) for video in videos]
-    choices = pick_many(f"Latest videos of {found.name} (Space selects, Enter confirms)", labels)
-    if choices is None:
+    except KeyboardInterrupt:
         CONSOLE.print("Bye.")
         return
-    selected = [videos[number - 1] for number in choices]
+    if not first_page:
+        CONSOLE.print(f"No videos found for {found.name}.")
+        return
+    selected = _pick_videos(pager, found.name)
+    if selected is None:
+        CONSOLE.print("Bye.")
+        return
 
     try:
         tools = _make_guide_tools(config)

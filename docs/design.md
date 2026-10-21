@@ -244,6 +244,25 @@ first:
 - A playlist the channel does not have counts as empty. Entries that are live now or upcoming are dropped.
 - Unlisted perk videos linked only from the `/membership` tab are not listed.
 
+`browse` lists the same videos a page at a time with `VideoPager` (decided on 2026-10-21; see
+[the plan](20261021_browse_pagination_implementation.md)):
+
+- A page is a slice of the merged list, not an offset into one playlist, so each new page fetches every playlist again
+  to `shown + page_size + 1` entries and merges again. yt-dlp reads a playlist from its start whatever
+  `--playlist-start` says, so a cursor per playlist would save no requests. At 20 per page, pages 1 to 4 cost one
+  request per playlist.
+- The new page is the first `page_size` videos whose IDs are not on the earlier pages, not
+  `[shown:shown + page_size]`: a later fetch can order the videos differently (timestamps are derived again from
+  "3 days ago", a new upload shifts the list, a dropped live or upcoming entry lets a deeper one move up), and a
+  slice could then skip a video or show it twice.
+- `has_more` is True when videos were left over, or when some playlist returned every entry asked for (counting
+  entries dropped for having no ID), so it can only be wrong by saying "maybe more". The next page is then empty, is
+  not kept, and `has_more` becomes False.
+- Ordering limit: when live or upcoming entries are dropped from the top of a playlist, the `+ 1` margin can fall
+  short, and an entry of that playlist not yet fetched that is newer than a page's last video tops the next page
+  instead. No video is skipped or repeated. `list_latest_videos` has the same limit at its cut-off.
+- A page fetched once is kept, so going back costs nothing, and a fetch that fails leaves the pager as it was.
+
 Details and recheck commands are in [implementation_notes.md](implementation_notes.md).
 
 ## Browse step
@@ -254,9 +273,26 @@ Details and recheck commands are in [implementation_notes.md](implementation_not
    videos, and points to `ces-youtube-tools guide VIDEO` for scripts.
 2. **Channel**: the `CHANNEL` argument (name or ID), else the only configured channel, else an arrow-key menu of the
    configured channels (the name, with "(members-only listed)" where that applies).
-3. **Videos**: a checkbox menu of the channel's latest videos, the same listing as `list` (no cookies), one line per
-   video (`video_choice_label`: age, length, type, title cut to the terminal's width). Space selects, Enter confirms,
-   and an empty selection is refused with a hint. Ctrl+C in either menu prints "Bye." and exits with status 0.
+3. **Videos**: a checkbox menu of the channel's videos, `-n` (20) per page, the same listing as `list` (no cookies),
+   one line per video (`video_choice_label`: age, length, type, title cut to the terminal's width). Space selects,
+   Enter confirms, and an empty selection is refused with a hint. Ctrl+C in any menu, or while a page of videos
+   loads, prints "Bye." and exits with status 0. Paging (`_pick_videos`, decided on 2026-10-21):
+   - After the videos, `◂ Previous page (videos 1–20)` on pages after the first, and `▸ Next page (older videos)` while
+     there may be older videos. They are menu entries, ticked with Space and acted on with Enter, so picking from the
+     first page takes the same keys as before. No separator line: the pickers number every item.
+   - The selection is kept by video ID across pages. It is updated from each answer before a page entry is acted on,
+     so videos ticked together with a page entry stay selected; a page shows its earlier ticks again, and unticking a
+     video there drops it. The title says how many are selected on other pages, and Enter with nothing ticked on the
+     page is accepted when there are any.
+   - Both page entries ticked shows the same page again with a hint. `a` (toggle all) and `i` (invert) tick the page
+     entries too.
+   - Enter with neither page entry ticked confirms. The selected videos come out newest first across pages, whatever
+     order they were picked in.
+   - A next page with no videos (`has_more` was wrong) prints "No older videos." and shows the current page again
+     without "Next page". A failed fetch of a later page is printed and the current page is shown again, with the
+     selection kept; ticking "Next page" again retries. A failure on the first page fails the command, as before.
+   - A video uploaded while browsing can top the next page, since each page fetches the playlists again. Accepted:
+     the run is minutes long and the video would be listed anyway.
 4. **Plan** (`_plan_guides`): load every selected video's metadata and look for its existing guides, then ask, video
    by video, whether to replace them. Every question comes before the first guide is written, so a run over several
    videos needs no one at the keyboard once it starts. "No" keeps the existing guide.
@@ -274,9 +310,9 @@ Two selected videos must not touch the same file. Each video's scan of the folde
 guide is written, so a later video's write would not know about an earlier one's: two videos with the same upload day
 and cleaned title get the same file name, and one video's new file can be where another video has an older guide, which
 that video's write would then remove. So the files a video's write touches (its guide file and the older guides it
-replaces) are claimed in menu order, and a later video that needs a claimed file fails before its question, with a hint
-to write it to another folder with `guide VIDEO -o DIR`. A video whose existing guide the user keeps still claims its
-files, so a later video cannot replace what the user chose to keep.
+replaces) are claimed in listing order (newest first across pages), and a later video that needs a claimed file fails
+before its question, with a hint to write it to another folder with `guide VIDEO -o DIR`. A video whose existing guide
+the user keeps still claims its files, so a later video cannot replace what the user chose to keep.
 
 The menus are in `pickers.py` (`pick_one`, `pick_many`), on `questionary`. They return item numbers and know nothing
 about channels or videos, so `browse` is tested with fakes in their place (`CliRunner` has no terminal), and the
@@ -378,6 +414,9 @@ commands that `site` has since replaced. What was built:
 9. An interactive index: sorting, grouping and filtering in the browser, from a JSON payload, with `node --test` tests,
    after recording publish and generation times in the guides. (Done, 2026-10-21.) See "Publish and generation times"
    and "Interactive index" below.
+10. Pages in `browse`: "Previous page" and "Next page" entries in the video menu, with the selection kept across
+    pages, on a `VideoPager` that fetches deeper for each page. (Done, 2026-10-22.) See "Video listing" and "Browse
+    step" above, and [the plan](20261021_browse_pagination_implementation.md).
 
 ## Guide metadata and a private site
 
