@@ -74,7 +74,7 @@ ces-youtube-tools browse
 | `list CHANNEL [-n N]` | List a configured channel's latest videos and livestream replays |
 | `transcript VIDEO [--json] [--refresh]` | Print a video's transcript to stdout |
 | `guide VIDEO [-o DIR] [--force] [--refresh]` | Write a guide for a video URL or ID |
-| `backfill PATH... [--dry-run]` | Add front matter (video metadata) to guides written before guides had it |
+| `backfill PATH... [--dry-run] [--refresh]` | Rewrite guides' front matter and rename them to the current naming rule |
 | `site [DIR] [-o OUT] [--include-members-only]` | Build the guides into a static site, with the video embedded in each page |
 | `config init` | Create the config file and choose a Firefox profile |
 | `config profile` | Choose a different Firefox profile |
@@ -158,7 +158,9 @@ and a cache write only adds cost. Set `prompt_caching = true` under `[guide.opti
   `guide.file_name_timezone` (left out when unknown), in `--output-dir`, else `guide.output_dir`, else the current
   directory. If the folder already has a guide for the video, under any name, `guide` stops unless you pass
   `--force`, which replaces it; `browse` asks. Each guide's front matter records when the video was published and
-  when the guide was written, in UTC.
+  when the guide was written, in UTC. `backfill` brings older guides up to date: it rewrites their front matter,
+  keeping keys it does not know and the text below, and renames them. A guide it cannot update is left as it is and
+  listed; two guides for one video, or a new name already taken, stop it before it changes anything.
 - **Site:** `<video id>.html` for each guide, plus `index.html`, `robots.txt` and `_headers`, in `-o OUT`, else
   `site.output_dir`.
 - **Cache:** `~/.cache/ces-youtube-tools/<video id>/` holds the video metadata, subtitles, transcript, and the prompt

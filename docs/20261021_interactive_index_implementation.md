@@ -93,6 +93,21 @@ Done on 2026-10-21. As planned, with these changes:
 
 ### Step 1b: `backfill` rewrites every guide
 
+Done on 2026-10-21. As planned, with these changes:
+
+- The guide is written in place and then renamed, instead of being written to the new name with the old file then
+  removed: a failed rename leaves one guide under its old name rather than two copies.
+- Two guides for one video are checked across all the given guides (not per folder), before any metadata is loaded.
+- A symbolic link is not followed but is a problem of its own (decided in review on 2026-10-21): renaming a link
+  whose target already has the new name replaced the target with the link, and the guide was lost.
+- Blank lines at the top of the Markdown (`\n` or `\r\n`) are dropped, because the front matter's own blank line
+  replaces them; otherwise the second run would not match the first.
+- A front matter `video_id` that is not a video ID is a problem of that guide, since it also names a cache folder.
+- A failed write or rename is listed with the other problems, and the run goes on. A guide written but not renamed
+  is still reported as written.
+- `GuideMetadata` still ignores unknown keys; `read_front_matter` returns the block as read beside it.
+  `extra="allow"` was rejected: Pydantic refuses non-string keys (such as `2026: x`) there, which `site` reads today.
+
 `backfill PATH... [--dry-run] [--refresh]` rewrites the front matter of every guide, not only of guides without it.
 `--refresh` is a new flag.
 
@@ -242,12 +257,7 @@ no hash. Made a required step on 2026-10-21.
 ## Docs, as each step lands
 
 - [design.md](design.md): mark build order item 9 done; turn "Planned: an interactive index" into a description of
-  what was built, and drop the "planned" note on Step 1b in "Publish and generation times"; in "Guides stay
-  Markdown, with front matter", the `backfill` bullets (every guide rewritten and renamed, `generated` from the
-  publish time instead of `null`, a guide with a problem of its own skipped instead of stopping the run); in
-  "`site` command", the bullet "The index ... lists guides newest upload first". Also the `backfill.py` module
-  docstring and the `backfill` command's docstring in `cli.py`, which say no guide is changed when one fails.
-- [README.md](../README.md): `index.mjs` in "Where files go"; `node --test` under "Development"; what `backfill`
-  does now.
+  what was built; in "`site` command", the bullet "The index ... lists guides newest upload first".
+- [README.md](../README.md): `index.mjs` in "Where files go"; `node --test` under "Development".
 - [implementation_notes.md](implementation_notes.md): what the browser shows after deploying (the content type of
   `.mjs`), with the date and a command to recheck.

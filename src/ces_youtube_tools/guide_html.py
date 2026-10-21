@@ -49,6 +49,18 @@ def markdown_to_html(markdown: str) -> str:
     return parser.render(markdown)
 
 
+def is_video_id(value: str) -> bool:
+    """Check that a value is a YouTube video ID: 11 characters from `A-Z`, `a-z`, `0-9`, `_` and `-`.
+
+    Args:
+        value (str): The value, such as a front matter `video_id`.
+
+    Returns:
+        bool: True if it is a video ID.
+    """
+    return _VIDEO_ID.fullmatch(value) is not None
+
+
 def find_video_id(markdown: str) -> str | None:
     """Find the video a guide is about from its YouTube links.
 
@@ -72,7 +84,7 @@ def find_video_id(markdown: str) -> str | None:
             candidate = url.path.lstrip("/")
         else:
             candidate = parse_qs(url.query).get("v", [""])[0]
-        if _VIDEO_ID.fullmatch(candidate):
+        if is_video_id(candidate):
             counts[candidate] += 1
     if not counts:
         return None
@@ -118,7 +130,7 @@ def render_guide_page(
     Raises:
         GuideHtmlError: If `video_id` is not a valid video ID.
     """
-    if not _VIDEO_ID.fullmatch(video_id):
+    if not is_video_id(video_id):
         raise GuideHtmlError(f"Not a valid YouTube video ID: {video_id!r}")
     template = Template(resources.files("ces_youtube_tools").joinpath("templates/guide_page.html").read_text("utf-8"))
     return template.substitute(

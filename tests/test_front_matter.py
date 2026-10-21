@@ -6,7 +6,7 @@ from ces_youtube_tools.video import VideoInfo
 from ces_youtube_tools.front_matter import (
     GuideMetadata,
     FrontMatterError,
-    has_front_matter,
+    read_front_matter,
     split_front_matter,
     metadata_from_video,
     render_front_matter,
@@ -149,14 +149,32 @@ def test_split_front_matter_reports_the_file_line_of_a_yaml_error() -> None:
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("---\nvideo_id: abcdefghijk\n---\n# Guide\n", True),
-        ("---\n---\n# Guide\n", True),
-        ("---\nnot: [valid\n---\n", True),
-        ("---\r\ntitle: x\r\n---\r\n", True),
-        ("---\nno closing line\n", False),
-        ("# Guide\n\n---\n\nmore\n---\n", False),
-        ("", False),
+        ("---\nvideo_id: abcdefghijk\n---\n# Guide\n", {"video_id": "abcdefghijk"}),
+        ("---\n---\n# Guide\n", {}),
+        ("---\r\ntitle: x\r\n---\r\n", {"title": "x"}),
+        ("---\nno closing line\n", None),
+        ("# Guide\n\n---\n\nmore\n---\n", None),
+        ("", None),
     ],
 )
-def test_has_front_matter(text: str, expected: bool) -> None:
-    assert has_front_matter(text) is expected
+def test_read_front_matter_keeps_the_block_as_read(text: str, expected: dict[str, str] | None) -> None:
+    assert read_front_matter(text).data == expected
+
+
+def test_read_front_matter_keeps_unknown_keys() -> None:
+    front_matter = read_front_matter("---\ntags: [ai]\nvideo_id: abcdefghijk\n2026: x\n---\n\n# Guide\n")
+    assert front_matter.metadata.video_id == "abcdefghijk"
+    assert front_matter.data == {"tags": ["ai"], "video_id": "abcdefghijk", 2026: "x"}
+    assert front_matter.markdown == "# Guide\n"
+
+
+def test_render_front_matter_writes_unknown_keys_last() -> None:
+    extra = {"tags": ["ai"], "video_id": "ignored", 2026: "x"}
+    text = render_front_matter(GuideMetadata(video_id="abcdefghijk"), extra)
+    assert text.startswith("---\nvideo_id: abcdefghijk\n")
+    assert text.endswith("generated: null\ntags:\n- ai\n2026: x\n---\n\n")
+    assert read_front_matter(text).data == {
+        **GuideMetadata(video_id="abcdefghijk").model_dump(),
+        **extra,
+        "video_id": "abcdefghijk",
+    }

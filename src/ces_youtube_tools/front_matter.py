@@ -1,6 +1,8 @@
 """Read and write the YAML front matter at the top of a guide: video metadata written by the tool, not the model."""
 
 import datetime
+from dataclasses import dataclass
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, AwareDatetime, ValidationError, field_serializer
@@ -21,7 +23,7 @@ class GuideMetadata(BaseModel):
     """The video metadata kept in a guide's front matter.
 
     Every field is optional when reading, because a guide may be hand-written or hand-edited. Keys this model does not
-    know (for example, tags added in a notes app) are ignored.
+    know (for example, tags added in a notes app) are ignored here; `FrontMatter.data` keeps them.
 
     Attributes:
         video_id (str | None): YouTube video ID.
@@ -87,16 +89,21 @@ def metadata_from_video(video: VideoInfo, generated: datetime.datetime | None) -
     )
 
 
-def render_front_matter(metadata: GuideMetadata) -> str:
+def render_front_matter(metadata: GuideMetadata, extra: dict[Any, Any] | None = None) -> str:
     """Write metadata as a front matter block.
 
     Args:
         metadata (GuideMetadata): The metadata. Unknown values are written as `null`, so every guide has the same keys.
+        extra (dict[Any, Any] | None): Keys `GuideMetadata` does not know, such as tags added in a notes app, written
+            after its keys. Keys it knows are ignored here.
 
     Returns:
         str: The block between `---` lines, followed by a blank line.
     """
-    body = yaml.safe_dump(metadata.model_dump(), sort_keys=False, allow_unicode=True, width=_YAML_WIDTH)
+    data = metadata.model_dump()
+    if extra:
+        data.update((key, value) for key, value in extra.items() if key not in GuideMetadata.model_fields)
+    body = yaml.safe_dump(data, sort_keys=False, allow_unicode=True, width=_YAML_WIDTH)
     return f"{_DELIMITER}\n{body}{_DELIMITER}\n\n"
 
 
@@ -114,20 +121,24 @@ def _block_end(lines: list[str]) -> int | None:
     return next((index for index in range(1, len(lines)) if lines[index].rstrip() == _DELIMITER), None)
 
 
-def has_front_matter(text: str) -> bool:
-    """Check whether a guide starts with a front matter block, valid or not.
+@dataclass(frozen=True)
+class FrontMatter:
+    """A guide split into its front matter and its Markdown.
 
-    Args:
-        text (str): The guide file's text.
-
-    Returns:
-        bool: True if the first line is `---` and a later line closes the block.
+    Attributes:
+        metadata (GuideMetadata): The metadata; all fields None if there is no front matter.
+        data (dict[Any, Any] | None): The block as read, including keys `GuideMetadata` does not know, or None if the
+            guide has no front matter.
+        markdown (str): The Markdown, without the blank lines that followed the block.
     """
-    return _block_end(text.splitlines(keepends=True)) is not None
+
+    metadata: GuideMetadata
+    data: dict[Any, Any] | None
+    markdown: str
 
 
-def split_front_matter(text: str) -> tuple[GuideMetadata, str]:
-    """Separate a guide's front matter from its Markdown.
+def read_front_matter(text: str) -> FrontMatter:
+    """Separate a guide's front matter from its Markdown, keeping the block as read.
 
     Front matter starts at a `---` first line and ends at the next `---` line. A guide without it, or whose block is
     never closed, is all Markdown.
@@ -136,8 +147,7 @@ def split_front_matter(text: str) -> tuple[GuideMetadata, str]:
         text (str): The guide file's text.
 
     Returns:
-        tuple[GuideMetadata, str]: The metadata (all fields None if there is no front matter) and the Markdown,
-            without the blank lines that followed the block.
+        FrontMatter: The metadata, the block as read, and the Markdown.
 
     Raises:
         FrontMatterError: If the block is not valid YAML, is not a set of `key: value` lines, or has a value of the
@@ -146,7 +156,7 @@ def split_front_matter(text: str) -> tuple[GuideMetadata, str]:
     lines = text.splitlines(keepends=True)
     end = _block_end(lines)
     if end is None:
-        return GuideMetadata(), text
+        return FrontMatter(metadata=GuideMetadata(), data=None, markdown=text)
     try:
         data = yaml.safe_load("".join(lines[1:end]))
     except yaml.MarkedYAMLError as exc:
@@ -165,4 +175,22 @@ def split_front_matter(text: str) -> tuple[GuideMetadata, str]:
         metadata = GuideMetadata.model_validate(data)
     except ValidationError as exc:
         raise FrontMatterError(f"invalid front matter: {exc}") from exc
-    return metadata, "".join(lines[end + 1 :]).lstrip("\n")
+    return FrontMatter(metadata=metadata, data=data, markdown="".join(lines[end + 1 :]).lstrip("\n"))
+
+
+def split_front_matter(text: str) -> tuple[GuideMetadata, str]:
+    """Separate a guide's front matter from its Markdown.
+
+    Args:
+        text (str): The guide file's text.
+
+    Returns:
+        tuple[GuideMetadata, str]: The metadata (all fields None if there is no front matter) and the Markdown,
+            without the blank lines that followed the block (see `read_front_matter`).
+
+    Raises:
+        FrontMatterError: If the block is not valid YAML, is not a set of `key: value` lines, or has a value of the
+            wrong type.
+    """
+    front_matter = read_front_matter(text)
+    return front_matter.metadata, front_matter.markdown

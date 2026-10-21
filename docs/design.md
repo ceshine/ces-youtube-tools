@@ -351,7 +351,7 @@ commands that `site` has since replaced. What was built:
 8. Serve the site over HTTP only: remove the guide page's `file://` handling and make the site's links
    extensionless. (Done, 2026-10-21.) See "`site` command" below.
 9. An interactive index: sorting, grouping and filtering in the browser, from a JSON payload, with `node --test`
-   tests, after recording publish and generation times in the guides. (Planned; new guides record the times since
+   tests, after recording publish and generation times in the guides. (Planned; the guides record the times since
    2026-10-21.) See "Publish and generation times" and "Planned: an interactive index" below.
 
 ## Guide metadata and a private site
@@ -396,9 +396,10 @@ generated: '2026-10-09T02:30:15Z' # when the guide was written
   never folded, so a long title stays on one line.
 - Reading: front matter starts at a `---` first line and ends at the next `---` line; without both, the whole file
   is Markdown. Every field is optional and unknown keys (for example, tags added in a notes app) are ignored, because
-  a guide may be hand-edited. Invalid YAML, a block that is not `key: value` lines, or a value of the wrong type is
-  an error that names the file (and, for invalid YAML, the line). A hand-written guide whose first line is a `---`
-  rule is read as front matter, as in Jekyll, Eleventy and Pandoc; start it with a blank line instead.
+  a guide may be hand-edited; `backfill` keeps them when it rewrites the block. Invalid YAML, a block that is not
+  `key: value` lines, or a value of the wrong type is an error that names the file (and, for invalid YAML, the line).
+  A hand-written guide whose first line is a `---` rule is read as front matter, as in Jekyll, Eleventy and Pandoc;
+  start it with a blank line instead.
 - `site` removes the front matter before rendering (otherwise markdown-it would show it as a rule and a heading) and
   takes the video ID and the members-only hint from it. Guides without front matter fall back to the links for the
   video ID. A `video_id` from the front matter is still checked by
@@ -412,30 +413,47 @@ generated: '2026-10-09T02:30:15Z' # when the guide was written
 - The generator and model are not recorded yet: `GuideGenerator` does not report them. Add them if comparing guides
   across models becomes useful.
 
-`ces-youtube-tools backfill PATH... [--dry-run]` (`backfill.py`, done) adds front matter to guides written before it
-existed. A path is a Markdown file or a folder (its `.md` files, not its subfolders).
+`ces-youtube-tools backfill PATH... [--dry-run] [--refresh]` (`backfill.py`, done) rewrites the front matter of
+every guide from its video's metadata, and renames the guide to the name `guide` would give it now. It added front
+matter to guides written before it existed, and since Step 1b (2026-10-21) it also brings older front matter and
+names up to date. A path is a Markdown file or a folder (its `.md` files, not its subfolders).
 
-- The video ID comes from the guide's links (`find_video_id`). The metadata comes from the cached `video.json`, else
-  it is fetched with `load_video_info` (yt-dlp with cookies, because members-only videos need them) and cached.
-  Fetching is the default, so every backfilled guide gets complete metadata.
-- Two passes. The first reads every guide and loads every video's metadata, and reports all failures together (no
-  video link, unreadable file, yt-dlp or cache error). If any guide fails, no guide is changed and the exit status
-  is 1. The second pass writes the guides. A write failure stops it with a message saying how many were written;
-  running again skips them.
-- A guide with a front matter block, valid or not (`has_front_matter`), is skipped, so the command can be run again
-  safely and never stacks a second block on a hand-edited one.
-- The front matter goes above the guide's bytes, unchanged (line endings included). The new file is written next to
-  the guide (`.<name>.tmp`, with the guide's permissions) and moved over it, so a failure never leaves half a guide.
-  For a symlinked guide, the file it points to is written and the link is kept.
-- `generated` is `null`: nothing recorded when the guide was written, and file times change when files are copied.
-- `--dry-run` runs the first pass, including fetching (which fills the cache), and lists the guides it would write.
+- The video ID comes from the front matter's `video_id`, else from the guide's links (`find_video_id`). A `video_id`
+  that is not 11 characters from `A-Z`, `a-z`, `0-9`, `_` and `-` is a problem of that guide: the ID also names the
+  video's cache folder. The metadata comes from the cached `video.json` (unless it is stale, or `--refresh` is given),
+  else it is fetched with `load_video_info` (yt-dlp with cookies, because members-only videos need them) and cached.
+- Keys that come from the video are rewritten. `generated` is kept when set; a `null` one is set to the publish time
+  (an approximation, chosen over reading the guides' date line for simplicity), and stays `null` without one. Keys
+  the tool does not know (such as tags added in a notes app) are kept, after its own keys. YAML comments in the
+  block are lost.
+- Two passes. The first reads every guide, loads its video's metadata and builds the new file in memory.
+  - A guide with a problem of its own (a symbolic link, unreadable, invalid front matter, no video ID, metadata that
+    cannot be loaded) is left as it is and listed, and the others are written; the exit status is 1. Every guide is
+    rewritten on every run, so an all-or-nothing run would be blocked for good by one deleted or private video.
+  - Problems between guides stop the run before any guide is changed: two of the given guides about one video
+    (checked before any metadata is loaded, across all the given folders), or a new name that another file has or
+    that is also another guide's new name.
+- A guide whose front matter and name would not change is not written, so running the command again changes nothing.
+- The Markdown below the front matter is kept byte for byte (line endings included), except blank lines at its top
+  (`\n` or `\r\n`), which the block's own blank line replaces. The date line older guides have stays.
+- Writing: the new file is written next to the guide (`.<name>.tmp`, with its permissions) and moved over it, so a
+  failure never leaves half a guide; then, if the name changes, the guide is renamed. Writing before renaming means a
+  failed rename leaves one guide under its old name, which the next run renames, never two copies. A failed write or
+  rename is listed with the other problems, and the run goes on; a guide written but not renamed is still reported
+  as written. The new name is checked again just before the rename, which would otherwise replace a file created
+  since the first pass.
+- A symlinked guide is a problem of its own, not followed. Renaming the link could replace the file it points to,
+  when that file already has the link's new name; links were supported until a review on 2026-10-21 found this, and
+  were dropped as simpler than telling a link from its target in every name check.
+- `--dry-run` runs the first pass, including fetching (which fills the cache), and lists every change of front
+  matter (the keys added or changed) and every rename.
 
 ### Publish and generation times
 
 Decided on 2026-10-21, for the interactive index (below), which sorts by these. The steps are Step 1 in
 [20261021_interactive_index_implementation.md](20261021_interactive_index_implementation.md). New guides record the
-times (Step 1a, done on 2026-10-21; see "Guide step" and the front matter above); the `backfill` changes (Step 1b)
-are planned.
+times (Step 1a), and `backfill` brings older guides up to date (Step 1b); both were done on 2026-10-21. See "Guide
+step", the front matter and `backfill` above.
 
 - `upload_date` is a UTC day (or, with no exact time, a US/Pacific day or the page's date text, per yt-dlp's source, not
   yet verified), so US afternoon uploads read a day early in Asia/Taipei. yt-dlp also reports `timestamp` and, for

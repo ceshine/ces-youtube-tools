@@ -331,7 +331,7 @@ def find_guides_for_video(output_dir: Path, video_id: str) -> GuideScan:
     return GuideScan(video_id=video_id, paths=paths, linked=linked, warnings=warnings)
 
 
-def _is_same_file(first: Path, second: Path) -> bool:
+def is_same_file(first: Path, second: Path) -> bool:
     """Check whether two paths name one file, as through a symbolic link or a case-insensitive file system.
 
     Args:
@@ -361,14 +361,14 @@ def guides_to_replace(path: Path, scan: GuideScan) -> list[Path]:
         GuideError: If a file is about the video only by its links. It may not be a guide, so it is never replaced,
             even with `--force`.
     """
-    linked = [old for old in scan.linked if not _is_same_file(old, path)]
+    linked = [old for old in scan.linked if not is_same_file(old, path)]
     if linked:
         names = ", ".join(str(old) for old in linked)
         raise GuideError(
             f"{names} links to this video, but its front matter does not name it, so it is not replaced, even with "
             "--force. Remove or move it, or add `video_id` to its front matter, then run again."
         )
-    others = [old for old in scan.paths if old != path and not _is_same_file(old, path)]
+    others = [old for old in scan.paths if old != path and not is_same_file(old, path)]
     return ([path] if path.exists() else []) + others
 
 
@@ -494,7 +494,7 @@ def write_guide(
     removed: list[Path] = []
     for old in others:
         # Checked again now that the new guide exists: removing another name of it would lose the generation.
-        if _is_same_file(old, path):
+        if is_same_file(old, path):
             continue
         try:
             old.unlink(missing_ok=True)
