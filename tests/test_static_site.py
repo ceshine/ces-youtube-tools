@@ -1,3 +1,5 @@
+import re
+import json
 import datetime
 from pathlib import Path
 
@@ -13,11 +15,13 @@ from ces_youtube_tools.static_site import (
     SITE_MARKER,
     render_index,
     collect_pages,
+    index_payload,
     is_publishable,
 )
 from ces_youtube_tools.front_matter import GuideMetadata, render_front_matter
 
 RUNNER = CliRunner()
+PAYLOAD_KEYS = {"video_id", "title", "channel", "upload_date", "published", "duration", "members_only", "generated"}
 BODY = "# Watching Guide: The heading\n\n[0:05](https://www.youtube.com/watch?v={video_id}&t=5s): Hello.\n"
 
 
@@ -43,6 +47,13 @@ def guides(tmp_path: Path) -> Path:
 
 def guide_paths(folder: Path) -> list[Path]:
     return sorted(folder.glob("*.md"))
+
+
+def guides_block(index: str) -> object:
+    """Read the payload from an index page, as the browser would: up to the first `</script>`."""
+    found = re.search(r'<script type="application/json" id="guides">(.*?)</script>', index, re.DOTALL)
+    assert found is not None
+    return json.loads(found.group(1))
 
 
 @pytest.mark.parametrize(
@@ -115,7 +126,75 @@ def test_render_index_escapes_and_marks_availability() -> None:
 
 
 def test_render_index_without_guides() -> None:
-    assert '<p class="empty">No guides yet.</p>' in render_index([])
+    index = render_index([])
+    assert '<p class="empty">No guides yet.</p>' in index
+    assert guides_block(index) == []
+
+
+def test_index_payload_has_only_what_the_index_shows() -> None:
+    metadata = GuideMetadata.model_validate(
+        {
+            "video_id": "aaaaaaaaaaa",
+            "title": "YouTube title",
+            "channel": "A channel",
+            "channel_id": "UC123",
+            "upload_date": "2026-10-08",
+            "published": "2026-10-09T00:30:00+08:00",
+            "duration": 3725,
+            "members_only": False,
+            "generated": "2026-10-01",
+        }
+    )
+    page = SitePage(source=Path("x.md"), video_id="aaaaaaaaaaa", title="Shown title", metadata=metadata, html="<p>")
+    assert index_payload([page]) == [
+        {
+            "video_id": "aaaaaaaaaaa",
+            "title": "Shown title",
+            "channel": "A channel",
+            "upload_date": "2026-10-08",
+            "published": "2026-10-08T16:30:00Z",
+            "duration": 3725,
+            "members_only": False,
+            "generated": "2026-10-01",
+        }
+    ]
+
+    unknown = SitePage(source=Path("y.md"), video_id="bbbbbbbbbbb", title="Two", metadata=GuideMetadata(), html="")
+    assert index_payload([unknown])[0] == {
+        "video_id": "bbbbbbbbbbb",
+        "title": "Two",
+        "channel": None,
+        "upload_date": None,
+        "published": None,
+        "duration": None,
+        "members_only": None,
+        "generated": None,
+    }
+
+    written = GuideMetadata.model_validate({"generated": "2026-10-14T18:03:12+02:00"})
+    page = SitePage(source=Path("z.md"), video_id="ccccccccccc", title="Three", metadata=written, html="")
+    assert index_payload([page])[0]["generated"] == "2026-10-14T16:03:12Z"
+
+
+def test_index_payload_keeps_a_title_that_would_end_the_script() -> None:
+    title = '</script><script>alert("x")</script> & <!--'
+    page = SitePage(source=Path("x.md"), video_id="aaaaaaaaaaa", title=title, metadata=GuideMetadata(), html="")
+    index = render_index([page])
+    assert "</script><script>" not in index
+    assert guides_block(index) == index_payload([page])
+    assert index_payload([page])[0]["title"] == title
+
+
+def test_index_payload_is_in_the_page_without_left_out_guides(guides: Path, tmp_path: Path) -> None:
+    out = tmp_path / "site"
+    write_site(collect_pages(guide_paths(guides), include_members_only=False), out)
+    index = (out / "index.html").read_text(encoding="utf-8")
+    payload = guides_block(index)
+    assert isinstance(payload, list)
+    assert [entry["video_id"] for entry in payload] == ["bbbbbbbbbbb", "aaaaaaaaaaa"]
+    for left_out in ["ccccccccccc", "ddddddddddd", "eeeeeeeeeee"]:
+        assert left_out not in index
+    assert all(set(entry) == PAYLOAD_KEYS for entry in payload)
 
 
 def test_write_site_writes_every_file(guides: Path, tmp_path: Path) -> None:

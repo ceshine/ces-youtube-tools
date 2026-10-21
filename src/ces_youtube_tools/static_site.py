@@ -4,6 +4,7 @@ The work is done in two passes, as in `backfill`. The first reads and renders ev
 fails there, the output folder is not touched. The second clears the output folder and writes the site.
 """
 
+import json
 import shutil
 import datetime
 from html import escape
@@ -23,6 +24,9 @@ _ROBOTS_TXT = "User-agent: *\nDisallow: /\n"
 # The page must send its origin as the Referer, or the embedded player fails with Error 153, so the referrer policy
 # is the browsers' default, stated here so a host default cannot change it.
 _HEADERS = "/*\n  X-Robots-Tag: noindex, nofollow\n  Referrer-Policy: strict-origin-when-cross-origin\n"
+# The front matter fields in the index's payload, besides the video ID and the title. Only what the index shows: never
+# the description or the guide text.
+_PAYLOAD_FIELDS = {"channel", "published", "upload_date", "generated", "duration", "members_only"}
 
 
 class SiteError(Exception):
@@ -163,7 +167,45 @@ def render_index(pages: list[SitePage]) -> str:
     else:
         listing = '<p class="empty">No guides yet.</p>'
     count = "1 guide" if len(pages) == 1 else f"{len(pages)} guides"
-    return template.substitute(count=count, listing=listing)
+    return template.substitute(count=count, listing=listing, guides_json=_script_json(index_payload(pages)))
+
+
+def index_payload(pages: list[SitePage]) -> list[dict[str, object]]:
+    """Build the data the index's script reads.
+
+    Args:
+        pages (list[SitePage]): The published pages, in the order to list them.
+
+    Returns:
+        list[dict[str, object]]: One entry per page, with exactly `video_id`, `title`, `channel`, `published`,
+            `upload_date`, `generated`, `duration` and `members_only`. Times are UTC strings, such as
+            `2026-10-14T16:03:12Z`, dates (`upload_date`, an old date-only `generated`) are ISO dates, and unknown
+            values are None.
+    """
+    return [
+        {
+            "video_id": page.video_id,
+            "title": page.title,
+            **page.metadata.model_dump(mode="json", include=_PAYLOAD_FIELDS),
+        }
+        for page in pages
+    ]
+
+
+def _script_json(data: object) -> str:
+    """Write data as JSON that can go inside a `<script>` element.
+
+    The HTML parser ends the element at the first `</script>`, even inside a JSON string, so `<`, `>` and `&` are
+    written as `\\u003c`, `\\u003e` and `\\u0026`, which `JSON.parse` reads back as the same characters.
+
+    Args:
+        data (object): Data that `json.dumps` accepts.
+
+    Returns:
+        str: The JSON text.
+    """
+    text = json.dumps(data, ensure_ascii=False)
+    return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
 def _index_item(page: SitePage) -> str:

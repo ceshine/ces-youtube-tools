@@ -142,6 +142,9 @@ Done on 2026-10-21. As planned, with these changes:
 
 ## Step A: write the payload next to the current list
 
+Done on 2026-10-21, as planned. The block is after `</main>`, and an entry's keys after `video_id` and `title`
+follow `GuideMetadata`'s field order.
+
 The page looks the same; the data is added and tested.
 
 - `static_site.py`: `index_payload(pages) -> list[dict]` with exactly `video_id`, `title`, `channel`, `published`

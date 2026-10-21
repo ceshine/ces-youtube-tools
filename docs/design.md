@@ -351,8 +351,9 @@ commands that `site` has since replaced. What was built:
 8. Serve the site over HTTP only: remove the guide page's `file://` handling and make the site's links
    extensionless. (Done, 2026-10-21.) See "`site` command" below.
 9. An interactive index: sorting, grouping and filtering in the browser, from a JSON payload, with `node --test`
-   tests, after recording publish and generation times in the guides. (Planned; the guides record the times since
-   2026-10-21.) See "Publish and generation times" and "Planned: an interactive index" below.
+   tests, after recording publish and generation times in the guides. (In progress: since 2026-10-21, the guides
+   record the times and the index holds the payload.) See "Publish and generation times" and "Planned: an
+   interactive index" below.
 
 ## Guide metadata and a private site
 
@@ -514,7 +515,8 @@ fails rather than picking a folder to clear. Deploying is kept outside the tool;
 - Each page gets an "All guides" link to `./` above the player (`render_guide_page(link_to_index=True)`).
 - The index (`templates/site_index.html`) lists guides newest upload first (no date last, then by title), with the
   upload date, channel, length, and a badge for members-only or unknown availability. The title is the YouTube title
-  from the front matter, else the guide's heading, else the file name.
+  from the front matter, else the guide's heading, else the file name. It also holds the same guides as a JSON
+  payload (`index_payload`), for the script planned in "Planned: an interactive index".
 - Two passes, as in `backfill`. The first reads and renders every guide in memory and reports all problems together
   (unreadable file, invalid front matter, no video ID, two guides for one video); if there is any, `OUT` is not
   touched and the exit status is 1. The front matter of guides that are left out is checked too.
