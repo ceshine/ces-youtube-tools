@@ -1,6 +1,7 @@
 """Video metadata from yt-dlp."""
 
 import re
+import datetime
 from typing import Any
 
 from pydantic import Field, BaseModel
@@ -40,7 +41,9 @@ class VideoInfo(BaseModel):
         channel (str | None): Channel name.
         channel_id (str | None): Channel ID.
         duration (float | None): Length in seconds.
-        upload_date (str | None): Upload date as `YYYYMMDD`.
+        upload_date (str | None): Upload date as `YYYYMMDD`, a UTC day when YouTube reports an exact time.
+        timestamp (float | None): Upload time in Unix seconds. For a stream replay, about when the stream ended.
+        release_timestamp (float | None): Release time in Unix seconds, e.g. when a stream started.
         description (str): Video description.
         language (str | None): Language YouTube reports for the video.
         availability (str | None): For example `public`, `unlisted` or `subscriber_only`.
@@ -56,6 +59,8 @@ class VideoInfo(BaseModel):
     channel_id: str | None = None
     duration: float | None = None
     upload_date: str | None = None
+    timestamp: float | None = None
+    release_timestamp: float | None = None
     description: str = ""
     language: str | None = None
     availability: str | None = None
@@ -72,6 +77,18 @@ class VideoInfo(BaseModel):
             str: The URL.
         """
         return video_url(self.id)
+
+    @property
+    def published(self) -> datetime.datetime | None:
+        """When the video was published: its release time, else its upload time.
+
+        Returns:
+            datetime.datetime | None: The time in UTC, to the second, or None if yt-dlp reported neither.
+        """
+        seconds = self.release_timestamp if self.release_timestamp is not None else self.timestamp
+        if seconds is None:
+            return None
+        return datetime.datetime.fromtimestamp(seconds, datetime.UTC).replace(microsecond=0)
 
 
 def video_url(video_id: str) -> str:
@@ -129,6 +146,8 @@ def video_info_from_ytdlp(data: dict[str, Any]) -> VideoInfo:
         channel_id=data.get("channel_id"),
         duration=data.get("duration"),
         upload_date=data.get("upload_date"),
+        timestamp=data.get("timestamp"),
+        release_timestamp=data.get("release_timestamp"),
         description=data.get("description") or "",
         language=data.get("language"),
         availability=data.get("availability"),

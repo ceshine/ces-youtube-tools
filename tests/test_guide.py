@@ -1,12 +1,14 @@
 import re
 import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
 from ces_youtube_tools.guide import (
     GuideError,
     clean_output,
+    publish_date,
     render_prompt,
     group_segments,
     guide_filename,
@@ -19,7 +21,10 @@ from ces_youtube_tools.guide import (
 from ces_youtube_tools.video import Chapter, VideoInfo
 from ces_youtube_tools.transcript import Transcript, TranscriptSegment
 
-TODAY = datetime.date(2026, 10, 9)
+NOW = datetime.datetime(2026, 10, 9, 10, 30, 15, 123456, tzinfo=datetime.timezone(datetime.timedelta(hours=8)))
+TAIPEI = ZoneInfo("Asia/Taipei")
+# 2026-10-08T16:30:00Z, which is already Oct 9 in Asia/Taipei.
+LATE_UTC = 1791477000
 VIDEO = VideoInfo(
     id="abcdefghijk",
     title="A talk",
@@ -65,7 +70,7 @@ def test_format_upload_date(value: str | None, expected: str) -> None:
 
 def test_render_prompt_fills_every_placeholder() -> None:
     template = " | ".join(f"${name}" for name in TEMPLATE_PLACEHOLDERS) + " | $$5"
-    prompt = render_prompt(template, VIDEO, transcript(), TODAY)
+    prompt = render_prompt(template, VIDEO, transcript(), NOW)
     assert prompt.startswith(
         "A talk | A channel | https://www.youtube.com/watch?v=abcdefghijk | abcdefghijk | 1:05:40 |"
     )
@@ -78,28 +83,38 @@ def test_render_prompt_fills_every_placeholder() -> None:
 
 def test_render_prompt_defaults_for_missing_details() -> None:
     video = VideoInfo(id="abcdefghijk", title="T")
-    prompt = render_prompt("$channel/$duration/$upload_date/$description/$chapters", video, transcript(), TODAY)
+    prompt = render_prompt("$channel/$duration/$upload_date/$description/$chapters", video, transcript(), NOW)
     assert prompt == "unknown channel/unknown/unknown/(no description)/(none)"
 
 
 def test_render_prompt_human_made_note() -> None:
     assert "written by people" in render_prompt(
-        "$transcript_note", VIDEO, transcript("yt-dlp-subs: human-made en"), TODAY
+        "$transcript_note", VIDEO, transcript("yt-dlp-subs: human-made en"), NOW
     )
 
 
 def test_render_prompt_unknown_placeholder() -> None:
     with pytest.raises(GuideError, match=r"Unknown placeholder \$titel"):
-        _ = render_prompt("$titel", VIDEO, transcript(), TODAY)
+        _ = render_prompt("$titel", VIDEO, transcript(), NOW)
 
 
 def test_render_prompt_stray_dollar() -> None:
     with pytest.raises(GuideError, match=r"Write a literal \$ as \$\$"):
-        _ = render_prompt("costs $5", VIDEO, transcript(), TODAY)
+        _ = render_prompt("costs $5", VIDEO, transcript(), NOW)
+
+
+def test_render_prompt_upload_date_is_the_publish_day() -> None:
+    video = VIDEO.model_copy(update={"timestamp": LATE_UTC})
+    assert render_prompt("$upload_date", video, transcript(), NOW, TAIPEI) == "Oct 9, 2026"
+    assert render_prompt("$upload_date", video, transcript(), NOW, datetime.UTC) == "Oct 8, 2026"
+
+
+def test_default_template_drops_the_date_line() -> None:
+    assert "$today" not in default_template()
 
 
 def test_default_template_renders_completely() -> None:
-    prompt = render_prompt(default_template(), VIDEO, transcript(), TODAY)
+    prompt = render_prompt(default_template(), VIDEO, transcript(), NOW)
     assert re.search(r"\$[A-Za-z_]", prompt) is None
     assert "watch?v=abcdefghijk&t=<seconds>s" in prompt
 
@@ -190,3 +205,24 @@ def test_guide_filename_writes_a_long_cjk_title(tmp_path: Path) -> None:
     (tmp_path / name).write_text("guide", encoding="utf-8")
     (tmp_path / name).with_suffix(".html").write_text("page", encoding="utf-8")
     assert (tmp_path / name).exists()
+
+
+@pytest.mark.parametrize(
+    ("update", "expected"),
+    [
+        ({"timestamp": LATE_UTC}, datetime.date(2026, 10, 9)),
+        # The release time wins: the stream started before midnight in Taipei, though it ended after.
+        ({"timestamp": LATE_UTC, "release_timestamp": LATE_UTC - 3 * 3600}, datetime.date(2026, 10, 8)),
+        ({}, datetime.date(2026, 10, 8)),  # only `upload_date`
+        ({"upload_date": None}, None),
+    ],
+)
+def test_publish_date(update: dict[str, object], expected: datetime.date | None) -> None:
+    video = VideoInfo(id="abcdefghijk", title="A video", upload_date="20261008").model_copy(update=update)
+    assert publish_date(video, TAIPEI) == expected
+
+
+def test_guide_filename_uses_the_publish_day_in_the_time_zone() -> None:
+    video = VideoInfo(id="abcdefghijk", title="A video", upload_date="20261008", timestamp=LATE_UTC)
+    assert guide_filename(video, TAIPEI) == "Watching Guide - 20261009 - A video.md"
+    assert guide_filename(video, datetime.UTC) == "Watching Guide - 20261008 - A video.md"

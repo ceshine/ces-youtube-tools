@@ -152,14 +152,14 @@ def expand_paths(paths: list[str], cwd: Path) -> list[Path]:
         path = cwd / Path(raw).expanduser()
         if path.is_dir():
             try:
-                files = sorted(child for child in path.iterdir() if _is_markdown(child) and child.is_file())
+                files = sorted(child for child in path.iterdir() if is_markdown(child) and child.is_file())
             except OSError as exc:
                 raise GuideHtmlError(f"Cannot read {raw!r} ({exc})") from exc
             if not files:
                 raise GuideHtmlError(f"No Markdown files in {raw!r}")
             found.update(dict.fromkeys(files))
         elif path.is_file():
-            if _is_markdown(path):
+            if is_markdown(path):
                 found[path] = None
         else:
             raise GuideHtmlError(f"No such file or folder: {raw!r}")
@@ -168,5 +168,13 @@ def expand_paths(paths: list[str], cwd: Path) -> list[Path]:
     return list(found)
 
 
-def _is_markdown(path: Path) -> bool:
+def is_markdown(path: Path) -> bool:
+    """Check whether a path names a Markdown file, by its suffix.
+
+    Args:
+        path (Path): The path.
+
+    Returns:
+        bool: True for a `.md` suffix, in any case.
+    """
     return path.suffix.lower() == ".md"

@@ -75,6 +75,7 @@ languages = ["en-orig", "en"]
 generator = "claude-cli"
 prompt_template = "~/.config/ces-youtube-tools/guide_prompt.md"
 # output_dir defaults to the directory the command is run from
+file_name_timezone = "Asia/Taipei"   # optional; unset = the system's time zone
 
 [guide.options.claude-cli]   # per-generator settings, keyed by generator name
 model = "opus"            # optional; default: Claude Code's default model
@@ -95,6 +96,9 @@ output_dir = "~/guides-site"   # where `site` writes the site, cleared on each b
   (`src/ces_youtube_tools/templates/guide_prompt.md`). `config init` writes it next to the config file, and
   `config template [--force]` writes it to the configured path later. If the file is missing, `guide` uses the
   built-in template and says so.
+- `file_name_timezone` is an IANA name, checked with `zoneinfo` when the config is loaded. It sets the day in guide
+  file names (see "Guide step"). Unset, it means the system's time zone, so the same video gets another name on a
+  machine set to another zone; setting it is recommended.
 - `config options` lists every option with its type, default and meaning. It reads the Pydantic models (field
   descriptions), including `[guide.options.claude-cli]`, so it works without a config file and cannot drift from the
   code. A new option needs a `Field(description=...)`, or its description column is blank. A new generator's options
@@ -155,7 +159,8 @@ cd <session_dir> && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude --print --tools "" -
 1. **Prompt** (`render_prompt`): the template is filled with `string.Template` placeholders (`$title`, `$channel`,
    `$url`, `$video_id`, `$duration`, `$upload_date`, `$today`, `$description`, `$chapters`, `$transcript_note`,
    `$transcript`; `$$` is a literal `$`). `string.Template` instead of `str.format`, because Markdown and JSON in a
-   template are full of braces. Unknown placeholders fail before any generation.
+   template are full of braces. Unknown placeholders fail before any generation. `$upload_date` is the publish day
+   in the file name (below), and `$today` the local date the guide is written.
 2. **Transcript blocks**: segments are joined into blocks of about 15 seconds, each starting with its time in both
    forms, `[1:07 | 67s]`. Fewer, longer blocks save tokens; 30-second blocks made every highlight land on a
    30-second mark, coarser than the hand-written sample guide.
@@ -164,22 +169,41 @@ cd <session_dir> && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude --print --tools "" -
 4. **Checks** (`check_timestamp_links`, `clean_output`): every timestamp link's label is rewritten from its `t=`
    seconds, which come straight from the block markers; links past the video's end are reported. A code fence
    around the whole reply is removed.
-5. **Output**: `Watching Guide - <YYYYMMDD> - <title>.md`, named by the upload date (left out when unknown or
-   malformed), in `--output-dir`, else `guide.output_dir`, else the current directory. The date prefix makes guides
-   sort by upload date. An existing file is refused before generating (no wasted generation) unless `--force`.
-   The file starts with front matter written from `VideoInfo` (see "Guides stay Markdown, with front matter"
-   below); the raw reply in the work directory has none.
+5. **Output**: `Watching Guide - <YYYYMMDD> - <title>.md`, in `--output-dir`, else `guide.output_dir`, else the
+   current directory. The date is the day the video was published (`VideoInfo.published`: `release_timestamp`, else
+   `timestamp`) in `guide.file_name_timezone`; without either, yt-dlp's `upload_date`; left out when that is unknown
+   or malformed too. The date prefix makes guides sort by publish day. The file starts with front matter written
+   from `VideoInfo` (see "Guides stay Markdown, with front matter" below); the raw reply in the work directory has
+   none.
+6. **Existing guides**, checked before generating (no wasted generation): a file with the guide's name, or a guide
+   for the same video under another name. The second matters because a changed naming rule gives a video's new guide
+   another name. `find_guides_for_video` reads the folder's `.md` files and takes each one's video from its front
+   matter's `video_id`, else from the video its links point to most, as in `site`. `guide` refuses either case,
+   naming the file, before fetching the transcript, unless `--force`; with `--force`, the new guide is written under
+   its own name, then the older guides under other names are removed (never one that is the new file under another
+   name, through a link or a case-insensitive file system). `browse` has no `--force`: it asks whether to replace
+   them, naming the files, and a yes does what `--force` does. Only a file whose front matter names the video is
+   replaced: one about the video only by its links may be notes rather than a guide (the output folder defaults to
+   the current directory), so it is refused even with `--force`, and the message says to remove or move it, or to
+   add `video_id` to its front matter. A file that cannot be read is skipped, and one whose front matter is invalid
+   is judged by its links; both are reported as warnings.
 
-The default template asks for the structure of the hand-written sample guide: title, date and channel line, overview
-paragraph, "Watch the full video" and "How to use this guide" lines, then numbered segments with a linked range, a
-summary and two to eight timestamped highlights, and tables where the video compares items.
+The default template asks for the structure of the hand-written sample guide: title, overview paragraph, "Watch the
+full video" and "How to use this guide" lines, then numbered segments with a linked range, a summary and two to eight
+timestamped highlights, and tables where the video compares items. It no longer asks for a `$today · $channel` line
+under the title (dropped on 2026-10-21): the front matter holds both dates, and a copy in the text can disagree with
+it. A copy written earlier by `config template` keeps the line until it is written again with `config template
+--force`.
 
 ## Work directory
 
 `<cache_dir>/<video_id>/` (default `~/.cache/ces-youtube-tools/`) holds:
 
 - `video.json`: the `VideoInfo` fields (title, channel, chapters, available subtitle tracks, ...). Never yt-dlp's raw
-  output, which is large and holds signed media URLs.
+  output, which is large and holds signed media URLs. A file without the `timestamp` or `release_timestamp` key was
+  written before those were cached, so it is stale and the metadata is fetched again; a key with `null` means yt-dlp
+  did not report it. The keys are checked in the raw JSON, because the model's defaults cannot tell a missing key
+  from a `null` one. Making the fields required was rejected: every old file would log an invalid-cache warning.
 - `subtitles/`: the downloaded subtitle file.
 - `transcript.json`: the `Transcript`.
 
@@ -327,8 +351,8 @@ commands that `site` has since replaced. What was built:
 8. Serve the site over HTTP only: remove the guide page's `file://` handling and make the site's links
    extensionless. (Done, 2026-10-21.) See "`site` command" below.
 9. An interactive index: sorting, grouping and filtering in the browser, from a JSON payload, with `node --test`
-   tests, after recording publish and generation times in the guides. (Planned.) See "Planned: publish and generation
-   times" and "Planned: an interactive index" below.
+   tests, after recording publish and generation times in the guides. (Planned; new guides record the times since
+   2026-10-21.) See "Publish and generation times" and "Planned: an interactive index" below.
 
 ## Guide metadata and a private site
 
@@ -357,10 +381,11 @@ video_id: abcdefghijk
 title: 'A video: part 1'          # the YouTube title, not the guide's heading
 channel: A channel
 channel_id: UCxxxxxxxxxxxxxxxxxxxxxx
-upload_date: 2026-10-08           # null when unknown or malformed
+upload_date: 2026-10-08           # as yt-dlp reports it; null when unknown or malformed
+published: '2026-10-08T16:03:12Z' # release_timestamp, else timestamp; null when yt-dlp reported neither
 duration: 600                     # seconds
 members_only: false               # true for availability subscriber_only; null when yt-dlp did not report it
-generated: 2026-10-09
+generated: '2026-10-09T02:30:15Z' # when the guide was written
 ---
 ```
 
@@ -378,6 +403,11 @@ generated: 2026-10-09
   takes the video ID and the members-only hint from it. Guides without front matter fall back to the links for the
   video ID. A `video_id` from the front matter is still checked by
   `render_guide_page`, like any other.
+- `published` and `generated` are UTC times to the second, written as strings such as `2026-10-08T16:03:12Z`
+  (PyYAML's `safe_dump` would write a `datetime` as `2026-10-08 16:03:12+00:00`; it quotes the string so it stays
+  one) and read with Pydantic's `AwareDatetime`, quoted or not. A time without a time zone is invalid, except one
+  at midnight in `generated`, which Pydantic reads as that day's date; a number is read as Unix seconds. The tool
+  writes neither. `generated` was a date before 2026-10-21; such a guide is still read, as a date.
 - `members_only` has three states. The `site` command treats `null` (unknown) as members-only.
 - The generator and model are not recorded yet: `GuideGenerator` does not report them. Add them if comparing guides
   across models becomes useful.
@@ -400,15 +430,17 @@ existed. A path is a Markdown file or a folder (its `.md` files, not its subfold
 - `generated` is `null`: nothing recorded when the guide was written, and file times change when files are copied.
 - `--dry-run` runs the first pass, including fetching (which fills the cache), and lists the guides it would write.
 
-### Planned: publish and generation times
+### Publish and generation times
 
 Decided on 2026-10-21, for the interactive index (below), which sorts by these. The steps are Step 1 in
-[20261021_interactive_index_implementation.md](20261021_interactive_index_implementation.md).
+[20261021_interactive_index_implementation.md](20261021_interactive_index_implementation.md). New guides record the
+times (Step 1a, done on 2026-10-21; see "Guide step" and the front matter above); the `backfill` changes (Step 1b)
+are planned.
 
 - `upload_date` is a UTC day (or, with no exact time, a US/Pacific day or the page's date text, per yt-dlp's source, not
   yet verified), so US afternoon uploads read a day early in Asia/Taipei. yt-dlp also reports `timestamp` and, for
-  streams, `release_timestamp` (when the stream started; `timestamp` was about when it ended), which the tool drops
-  today. See "Upload dates are UTC days" in [implementation_notes.md](implementation_notes.md).
+  streams, `release_timestamp` (when the stream started; `timestamp` was about when it ended), which the tool dropped
+  before Step 1a. See "Upload dates are UTC days" in [implementation_notes.md](implementation_notes.md).
 - The publish time is `release_timestamp`, else `timestamp`; `upload_date` is the fallback when both are missing.
 - Front matter records times in UTC, as strings such as `2026-10-14T16:03:12Z`: a new `published` key, and
   `generated` becomes the time the guide was written. `upload_date` stays as yt-dlp reports it.
@@ -532,7 +564,7 @@ page as JSON, and a script renders it.
   is the payload's only escaping step, and it gets a test with such a title.
 - Contents: built from the published pages only (`SiteBuild.pages`, never `left_out`), with only what the index shows:
   `video_id` (the link is `<video_id>`, see "`site` command"), `title`, `channel`, `published` and `generated` (UTC
-  times, see "Planned: publish and generation times"; an ISO date for an old date-only `generated`), `upload_date`
+  times, see "Publish and generation times"; an ISO date for an old date-only `generated`), `upload_date`
   (ISO date, used only without `published`), `duration` (seconds) and `members_only` (`true` or `false`), each
   `null` when unknown. No description and no guide text. A test checks that a left-out guide's ID is not in the page.
 - Rendering uses `createElement` and `textContent`, never `innerHTML`: titles and channel names come from YouTube and

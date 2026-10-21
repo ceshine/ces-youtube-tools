@@ -526,3 +526,65 @@ def test_guide_without_upload_date_leaves_the_date_out_of_the_file_name(
     result = RUNNER.invoke(APP, args)
     assert result.exit_code == 0, result.output
     assert guide_body(tmp_path / "Watching Guide - A video.md") == GUIDE_REPLY
+
+
+OLD_LINKS = "# Old guide\n\n[0:05](https://www.youtube.com/watch?v=3i2C3IB3PaA&t=5s)\n"
+OLD_GUIDE = "---\nvideo_id: 3i2C3IB3PaA\n---\n\n" + OLD_LINKS
+
+
+def test_guide_refuses_a_guide_for_the_video_under_another_name(
+    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
+) -> None:
+    old = tmp_path / "Watching Guide - 20261007 - A video.md"
+    old.write_text(OLD_GUIDE, encoding="utf-8")
+    (tmp_path / "unreadable.md").write_bytes(b"\xff\xfe")
+    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)]
+    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
+    assert result.exit_code == 1
+    assert f"Video 3i2C3IB3PaA already has a guide: {old}. Use --force to replace it." in result.output
+    assert f"Warning: Cannot read {tmp_path / 'unreadable.md'}" in result.output
+    assert guide_setup.prompts == []
+
+    result = RUNNER.invoke(APP, [*args, "--force"], env={"COLUMNS": "1000"})
+    assert result.exit_code == 0, result.output
+    assert f"Removed the older guide {old}" in result.output
+    assert not old.exists()
+    assert guide_body(tmp_path / "Watching Guide - 20261008 - A video.md") == GUIDE_REPLY
+
+
+def test_browse_asks_before_replacing_a_guide_under_another_name(
+    browse_setup: list[str], guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
+) -> None:
+    old = tmp_path / "Watching Guide - 20261007 - A video.md"
+    old.write_text(OLD_GUIDE, encoding="utf-8")
+    args = ["browse", "3blue1brown", "-o", str(tmp_path), "--config", str(config_path)]
+    result = RUNNER.invoke(APP, args, input="2\nn\n", env={"COLUMNS": "1000"})
+    assert result.exit_code == 0, result.output
+    assert f"{old} already exists. Replace it?" in result.output
+    assert "Kept the existing guide." in result.output
+    assert guide_setup.prompts == []
+
+    result = RUNNER.invoke(APP, args, input="2\ny\n", env={"COLUMNS": "1000"})
+    assert result.exit_code == 0, result.output
+    assert not old.exists()
+    assert guide_body(tmp_path / "Watching Guide - 20261008 - A video.md") == GUIDE_REPLY
+
+
+def test_guide_never_replaces_a_file_found_only_by_its_links(
+    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    notes = tmp_path / "My notes.md"
+    notes.write_text(OLD_LINKS, encoding="utf-8")
+    fetched: list[str] = []
+
+    def no_transcript(video: VideoInfo, provider: object, work_dir: Path, refresh: bool = False) -> Transcript:
+        fetched.append(video.id)
+        raise AssertionError("the transcript must not be fetched")
+
+    monkeypatch.setattr(cli, "load_transcript", no_transcript)
+    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--force", "--config", str(config_path)]
+    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
+    assert result.exit_code == 1
+    assert f"{notes} links to this video, but its front matter does not name it" in result.output
+    assert fetched == []
+    assert notes.read_text(encoding="utf-8") == OLD_LINKS

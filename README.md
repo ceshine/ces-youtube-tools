@@ -136,6 +136,7 @@ languages = ["en-orig", "en"]
 [guide]
 prompt_template = "~/.config/ces-youtube-tools/guide_prompt.md"
 # output_dir defaults to the directory you run the command from
+file_name_timezone = "Asia/Taipei"   # optional; the day in guide file names. Default: the system's time zone
 
 [guide.options.claude-cli]
 model = "opus"       # optional
@@ -153,9 +154,11 @@ and a cache write only adds cost. Set `prompt_caching = true` under `[guide.opti
 
 ## Where files go
 
-- **Guides:** `Watching Guide - <YYYYMMDD> - <title>.md`, named by the upload date (left out when unknown or
-  malformed), in `--output-dir`, else `guide.output_dir`, else the current directory. An existing guide is not
-  overwritten unless you pass `--force`.
+- **Guides:** `Watching Guide - <YYYYMMDD> - <title>.md`, named by the day the video was published, in
+  `guide.file_name_timezone` (left out when unknown), in `--output-dir`, else `guide.output_dir`, else the current
+  directory. If the folder already has a guide for the video, under any name, `guide` stops unless you pass
+  `--force`, which replaces it; `browse` asks. Each guide's front matter records when the video was published and
+  when the guide was written, in UTC.
 - **Site:** `<video id>.html` for each guide, plus `index.html`, `robots.txt` and `_headers`, in `-o OUT`, else
   `site.output_dir`.
 - **Cache:** `~/.cache/ces-youtube-tools/<video id>/` holds the video metadata, subtitles, transcript, and the prompt

@@ -20,7 +20,7 @@ TEMPLATE_PLACEHOLDERS = {
     "url": "video URL",
     "video_id": "video ID",
     "duration": "video length, e.g. 1:05:40",
-    "upload_date": "upload date, e.g. Oct 8, 2026",
+    "upload_date": "the day the video was published, as in the file name, e.g. Oct 8, 2026",
     "today": "the date the guide is written",
     "description": "video description",
     "chapters": "uploader-set chapters as a list, or a note that there are none",
@@ -154,14 +154,22 @@ def _transcript_note(transcript: Transcript) -> str:
     return "The transcript comes from subtitles written by people."
 
 
-def render_prompt(template: str, video: VideoInfo, transcript: Transcript, today: datetime.date) -> str:
+def render_prompt(
+    template: str,
+    video: VideoInfo,
+    transcript: Transcript,
+    now: datetime.datetime,
+    timezone: datetime.tzinfo | None = None,
+) -> str:
     """Fill a prompt template with a video's details and transcript.
 
     Args:
         template (str): Template text with `$placeholder`s (see `TEMPLATE_PLACEHOLDERS`). `$$` is a literal `$`.
         video (VideoInfo): The video.
         transcript (Transcript): Its transcript.
-        today (datetime.date): The date the guide is written.
+        now (datetime.datetime): When the guide is written. `$today` is its date in its own time zone.
+        timezone (datetime.tzinfo | None): Time zone of the publish day in `$upload_date`, as in `guide_filename`.
+            None means the system's time zone.
 
     Returns:
         str: The prompt.
@@ -170,14 +178,15 @@ def render_prompt(template: str, video: VideoInfo, transcript: Transcript, today
         GuideError: If the template uses an unknown placeholder or a stray `$`.
     """
     chapters = "\n".join(f"- [{format_seconds_label(chapter.start)}] {chapter.title}" for chapter in video.chapters)
+    published = publish_date(video, timezone)
     values = {
         "title": video.title,
         "channel": video.channel or "unknown channel",
         "url": video.url,
         "video_id": video.id,
         "duration": format_duration(video.duration) or "unknown",
-        "upload_date": format_upload_date(video.upload_date),
-        "today": format_date(today),
+        "upload_date": format_date(published) if published is not None else format_upload_date(video.upload_date),
+        "today": format_date(now.date()),
         "description": video.description.strip() or "(no description)",
         "chapters": chapters or "(none)",
         "transcript_note": _transcript_note(transcript),
@@ -273,15 +282,34 @@ def parse_upload_date(upload_date: str | None) -> datetime.date | None:
         return None
 
 
-def guide_filename(video: VideoInfo) -> str:
-    """Build the guide's file name from the video's upload date and title.
+def publish_date(video: VideoInfo, timezone: datetime.tzinfo | None = None) -> datetime.date | None:
+    """Find the day a video was published, in a given time zone.
 
     Args:
         video (VideoInfo): The video.
+        timezone (datetime.tzinfo | None): The time zone. None means the system's time zone.
+
+    Returns:
+        datetime.date | None: The publish time's day in `timezone`. Without a publish time, the upload date as yt-dlp
+            reports it, or None if that is unknown or malformed.
+    """
+    published = video.published
+    if published is None:
+        return parse_upload_date(video.upload_date)
+    return published.astimezone(timezone).date()
+
+
+def guide_filename(video: VideoInfo, timezone: datetime.tzinfo | None = None) -> str:
+    """Build the guide's file name from the day the video was published and its title.
+
+    Args:
+        video (VideoInfo): The video.
+        timezone (datetime.tzinfo | None): Time zone of the publish day (see `publish_date`). None means the system's
+            time zone.
 
     Returns:
         str: For example `Watching Guide - 20261008 - The Chief AI Officer Role.md`, or
-            `Watching Guide - The Chief AI Officer Role.md` when the upload date is unknown or malformed. Characters
+            `Watching Guide - The Chief AI Officer Role.md` when the publish day is unknown. Characters
             that are unsafe in file names are removed. The name is at most about 150 characters and at most 231 UTF-8
             bytes long, so the `.html` page beside it also fits the common 255-byte limit.
     """
@@ -290,6 +318,7 @@ def guide_filename(video: VideoInfo) -> str:
     # work on code points, so a character built from several (an emoji sequence, a letter plus an accent) may be split.
     title = title.encode("utf-8")[:_MAX_TITLE_BYTES].decode("utf-8", errors="ignore")
     title = title.rstrip(" .") or video.id
-    if parse_upload_date(video.upload_date) is not None:
-        return f"Watching Guide - {video.upload_date} - {title}.md"
+    published = publish_date(video, timezone)
+    if published is not None:
+        return f"Watching Guide - {published:%Y%m%d} - {title}.md"
     return f"Watching Guide - {title}.md"

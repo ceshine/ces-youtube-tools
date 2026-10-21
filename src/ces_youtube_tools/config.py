@@ -4,6 +4,7 @@ import re
 import json
 import tomllib
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from dataclasses import dataclass
 from typing import Any, get_args
 
@@ -85,6 +86,8 @@ class GuideConfig(BaseModel):
         generator (str): Name of the guide generator.
         prompt_template (Path): User-editable prompt template file.
         output_dir (Path | None): Where guides are written. None means the current working directory.
+        file_name_timezone (str | None): IANA time zone, such as `Asia/Taipei`, for the date in guide file names.
+            None means the system's time zone.
         options (dict[str, dict[str, Any]]): Per-generator settings, keyed by generator name.
     """
 
@@ -95,11 +98,45 @@ class GuideConfig(BaseModel):
     output_dir: Path | None = Field(
         default=None, description="Where guides are written. Unset means the current working directory."
     )
+    file_name_timezone: str | None = Field(
+        default=None,
+        description="Time zone of the publish date in guide file names, such as Asia/Taipei. Unset means the "
+        "system's time zone.",
+    )
     options: dict[str, dict[str, Any]] = Field(
         default_factory=dict, description="Per-generator settings, in `[guide.options.<generator>]` tables."
     )
 
     expand_paths = field_validator("prompt_template", "output_dir")(_expand_path)
+
+    @field_validator("file_name_timezone")
+    @classmethod
+    def _check_timezone(cls, value: str | None) -> str | None:
+        """Reject a time zone name that `zoneinfo` does not know.
+
+        Args:
+            value (str | None): The IANA name, or None for the system's time zone.
+
+        Returns:
+            str | None: The name, unchanged.
+
+        Raises:
+            ValueError: If the name is not a known IANA time zone.
+        """
+        if value is not None:
+            try:
+                _ = ZoneInfo(value)
+            except (ZoneInfoNotFoundError, ValueError) as exc:
+                raise ValueError(f"unknown time zone {value!r}; use an IANA name such as Asia/Taipei") from exc
+        return value
+
+    def file_name_zone(self) -> ZoneInfo | None:
+        """The time zone for the date in guide file names.
+
+        Returns:
+            ZoneInfo | None: The configured time zone, or None for the system's.
+        """
+        return ZoneInfo(self.file_name_timezone) if self.file_name_timezone is not None else None
 
 
 class SiteConfig(BaseModel):

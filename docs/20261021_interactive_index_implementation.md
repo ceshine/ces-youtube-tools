@@ -6,14 +6,13 @@ and 9); this file lists the steps to build it. Each step passes the tests and ca
 
 ## Open decisions
 
-- Order: Step 0 first, so the payload's link format is final from the start (recommended), or keep the `.html` links
-  and do the index first.
 - Scope of Step C: sort, group (channel, month) and a text filter, as below; or also a members-only filter or
   grouping by year.
 - Sort keys besides the two dates in Step C: keep title, channel and length, or offer only the two dates.
 
 Decided on 2026-10-21:
 
+- Step 0 first, so the payload's link format is final from the start (done the same day).
 - Step D is required, not optional.
 - Step 1: guides record a publish time and a generation time in UTC; the index sorts by the publish date (default)
   or the generation date, each a day in the browser's time zone, then by channel, then by title.
@@ -42,6 +41,14 @@ exact times, which the tool drops today. See "Upload dates are UTC days" in
 [implementation_notes.md](implementation_notes.md) (checked on 2026-10-21, with cookies).
 
 ### Step 1a: record the times for new guides
+
+Done on 2026-10-21. As planned, with these changes:
+
+- `write_guide` takes what `find_guides_for_video` found (`existing`) and removes the older guides after writing
+  when `force` is set. Its options after `now` are keyword-only.
+- Only a file whose front matter names the video is replaced. One about the video only by its links may be notes
+  rather than a guide, so it is refused even with `--force` (decided in review on 2026-10-21).
+- `guide` refuses before fetching the transcript, not only before generating.
 
 - `VideoInfo` gains `timestamp` and `release_timestamp` (Unix seconds or `None`), copied in `video_info_from_ytdlp`.
   The publish time is `release_timestamp`, else `timestamp`: for a stream replay, `release_timestamp` was when the
@@ -234,15 +241,13 @@ no hash. Made a required step on 2026-10-21.
 
 ## Docs, as each step lands
 
-- [design.md](design.md): mark build order items 8 and 9 done; turn "Planned: an interactive index" and "Planned:
-  publish and generation times" into descriptions of what was built; update the `site` bullets about `.html` links,
-  including "Each page gets an 'All guides' link to `index.html`"; in "Guide step", the file name, the prompt's date
-  line and the duplicate check; in "Guides stay Markdown, with front matter", the example block and the `backfill`
-  bullets (every guide rewritten and renamed, `generated` from the publish time instead of `null`, a guide with a
-  problem of its own skipped instead of stopping the run); in "`site` command", the bullet "The index ... lists
-  guides newest upload first". Also the `backfill.py` module docstring and the `backfill` command's docstring in
-  `cli.py`, which say no guide is changed when one fails.
-- [README.md](../README.md): `index.mjs` in "Where files go"; `node --test` under "Development";
-  `file_name_timezone` in the config example; how guides are named and what `backfill` does now.
+- [design.md](design.md): mark build order item 9 done; turn "Planned: an interactive index" into a description of
+  what was built, and drop the "planned" note on Step 1b in "Publish and generation times"; in "Guides stay
+  Markdown, with front matter", the `backfill` bullets (every guide rewritten and renamed, `generated` from the
+  publish time instead of `null`, a guide with a problem of its own skipped instead of stopping the run); in
+  "`site` command", the bullet "The index ... lists guides newest upload first". Also the `backfill.py` module
+  docstring and the `backfill` command's docstring in `cli.py`, which say no guide is changed when one fails.
+- [README.md](../README.md): `index.mjs` in "Where files go"; `node --test` under "Development"; what `backfill`
+  does now.
 - [implementation_notes.md](implementation_notes.md): what the browser shows after deploying (the content type of
   `.mjs`), with the date and a command to recheck.

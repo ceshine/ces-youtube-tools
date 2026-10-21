@@ -36,7 +36,8 @@ from .firefox import (
 from .youtube import VideoSummary, verify_login, resolve_channel, list_latest_videos
 from .backfill import BackfillError, plan_backfill, write_front_matter
 from .pipeline import CacheError, work_dir_for, load_transcript, load_video_info, make_transcript_provider
-from .pipeline import write_guide, load_prompt_template, make_guide_generator
+from .pipeline import write_guide, guides_to_replace, load_prompt_template, make_guide_generator
+from .pipeline import check_existing_guides, find_guides_for_video
 from .claude_cli import GENERATOR_NAME, ClaudeCliOptions
 from .formatting import format_age, format_duration
 from .guide_html import expand_paths, GuideHtmlError
@@ -561,18 +562,21 @@ def make_guide(
     output_dir: Annotated[
         Path | None, typer.Option("--output-dir", "-o", help="Where to write the guide. Overrides the config.")
     ] = None,
-    force: Annotated[bool, typer.Option("--force", help="Overwrite an existing guide file.")] = False,
+    force: Annotated[
+        bool, typer.Option("--force", help="Replace an existing guide for the video, whatever its name.")
+    ] = False,
     refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcript.")] = False,
     config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
 ) -> None:
     """Generate a watching guide for a video and write it as Markdown.
 
-    The guide goes to `--output-dir`, else the configured `guide.output_dir`, else the current directory.
+    The guide goes to `--output-dir`, else the configured `guide.output_dir`, else the current directory. A guide for
+    the same video already in that folder, under any name, is refused unless `--force` is given; it is then replaced.
 
     Args:
         video (str): Video URL or ID.
         output_dir (Path | None): Directory for the guide file.
-        force (bool): Overwrite an existing guide file.
+        force (bool): Replace an existing guide for the video, and overwrite a file with the guide's name.
         refresh (bool): Ignore cached metadata and transcript.
         config_path (Path): Path of the configuration file.
 
@@ -735,9 +739,10 @@ def _run_guide(
         config (AppConfig): The configuration.
         video_id (str): YouTube video ID.
         target_dir (Path): Directory for the guide file.
-        force (bool): Overwrite an existing guide file.
+        force (bool): Replace an existing guide for the video, and overwrite a file with the guide's name.
         refresh (bool): Ignore cached metadata and transcript.
-        ask_to_overwrite (bool): If the guide file exists, ask whether to overwrite it instead of failing.
+        ask_to_overwrite (bool): If the video already has a guide, or the guide's file exists, ask whether to replace
+            it instead of failing.
 
     Returns:
         None
@@ -758,14 +763,28 @@ def _run_guide(
                 markup=False,
                 highlight=False,
             )
+        timezone = config.guide.file_name_zone()
         with STDERR.status("Fetching video metadata..."):
             info = load_video_info(video_id, ytdlp, work_dir, refresh=refresh)
-        existing = target_dir / guide_filename(info)
-        if ask_to_overwrite and not force and existing.exists():
-            if not typer.confirm(f"{existing} already exists. Overwrite it?", default=False):
-                CONSOLE.print("Kept the existing guide.")
-                return
-            force = True
+        scan = find_guides_for_video(target_dir, info.id)
+        for warning in scan.warnings:
+            STDERR.print(f"[yellow]Warning:[/yellow] {escape(warning)}", highlight=False, soft_wrap=True)
+        target = target_dir / guide_filename(info, timezone)
+        if ask_to_overwrite and not force:
+            replaced = guides_to_replace(target, scan)
+            if replaced:
+                names = ", ".join(str(path) for path in replaced)
+                question = (
+                    f"{names} already exists. Replace it?"
+                    if len(replaced) == 1
+                    else f"{names} already exist. Replace them?"
+                )
+                if not typer.confirm(question, default=False):
+                    CONSOLE.print("Kept the existing guide.")
+                    return
+                force = True
+        # Refuse before fetching the transcript; `write_guide` checks again.
+        _ = check_existing_guides(target, scan, force)
         with STDERR.status("Fetching transcript..."):
             transcript = load_transcript(info, provider, work_dir, refresh=refresh)
         with STDERR.status(f"Writing the guide with {config.guide.generator} (this can take a few minutes)..."):
@@ -776,7 +795,9 @@ def _run_guide(
                 generator,
                 work_dir,
                 target_dir,
-                datetime.datetime.now().astimezone().date(),
+                datetime.datetime.now().astimezone(),
+                timezone=timezone,
+                existing=scan,
                 force=force,
             )
     except (ValueError, YtDlpError, TranscriptError, GuideError, CacheError) as exc:
@@ -784,6 +805,8 @@ def _run_guide(
 
     links = result.links
     CONSOLE.print(f"Wrote {result.path}", markup=False, highlight=False)
+    for old in result.removed:
+        CONSOLE.print(f"Removed the older guide {old}", markup=False, highlight=False)
     CONSOLE.print(f"{links.links} timestamp links, {links.relabeled} labels corrected.")
     if links.out_of_range:
         times = ", ".join(format_duration(seconds) for seconds in links.out_of_range)

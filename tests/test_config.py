@@ -99,3 +99,21 @@ def test_describe_options_covers_generator_options() -> None:
     options = {option.key: option for option in describe_options(ClaudeCliOptions, f"guide.options.{GENERATOR_NAME}.")}
     assert options[f"guide.options.{GENERATOR_NAME}.session_dir"].type_name == "Path | None"
     assert all(option.description for option in options.values())
+
+
+def test_file_name_timezone(tmp_path: Path) -> None:
+    assert AppConfig().guide.file_name_zone() is None
+    assert {option.key: option for option in describe_options(AppConfig)}["guide.file_name_timezone"].default == (
+        "(unset)"
+    )
+    path = tmp_path / "config.toml"
+    path.write_text('[guide]\nfile_name_timezone = "Asia/Taipei"\n', encoding="utf-8")
+    assert str(load_config(path).guide.file_name_zone()) == "Asia/Taipei"
+
+
+@pytest.mark.parametrize("name", ["Mars/Olympus_Mons", "../etc/passwd", ""])
+def test_unknown_file_name_timezone(tmp_path: Path, name: str) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text(f'[guide]\nfile_name_timezone = "{name}"\n', encoding="utf-8")
+    with pytest.raises(ConfigError, match="unknown time zone"):
+        _ = load_config(path)

@@ -3,7 +3,7 @@
 import datetime
 
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, AwareDatetime, ValidationError, field_serializer
 
 from .guide import parse_upload_date
 from .video import VideoInfo
@@ -28,10 +28,12 @@ class GuideMetadata(BaseModel):
         title (str | None): The video's title on YouTube.
         channel (str | None): Channel name.
         channel_id (str | None): Channel ID.
-        upload_date (datetime.date | None): Upload date.
+        upload_date (datetime.date | None): Upload date, as yt-dlp reports it.
+        published (datetime.datetime | None): When the video was published (see `VideoInfo.published`).
         duration (int | None): Length in seconds.
         members_only (bool | None): Whether only channel members can watch the video. None if unknown.
-        generated (datetime.date | None): The date the guide was written.
+        generated (datetime.datetime | datetime.date | None): When the guide was written. A date in guides written
+            before the tool recorded the time.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -41,17 +43,33 @@ class GuideMetadata(BaseModel):
     channel: str | None = None
     channel_id: str | None = None
     upload_date: datetime.date | None = None
+    published: AwareDatetime | None = None
     duration: int | None = None
     members_only: bool | None = None
-    generated: datetime.date | None = None
+    generated: AwareDatetime | datetime.date | None = None
+
+    @field_serializer("published", "generated")
+    def _utc_string(self, value: datetime.date | None) -> datetime.date | str | None:
+        """Write a time as a UTC string, such as `2026-10-14T16:03:12Z`, instead of PyYAML's `datetime` form.
+
+        Args:
+            value (datetime.date | None): The time, a date, or None.
+
+        Returns:
+            datetime.date | str | None: The time as a string; a date or None unchanged.
+        """
+        if isinstance(value, datetime.datetime):
+            return value.astimezone(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return value
 
 
-def metadata_from_video(video: VideoInfo, generated: datetime.date | None) -> GuideMetadata:
+def metadata_from_video(video: VideoInfo, generated: datetime.datetime | None) -> GuideMetadata:
     """Build a guide's metadata from the video's.
 
     Args:
         video (VideoInfo): The video.
-        generated (datetime.date | None): The date the guide is written, or None if unknown.
+        generated (datetime.datetime | None): When the guide is written (time zone aware), or None if unknown. It is
+            kept in UTC, to the second.
 
     Returns:
         GuideMetadata: The metadata. `members_only` is None when yt-dlp did not report the video's availability.
@@ -62,9 +80,10 @@ def metadata_from_video(video: VideoInfo, generated: datetime.date | None) -> Gu
         channel=video.channel,
         channel_id=video.channel_id,
         upload_date=parse_upload_date(video.upload_date),
+        published=video.published,
         duration=round(video.duration) if video.duration is not None else None,
         members_only=video.availability == "subscriber_only" if video.availability is not None else None,
-        generated=generated,
+        generated=generated.astimezone(datetime.UTC).replace(microsecond=0) if generated is not None else None,
     )
 
 

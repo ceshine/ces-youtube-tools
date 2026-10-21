@@ -23,14 +23,13 @@ Reply with the Markdown guide only: no preamble, no closing remarks, no code fen
 
 1. `# Watching Guide: <title>`. Use a short, plain title for what the video is about, not a copy of a clickbait
    title.
-2. A line with the guide date and the channel: `$today · $channel`.
-3. One paragraph: what kind of video it is (talk, interview, news show, tutorial, ...), its length, who speaks, and
+2. One paragraph: what kind of video it is (talk, interview, news show, tutorial, ...), its length, who speaks, and
    its main points. Name people only when the transcript or the description names them.
-4. `**Watch the full video:** [youtube.com/watch?v=$video_id]($url). Every timestamp below jumps to that moment.`
+3. `**Watch the full video:** [youtube.com/watch?v=$video_id]($url). Every timestamp below jumps to that moment.`
    If the speakers are not named, add a sentence saying so.
-5. `**How to use this guide:** ...` One or two sentences on the guide's structure, pointing to the segments that
+4. `**How to use this guide:** ...` One or two sentences on the guide's structure, pointing to the segments that
    matter most.
-6. Numbered segments that cover the whole video in order:
+5. Numbered segments that cover the whole video in order:
    - Heading: `## <number>. <short title>`.
    - The segment's range on its own line: `[<start>](<link>) to [<end>](<link>)`.
    - One or two sentences summarizing the segment.

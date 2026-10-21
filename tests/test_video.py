@@ -1,6 +1,8 @@
+import datetime
+
 import pytest
 
-from ces_youtube_tools.video import Chapter, parse_video_id, video_info_from_ytdlp
+from ces_youtube_tools.video import Chapter, VideoInfo, parse_video_id, video_info_from_ytdlp
 
 
 @pytest.mark.parametrize(
@@ -41,6 +43,8 @@ def test_video_info_from_ytdlp() -> None:
             "channel_id": "UCYO_jab_esuFRV4b17AJtAw",
             "duration": 2031,
             "upload_date": "20260716",
+            "timestamp": 1791475392,
+            "release_timestamp": None,
             "description": None,
             "language": "en",
             "availability": "public",
@@ -51,6 +55,7 @@ def test_video_info_from_ytdlp() -> None:
         }
     )
     assert info.title == "Cross-entropy"
+    assert (info.timestamp, info.release_timestamp) == (1791475392, None)
     assert info.description == ""
     assert info.chapters == [Chapter(start=0.0, end=182.0, title="Intro")]
     assert info.subtitle_languages == ["en", "es"]  # live chat is not a subtitle track
@@ -64,3 +69,19 @@ def test_video_info_from_ytdlp_minimal() -> None:
     assert info.title == "abcdefghijk"
     assert info.chapters == []
     assert info.subtitle_languages == []
+
+
+@pytest.mark.parametrize(
+    ("timestamp", "release_timestamp", "expected"),
+    [
+        (1791475392.6, None, datetime.datetime(2026, 10, 8, 16, 3, 12, tzinfo=datetime.UTC)),
+        # A stream replay: the stream started at the release time, and `timestamp` is about when it ended.
+        (1791475392, 1791468000, datetime.datetime(2026, 10, 8, 14, 0, tzinfo=datetime.UTC)),
+        (None, None, None),
+    ],
+)
+def test_published_prefers_the_release_time(
+    timestamp: float | None, release_timestamp: float | None, expected: datetime.datetime | None
+) -> None:
+    video = VideoInfo(id="abcdefghijk", title="T", timestamp=timestamp, release_timestamp=release_timestamp)
+    assert video.published == expected
