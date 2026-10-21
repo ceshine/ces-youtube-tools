@@ -509,8 +509,11 @@ page as JSON, and a script renders it.
 - Rendering uses `createElement` and `textContent`, never `innerHTML`: titles and channel names come from YouTube and
   are untrusted. This replaces the `html.escape` calls in `_index_item`.
 - The view (sort key and order, grouping, filter text) is kept in the URL hash, such as `#sort=channel&group=month`,
-  so reloading, the back button and saved links keep it. `localStorage` may remember the preferred default, read and
-  written inside `try`/`catch` as on the guide page.
+  so reloading, the back button and saved links keep it. `localStorage` remembers the last sort, order and grouping
+  (decided on 2026-10-21), so the guide pages' "All guides" link, which carries no hash, opens the index as it was
+  left. A view in the hash wins over the stored one. The filter text is not stored, so a later visit never starts
+  with guides hidden. Read and written inside `try`/`catch`, as on the guide page. Details in
+  [20261021_interactive_index_implementation.md](20261021_interactive_index_implementation.md), Step D.
 - The default view stays what the index shows today: newest upload first, no date last, then by title.
 - No pagination at first. Pagination breaks Ctrl+F and scanning the list; grouping (by channel or month) and the
   filter help more. If the list grows too long, render it in steps ("show more") before numbered pages. With the data
