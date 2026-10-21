@@ -613,6 +613,14 @@ guides into the page as JSON, and a script renders it.
   to the hash with `history.replaceState`, so typing in the filter adds no back-button entries, and a `hashchange`
   (the hash edited by hand, or back and forward) sets the controls and renders again. The controls are `hidden` until
   the script shows them.
+- Groups start closed (decided on 2026-10-21), so a grouped list reads as a table of contents: each group is a
+  `<details>` whose `<summary>` holds the heading and the count. While the filter has a word, every group is open, so
+  the matches are on screen. A group the reader opens stays open across renders (a new sort, typing in the filter)
+  until the page is reloaded or "Reset view" is pressed; which groups are open is not kept in the hash or in
+  `localStorage`. Native `<details>` needs no library and works with the keyboard as it is. Some screen readers
+  (VoiceOver with Safari, not yet verified) announce a `<summary>` as a button and drop the heading inside it, so
+  jumping between headings may skip the groups. Ctrl+F finds a title in a closed group only if the browser opens a
+  closed `<details>` for a match; see "Find-in-page in closed `<details>`" in the implementation notes.
 - No pagination at first. Pagination breaks Ctrl+F and scanning the list; grouping (by channel or month) and the
   filter help more. If the list grows too long, render it in steps ("show more") before numbered pages. With the data
   in memory, either is a slice of the array.

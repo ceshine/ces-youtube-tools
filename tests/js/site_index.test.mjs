@@ -12,6 +12,8 @@ import {
   formatView,
   sortGuides,
   groupGuides,
+  groupKey,
+  isGroupOpen,
   describeView,
   filterGuides,
   formatDuration,
@@ -186,6 +188,16 @@ test("channel groups are alphabetical, with the unknown channel last", () => {
 test("without grouping, there is one group without a label", () => {
   const guides = [guide("one"), guide("two")];
   assert.deepEqual(groupGuides(guides, view(), LOCALE), [{ label: null, guides }]);
+});
+
+test("groups start closed, except the ones the reader opened, and every one while filtering", () => {
+  const byChannel = view({ group: "channel" });
+  const opened = new Set([groupKey(byChannel, "Talks 9")]);
+  assert.equal(isGroupOpen(byChannel, "Talks 9", opened), true);
+  assert.equal(isGroupOpen(byChannel, "Talks 10", opened), false);
+  assert.equal(isGroupOpen(view({ group: "month" }), "Talks 9", opened), false, "the key includes the grouping");
+  assert.equal(isGroupOpen(view({ group: "channel", q: "rust" }), "Talks 10", opened), true);
+  assert.equal(isGroupOpen(view({ group: "channel", q: " \t" }), "Talks 10", opened), false, "spaces are no filter");
 });
 
 test("parseView reads each setting on its own", () => {

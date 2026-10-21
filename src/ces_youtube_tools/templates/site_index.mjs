@@ -166,6 +166,16 @@ export function filterGuides(guides, text) {
 }
 
 /**
+ * Whether the filter text holds a word, which is when `filterGuides` can leave guides out.
+ *
+ * @param {object} view The view; its `q` is used.
+ * @returns {boolean} True if the filter has a word; spaces alone are no filter.
+ */
+export function isFiltering(view) {
+  return view.q.trim() !== "";
+}
+
+/**
  * Split sorted guides into the view's groups.
  *
  * Month groups follow the order of the guides, which is the date order, so "No date" comes last; a guide's month is
@@ -195,6 +205,30 @@ export function groupGuides(guides, view, locale) {
     }));
   }
   return [{ label: null, guides }];
+}
+
+/**
+ * The key a group is remembered as open under, so a channel and a month with the same label stay apart.
+ *
+ * @param {object} view The view; its `group` is used.
+ * @param {string} label The group's label.
+ * @returns {string} Such as `channel:Talks 9`.
+ */
+export function groupKey(view, label) {
+  return `${view.group}:${label}`;
+}
+
+/**
+ * Whether a group starts open. Groups start closed, so the list reads as a table of contents, except while the filter
+ * has a word (`isFiltering`): then every group is open, so the matches are on screen.
+ *
+ * @param {object} view The view; its `group` and `q` are used.
+ * @param {string} label The group's label.
+ * @param {Set<string>} openGroups The keys (`groupKey`) of the groups the reader opened.
+ * @returns {boolean} True if the group starts open.
+ */
+export function isGroupOpen(view, label, openGroups) {
+  return isFiltering(view) || openGroups.has(groupKey(view, label));
 }
 
 function pick(value, choices, fallback) {
@@ -372,7 +406,21 @@ function guideList(guides, view) {
   return list;
 }
 
-function listing(guides, shown, view) {
+function groupDetails(group, view, openGroups) {
+  const summary = element("summary");
+  summary.append(element("h2", null, `${group.label} · ${group.guides.length}`));
+  const details = element("details", "group");
+  details.dataset.key = groupKey(view, group.label);
+  // Opened for the filter, not by the reader; the `toggle` listener in `main` leaves such groups out of `openGroups`.
+  if (isFiltering(view)) {
+    details.dataset.filtered = "";
+  }
+  details.open = isGroupOpen(view, group.label, openGroups);
+  details.append(summary, guideList(group.guides, view));
+  return details;
+}
+
+function listing(guides, shown, view, openGroups) {
   if (guides.length === 0) {
     return [element("p", "empty", "No guides yet.")];
   }
@@ -383,9 +431,7 @@ function listing(guides, shown, view) {
     if (group.label === null) {
       return guideList(group.guides, view);
     }
-    const section = element("section", "group");
-    section.append(element("h2", null, `${group.label} · ${group.guides.length}`), guideList(group.guides, view));
-    return section;
+    return groupDetails(group, view, openGroups);
   });
 }
 
@@ -413,10 +459,10 @@ function readControls() {
   return view;
 }
 
-function render(guides, view) {
+function render(guides, view, openGroups) {
   const shown = sortGuides(filterGuides(guides, view.q), view);
   // Built before the page is changed, so a view that fails leaves the count line as it was.
-  const items = listing(guides, shown, view);
+  const items = listing(guides, shown, view, openGroups);
   document.getElementById("count").textContent = describeView(view, shown.length, guides.length);
   document.getElementById("listing").replaceChildren(...items);
 }
@@ -468,20 +514,24 @@ function main() {
   let storage = null;
   // Whether the first view came from storage.
   let restored = false;
+  // The groups the reader opened, kept for this visit only, so a render (a new sort, or typing in the filter) does not
+  // close them again.
+  const openGroups = new Set();
   // Every view shown is remembered, wherever it comes from, since it is the view on screen.
   const show = (view) => {
     setControls(view);
-    render(guides, view);
+    render(guides, view, openGroups);
     saveView(storage, view);
   };
   const showHash = () => show(parseView(location.hash));
   const showControls = () => {
     const view = readControls();
-    render(guides, view);
+    render(guides, view, openGroups);
     writeHash(view);
     saveView(storage, view);
   };
   const resetView = () => {
+    openGroups.clear();
     show(DEFAULT_VIEW);
     writeHash(DEFAULT_VIEW);
   };
@@ -507,6 +557,20 @@ function main() {
   }
   // The hash edited by hand, or back and forward between hashes.
   window.addEventListener("hashchange", guarded(showHash));
+  // `toggle` does not bubble, so it is caught on the way down. It also fires for a group created open, after the
+  // render; one opened for the filter is skipped, or clearing the filter would leave every group open.
+  const rememberToggle = (event) => {
+    const details = event.target;
+    if (!(details instanceof HTMLDetailsElement) || details.dataset.filtered !== undefined) {
+      return;
+    }
+    if (details.open) {
+      openGroups.add(details.dataset.key);
+    } else {
+      openGroups.delete(details.dataset.key);
+    }
+  };
+  document.getElementById("listing").addEventListener("toggle", rememberToggle, true);
   const controls = document.getElementById("controls");
   // `input` bubbles from the selects too.
   controls.addEventListener("input", guarded(showControls));

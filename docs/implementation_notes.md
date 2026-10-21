@@ -1,8 +1,8 @@
 # Implementation notes
 
-How the external systems this tool depends on (YouTube, yt-dlp, Firefox, the `claude` CLI, Cloudflare) actually
-behave, as found by testing. Any of it can change without notice, so every entry records when it was checked and how
-to check it again. For what we decided to build, see [design.md](design.md).
+How the external systems this tool depends on (YouTube, yt-dlp, Firefox, the `claude` CLI, Cloudflare, browsers)
+actually behave, as found by testing. Any of it can change without notice, so every entry records when it was checked
+and how to check it again. For what we decided to build, see [design.md](design.md).
 
 Recheck commands use these shell variables:
 
@@ -469,3 +469,19 @@ type, and show nothing otherwise, so Pages serves `.mjs` with one.
   curl -sI -H "cookie: CF_Authorization=$CF" https://ces-youtube-watching-guides.pages.dev/index.mjs \
     | grep -i -E '^(HTTP|content-type)'
   ```
+
+## Browsers
+
+### Find-in-page in closed `<details>`
+
+The index's groups are closed `<details>` elements (see "Interactive index" in the design), so Ctrl+F reaches a guide
+in a closed group only if the browser's find-in-page opens a closed `<details>` that holds a match.
+
+- Chrome and Firefox: confirmed by the owner on 2026-10-21 (versions not recorded): find-in-page finds titles in
+  closed groups.
+- Safari: not yet verified. A browser that does not open closed `<details>` finds nothing in closed groups, and the
+  filter is the way to search there.
+
+Recheck, in each browser: open the index, set Group to Channel so the groups are closed, press Ctrl+F (Cmd+F in
+Safari) and type a word from the title of a guide in a closed group. The group should open with the match
+highlighted. Record the browser, its version and the date here.

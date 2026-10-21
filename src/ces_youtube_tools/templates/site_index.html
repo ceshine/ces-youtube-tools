@@ -122,15 +122,36 @@ h1 {
   line-height: 1.7;
 }
 .empty { color: var(--muted); }
+.group { border-bottom: 1px solid var(--border); }
+.group[open] { border-bottom: none; margin-bottom: 1.2em; }
+/* A flex `summary` drops the browser's marker (Safari's needs its own rule), so the arrow is drawn in `::before`. */
+.group summary {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5em;
+  padding: 10px 4px;
+  cursor: pointer;
+  list-style: none;
+}
+.group summary::-webkit-details-marker { display: none; }
+.group summary::before {
+  content: "▸";
+  color: var(--muted);
+  font-family: var(--font-ui);
+  transition: transform 0.15s;
+}
+.group[open] summary::before { transform: rotate(90deg); }
+.group summary:hover h2 { color: var(--accent); }
+.group summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .group h2 {
   font-family: var(--font-ui);
   font-size: 1.15rem;
   font-weight: 650;
-  margin: 1.6em 0 0.5em;
+  margin: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .guides li { transition: none; }
+  .guides li, .group summary::before { transition: none; }
 }
 </style>
 </head>
