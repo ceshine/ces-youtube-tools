@@ -13,8 +13,10 @@ class NotATerminalError(Exception):
     """Raised when a menu is shown while stdin or stdout is not a terminal."""
 
 
-def _require_terminal() -> None:
+def require_terminal() -> None:
     """Check that the menus can be drawn and answered.
+
+    The pickers check this themselves. Commands call it first to fail before doing any work.
 
     Returns:
         None
@@ -72,7 +74,7 @@ def pick_one(message: str, options: list[str], default: int | None = None) -> in
         NotATerminalError: If stdin or stdout is not a terminal.
         ValueError: If there are no options.
     """
-    _require_terminal()
+    require_terminal()
     question = questionary.select(
         message, choices=_items(options), default=str(default) if default is not None else None
     )
@@ -100,7 +102,7 @@ def pick_many(message: str, options: list[str]) -> list[int] | None:
         NotATerminalError: If stdin or stdout is not a terminal.
         ValueError: If there are no options.
     """
-    _require_terminal()
+    require_terminal()
     question = questionary.checkbox(message, choices=_items(options), validate=_require_selection)
     try:
         answer: list[str] = question.unsafe_ask()

@@ -2,13 +2,14 @@
 
 import re
 import time
+import shutil
 import inspect
 import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from dataclasses import dataclass
 from collections.abc import Callable
-from typing import Any, TypeVar, Annotated
+from typing import Any, Literal, TypeVar, Annotated
 
 import typer
 from rich.table import Table
@@ -35,13 +36,14 @@ from .firefox import (
     discover_all_profiles,
     cookies_from_browser_spec,
 )
+from .pickers import pick_one, pick_many, require_terminal, NotATerminalError
 from .youtube import VideoSummary, verify_login, resolve_channel, list_latest_videos
 from .backfill import rename_guide, BackfillError, plan_backfill, write_content, describe_changes
 from .pipeline import CacheError, work_dir_for, load_transcript, load_video_info, make_transcript_provider
 from .pipeline import write_guide, guides_to_replace, load_prompt_template, make_guide_generator
 from .pipeline import GuideScan, GuideResult, check_existing_guides, find_guides_for_video
 from .claude_cli import GENERATOR_NAME, ClaudeCliOptions
-from .formatting import format_age, format_duration
+from .formatting import format_age, format_duration, video_choice_label
 from .guide_html import expand_paths, GuideHtmlError
 from .transcript import TranscriptError, TranscriptProvider
 from .static_site import SiteError, write_site, collect_pages
@@ -108,17 +110,29 @@ def main() -> None:
     """
 
 
-def _fail(message: str) -> typer.Exit:
-    """Print an error message and build the exit to raise.
+def _print_error(message: str) -> None:
+    """Print an error message.
 
     Args:
         message (str): The error message, as plain text. Square brackets in it are printed as they are, not read as
             Rich markup, because messages often hold paths, video titles and yt-dlp output such as `[youtube]`.
 
     Returns:
-        typer.Exit: An exit with status 1, for the caller to raise.
+        None
     """
     STDERR.print(f"[red]Error:[/red] {escape(message)}", markup=True, highlight=False)
+
+
+def _fail(message: str) -> typer.Exit:
+    """Print an error message and build the exit to raise.
+
+    Args:
+        message (str): The error message, as plain text, as for `_print_error`.
+
+    Returns:
+        typer.Exit: An exit with status 1, for the caller to raise.
+    """
+    _print_error(message)
     return typer.Exit(code=1)
 
 
@@ -920,15 +934,7 @@ def _report_guide(result: GuideResult) -> None:
         )
 
 
-def _run_guide(
-    config: AppConfig,
-    video_id: str,
-    target_dir: Path,
-    *,
-    force: bool,
-    refresh: bool,
-    ask_to_overwrite: bool = False,
-) -> None:
+def _run_guide(config: AppConfig, video_id: str, target_dir: Path, *, force: bool, refresh: bool) -> None:
     """Fetch a video's transcript, generate its guide, write it and report the result.
 
     Args:
@@ -937,8 +943,6 @@ def _run_guide(
         target_dir (Path): Directory for the guide file.
         force (bool): Replace an existing guide for the video, and overwrite a file with the guide's name.
         refresh (bool): Ignore cached metadata and transcript.
-        ask_to_overwrite (bool): If the video already has a guide, or the guide's file exists, ask whether to replace
-            it instead of failing.
 
     Returns:
         None
@@ -949,41 +953,196 @@ def _run_guide(
     try:
         tools = _make_guide_tools(config)
         prepared = _prepare_guide(config, tools, video_id, target_dir, refresh=refresh)
-        if ask_to_overwrite and not force:
-            replaced = guides_to_replace(prepared.target, prepared.scan)
-            if replaced:
-                names = ", ".join(str(path) for path in replaced)
-                question = (
-                    f"{names} already exists. Replace it?"
-                    if len(replaced) == 1
-                    else f"{names} already exist. Replace them?"
-                )
-                if not typer.confirm(question, default=False):
-                    CONSOLE.print("Kept the existing guide.")
-                    return
-                force = True
         result = _generate_guide(config, tools, prepared, force=force, refresh=refresh)
     except _GUIDE_ERRORS as exc:
         raise _fail(str(exc)) from exc
     _report_guide(result)
 
 
-def _channels_table(channels: list[ChannelConfig]) -> Table:
-    """Build a table of configured channels for display.
+# The pointer and checkbox questionary draws before each item's label.
+_MENU_MARK_WIDTH = 4
+
+
+@dataclass(frozen=True)
+class _PendingGuide:
+    """A selected video in `browse` whose guide is to be written.
+
+    Attributes:
+        video (VideoSummary): The video, as listed.
+        prepared (_PreparedGuide): Its metadata and target, from `_prepare_guide`.
+        force (bool): The user agreed to replace the files already in the guide's place.
+    """
+
+    video: VideoSummary
+    prepared: _PreparedGuide
+    force: bool
+
+
+@dataclass(frozen=True)
+class _Outcome:
+    """What happened to one selected video in `browse`.
+
+    Attributes:
+        status (Literal["written", "kept", "failed"]): The guide was written, the existing guide was kept, or a step
+            failed.
+        detail (str): The guide's path, the kept files, or why it failed.
+    """
+
+    status: Literal["written", "kept", "failed"]
+    detail: str
+
+
+def _channel_label(channel: ChannelConfig) -> str:
+    """Build a channel's menu label.
 
     Args:
-        channels (list[ChannelConfig]): The channels.
+        channel (ChannelConfig): The channel.
+
+    Returns:
+        str: The name, marked when members-only videos are listed.
+    """
+    return f"{channel.name} (members-only listed)" if channel.members else channel.name
+
+
+def _confirm_replace(replaced: list[Path]) -> bool:
+    """Ask whether a new guide may replace the files already in its place.
+
+    Args:
+        replaced (list[Path]): The files, from `guides_to_replace`.
+
+    Returns:
+        bool: True if the user agreed.
+    """
+    names = ", ".join(str(path) for path in replaced)
+    question = f"{names} already exists. Replace it?" if len(replaced) == 1 else f"{names} already exist. Replace them?"
+    return typer.confirm(question, default=False)
+
+
+def _plan_failure(video: VideoSummary, message: str) -> _Outcome:
+    """Print an error found while planning, naming the video, since no `[n/total]` header has said which it is.
+
+    Args:
+        video (VideoSummary): The video.
+        message (str): What went wrong.
+
+    Returns:
+        _Outcome: The video's failed outcome, with the message alone, as the summary row names the video.
+    """
+    _print_error(f"{video.title} ({video.id}): {message}")
+    return _Outcome("failed", message)
+
+
+def _plan_guides(
+    config: AppConfig,
+    tools: _GuideTools,
+    videos: list[VideoSummary],
+    target_dir: Path,
+    *,
+    refresh: bool,
+) -> tuple[list[_PendingGuide], dict[str, _Outcome]]:
+    """Load the selected videos' metadata and ask every overwrite question, before any guide is written.
+
+    A video that fails, would touch a file an earlier one touches, or whose existing guide the user keeps, gets an
+    outcome and is left out.
+
+    Args:
+        config (AppConfig): The configuration.
+        tools (_GuideTools): The tools from `_make_guide_tools`.
+        videos (list[VideoSummary]): The selected videos, in menu order.
+        target_dir (Path): Directory for the guide files.
+        refresh (bool): Ignore cached metadata.
+
+    Returns:
+        tuple[list[_PendingGuide], dict[str, _Outcome]]: The guides to write, in menu order, and the outcomes by video
+            ID of the videos left out.
+    """
+    outcomes: dict[str, _Outcome] = {}
+    prepared: list[tuple[VideoSummary, _PreparedGuide]] = []
+    for video in videos:
+        try:
+            prepared.append((video, _prepare_guide(config, tools, video.id, target_dir, refresh=refresh)))
+        except _GUIDE_ERRORS as exc:
+            outcomes[video.id] = _plan_failure(video, str(exc))
+
+    # Each video's scan is taken now, before any guide is written, so a video's write must not touch a file an
+    # earlier video's write touches. Two videos with the same upload day and cleaned title get the same file name,
+    # and one video's file name can be an older guide of another, which that video's write would then remove.
+    claimed: dict[Path, VideoSummary] = {}
+    pending: list[_PendingGuide] = []
+    for video, guide in prepared:
+        try:
+            replaced = guides_to_replace(guide.target, guide.scan)
+        except GuideError as exc:
+            outcomes[video.id] = _plan_failure(video, str(exc))
+            continue
+        touched = [guide.target, *replaced]
+        clash = next((path for path in touched if path in claimed), None)
+        if clash is not None:
+            first = claimed[clash]
+            message = (
+                f"{clash} is also the guide file, or an older guide, of {first.title} ({first.id}). Write this one "
+                f"to another folder with `ces-youtube-tools guide {video.id} -o DIR`."
+            )
+            outcomes[video.id] = _plan_failure(video, message)
+            continue
+        claimed.update(dict.fromkeys(touched, video))
+        if replaced and not _confirm_replace(replaced):
+            CONSOLE.print("Kept the existing guide.")
+            outcomes[video.id] = _Outcome("kept", ", ".join(str(path) for path in replaced))
+            continue
+        pending.append(_PendingGuide(video, guide, force=bool(replaced)))
+    return pending, outcomes
+
+
+def _write_guides(
+    config: AppConfig, tools: _GuideTools, pending: list[_PendingGuide], *, refresh: bool
+) -> dict[str, _Outcome]:
+    """Write the planned guides one at a time, carrying on after a failure.
+
+    One at a time, not in parallel, to keep the automated traffic tied to the account low.
+
+    Args:
+        config (AppConfig): The configuration.
+        tools (_GuideTools): The tools from `_make_guide_tools`.
+        pending (list[_PendingGuide]): The guides to write, from `_plan_guides`.
+        refresh (bool): Ignore the cached transcript.
+
+    Returns:
+        dict[str, _Outcome]: The outcomes by video ID of the guides in `pending`.
+    """
+    outcomes: dict[str, _Outcome] = {}
+    for number, guide in enumerate(pending, start=1):
+        video = guide.video
+        CONSOLE.print(f"[{number}/{len(pending)}] {video.title} ({video.url})", markup=False, highlight=False)
+        try:
+            result = _generate_guide(config, tools, guide.prepared, force=guide.force, refresh=refresh)
+        except _GUIDE_ERRORS as exc:
+            _print_error(str(exc))
+            outcomes[video.id] = _Outcome("failed", str(exc))
+            continue
+        _report_guide(result)
+        outcomes[video.id] = _Outcome("written", str(result.path))
+    return outcomes
+
+
+def _outcomes_table(videos: list[VideoSummary], outcomes: dict[str, _Outcome]) -> Table:
+    """Build the summary table of a `browse` run.
+
+    Args:
+        videos (list[VideoSummary]): The selected videos, in menu order.
+        outcomes (dict[str, _Outcome]): Outcomes by video ID, one for each video.
 
     Returns:
         Table: The table.
     """
-    table = Table(title="Channels")
-    table.add_column("#", justify="right")
-    table.add_column("Name")
-    table.add_column("Members-only")
-    table.add_column("URL")
-    for index, channel in enumerate(channels, start=1):
-        table.add_row(str(index), channel.name, "listed" if channel.members else "", channel.url)
+    styles = {"written": "green", "kept": "yellow", "failed": "red"}
+    table = Table(title="Guides")
+    table.add_column("Video")
+    table.add_column("Result")
+    table.add_column("Details")
+    for video in videos:
+        outcome = outcomes[video.id]
+        table.add_row(escape(video.title), f"[{styles[outcome.status]}]{outcome.status}[/]", escape(outcome.detail))
     return table
 
 
@@ -992,39 +1151,53 @@ def browse(
     channel: Annotated[str | None, typer.Argument(help="Channel name or ID. Omit to pick from a menu.")] = None,
     limit: Annotated[int, typer.Option("--limit", "-n", min=1, help="Number of videos to show.")] = 20,
     output_dir: Annotated[
-        Path | None, typer.Option("--output-dir", "-o", help="Where to write the guide. Overrides the config.")
+        Path | None, typer.Option("--output-dir", "-o", help="Where to write the guides. Overrides the config.")
     ] = None,
-    refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcript.")] = False,
+    refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcripts.")] = False,
     config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
 ) -> None:
-    """Pick a channel and one of its latest videos, then generate the video's watching guide.
+    """Pick a channel and one or more of its latest videos, then generate the videos' watching guides.
+
+    The menus use the arrow keys, and Space selects videos. Every question about replacing an existing guide is asked
+    before the first guide is written; the guides are then written one at a time. A video that fails does not stop
+    the others.
 
     Args:
         channel (str | None): Channel name (case-insensitive) or ID from the configuration. None shows a menu.
         limit (int): Number of videos to show.
-        output_dir (Path | None): Directory for the guide file.
-        refresh (bool): Ignore cached metadata and transcript.
+        output_dir (Path | None): Directory for the guide files.
+        refresh (bool): Ignore cached metadata and transcripts.
         config_path (Path): Path of the configuration file.
 
     Returns:
         None
 
     Raises:
-        typer.Exit: If no channel is configured, the channel is unknown, or a step fails. Status 0 when the user quits.
+        typer.Exit: If no channel is configured, the channel is unknown, there is no terminal for the menus, or a
+            step fails for any selected video. Status 0 when the user quits a menu with Ctrl+C.
     """
     config = _load(config_path)
     if not config.channels:
         raise _fail("No channels configured. Add one with `ces-youtube-tools config add-channel @handle`.")
+    found: ChannelConfig | None = None
     if channel is not None:
         found = config.find_channel(channel)
         if found is None:
             names = ", ".join(c.name for c in config.channels)
             raise _fail(f"No channel named {channel!r} in the configuration. Configured channels: {names}.")
-    elif len(config.channels) == 1:
-        found = config.channels[0]
-    else:
-        CONSOLE.print(_channels_table(config.channels))
-        found = config.channels[_choose("Channel", len(config.channels)) - 1]
+    try:
+        require_terminal()
+    except NotATerminalError as exc:
+        raise _fail(f"{exc} For scripts, use `ces-youtube-tools guide VIDEO`.") from exc
+    if found is None:
+        if len(config.channels) == 1:
+            found = config.channels[0]
+        else:
+            choice = pick_one("Channel", [_channel_label(c) for c in config.channels])
+            if choice is None:
+                CONSOLE.print("Bye.")
+                return
+            found = config.channels[choice - 1]
 
     try:
         with CONSOLE.status(f"Fetching the latest videos of {found.name}..."):
@@ -1034,17 +1207,29 @@ def browse(
     if not videos:
         CONSOLE.print(f"No videos found for {found.name}.")
         return
-    CONSOLE.print(_videos_table(f"Latest videos of {found.name}", videos, time.time()))
-    video = videos[_choose("Video to write a guide for", len(videos)) - 1]
-    CONSOLE.print(f"Selected: {video.title} ({video.url})", markup=False, highlight=False)
-    _run_guide(
-        config,
-        video.id,
-        output_dir or config.guide.output_dir or Path.cwd(),
-        force=False,
-        refresh=refresh,
-        ask_to_overwrite=True,
-    )
+    width = shutil.get_terminal_size().columns - _MENU_MARK_WIDTH
+    now = time.time()
+    labels = [video_choice_label(video, now, width) for video in videos]
+    choices = pick_many(f"Latest videos of {found.name} (Space selects, Enter confirms)", labels)
+    if choices is None:
+        CONSOLE.print("Bye.")
+        return
+    selected = [videos[number - 1] for number in choices]
+
+    try:
+        tools = _make_guide_tools(config)
+    except _GUIDE_ERRORS as exc:
+        raise _fail(str(exc)) from exc
+    target_dir = output_dir or config.guide.output_dir or Path.cwd()
+    pending, planned = _plan_guides(config, tools, selected, target_dir, refresh=refresh)
+    outcomes = {**planned, **_write_guides(config, tools, pending, refresh=refresh)}
+    if len(selected) > 1:
+        CONSOLE.print(_outcomes_table(selected, outcomes))
+    failed = sum(1 for outcome in outcomes.values() if outcome.status == "failed")
+    if failed:
+        if len(selected) > 1:
+            raise _fail(f"{failed} of {len(selected)} guides failed.")
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
