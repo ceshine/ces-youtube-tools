@@ -1,7 +1,7 @@
 # ces-youtube-tools design
 
-Browse the latest videos of a YouTube channel (including members-only videos when the user is a member), pick one,
-and generate a Markdown watching guide from its transcript.
+Browse the latest videos of a YouTube channel (including members-only videos when the user is a member), pick one or
+more, and generate a Markdown watching guide for each from its transcript.
 
 Observed behavior of YouTube, yt-dlp, Firefox and the `claude` CLI, with recheck commands, is in
 [implementation_notes.md](implementation_notes.md). Speech recognition options for the future audio transcript
@@ -16,8 +16,8 @@ provider are surveyed in [asr_options.md](asr_options.md).
 
  ces-youtube-tools browse [CHANNEL]    (everyday command)
    1. pick a channel from the config
-   2. list its latest videos (yt-dlp, no cookies needed) ─► pick one
-   3. run the guide pipeline
+   2. list its latest videos (yt-dlp, no cookies needed) ─► pick one or more
+   3. run the guide pipeline for each, one at a time
 
  ces-youtube-tools guide URL           (same pipeline, no browsing)
 
@@ -250,15 +250,40 @@ Details and recheck commands are in [implementation_notes.md](implementation_not
 
 `ces-youtube-tools browse [CHANNEL] [-n N] [-o DIR] [--refresh]` is the everyday command:
 
-1. **Channel**: the `CHANNEL` argument (name or ID), else the only configured channel, else a numbered table of the
-   configured channels.
-2. **Video**: a numbered table of the channel's latest videos, the same listing as `list` (no cookies).
-3. **Guide**: the same steps as `guide` (`_run_guide`). If the guide file exists, `browse` asks whether to overwrite
-   it instead of failing, and keeps it on "no" without generating.
+1. **Terminal**: the menus need one. Without it, `browse` fails after checking the config and before listing any
+   videos, and points to `ces-youtube-tools guide VIDEO` for scripts.
+2. **Channel**: the `CHANNEL` argument (name or ID), else the only configured channel, else an arrow-key menu of the
+   configured channels (the name, with "(members-only listed)" where that applies).
+3. **Videos**: a checkbox menu of the channel's latest videos, the same listing as `list` (no cookies), one line per
+   video (`video_choice_label`: age, length, type, title cut to the terminal's width). Space selects, Enter confirms,
+   and an empty selection is refused with a hint. Ctrl+C in either menu prints "Bye." and exits with status 0.
+4. **Plan** (`_plan_guides`): load every selected video's metadata and look for its existing guides, then ask, video
+   by video, whether to replace them. Every question comes before the first guide is written, so a run over several
+   videos needs no one at the keyboard once it starts. "No" keeps the existing guide.
+5. **Write** (`_write_guides`): the same steps as `guide`, one video at a time under a `[n/total] title (url)` header,
+   where the total is the guides left to write after planning. One at a time, not in parallel, to keep the automated
+   traffic tied to the account low.
+6. **Summary**: with more than one video, a table marks each one written, kept or failed. Any failure exits with
+   status 1, after "N of M guides failed." when there were several.
 
-Menus are typed for now (`menu.parse_choice`): a number picks an item, an empty answer takes the default where there
-is one, `q` quits with status 0, and anything else repeats the question with a hint. The Firefox profile picker in
-`config init` / `config profile` uses the same helper.
+A video that fails, while planning or writing, is reported and the others go on: one members-only video without a
+membership, or one missing transcript, should not cost the rest of the run. An error found while planning names the
+video, since no header has named it yet.
+
+Two selected videos must not touch the same file. Each video's scan of the folder is taken while planning, before any
+guide is written, so a later video's write would not know about an earlier one's: two videos with the same upload day
+and cleaned title get the same file name, and one video's new file can be where another video has an older guide, which
+that video's write would then remove. So the files a video's write touches (its guide file and the older guides it
+replaces) are claimed in menu order, and a later video that needs a claimed file fails before its question, with a hint
+to write it to another folder with `guide VIDEO -o DIR`. A video whose existing guide the user keeps still claims its
+files, so a later video cannot replace what the user chose to keep.
+
+The menus are in `pickers.py` (`pick_one`, `pick_many`), on `questionary`. They return item numbers and know nothing
+about channels or videos, so `browse` is tested with fakes in their place (`CliRunner` has no terminal), and the
+loop over videos lives in `browse`, not in the pickers. The Firefox profile picker in `config init` /
+`config profile` stays a typed menu for now (decided on 2026-10-17 to keep this change to `browse`; it moves to
+`questionary` with the interactive config session): `menu.parse_choice`, where a number picks, an empty answer takes
+the default and `q` quits.
 
 ## Guide pages
 
@@ -338,8 +363,8 @@ commands that `site` has since replaced. What was built:
    `ces-youtube-tools transcript VIDEO`. (Done.) See "Transcript step" above.
 4. Guide: prompt template and builder, `ClaudeCliGenerator`, `guide VIDEO` command. (Done.) See "Guide step"
    above.
-5. `browse`: interactive channel and video menus on top of steps 1–4. (Done, with a typed menu.) See "Browse step"
-   above. Revisit the prompt library together with the interactive config session below.
+5. `browse`: interactive channel and video menus on top of steps 1–4. (Done, with a typed menu; arrow-key menus and
+   several videos per run since 2026-10-21.) See "Browse step" above.
 6. HTML pages: `html`, `serve`, and the `--html` flag on `guide` and `browse`. (Done; removed in step 7, replaced by
    `site`.) See "Guide pages" above. Members-only videos play in the embedded player only if the browser lets the iframe
    send YouTube's cookies (verified in Firefox, see the implementation notes); the page cannot detect the case. Still to
@@ -715,5 +740,5 @@ UI options:
 | Arrow-key prompts | `questionary` (`prompt_toolkit`) | Arrow keys, checkboxes | Prompts need a real terminal, so test the functions from step 1 and keep the menu thin |
 | Full TUI | `textual` | Full-screen forms | `App.run_test()`. Too much for a dozen settings |
 
-Pick `questionary` if `browse` uses arrow-key lists, so both menus share one library. Otherwise the typed menu is
-enough.
+`browse` uses `questionary` since 2026-10-21 (`pickers.py`), so the config session should too, with its menus
+replaced by fakes in tests as `browse` does.

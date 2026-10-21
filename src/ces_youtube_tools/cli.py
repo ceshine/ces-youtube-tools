@@ -959,8 +959,9 @@ def _run_guide(config: AppConfig, video_id: str, target_dir: Path, *, force: boo
     _report_guide(result)
 
 
-# The pointer and checkbox questionary draws before each item's label.
-_MENU_MARK_WIDTH = 4
+# The cells questionary's checkbox draws before each item's label: " » " (or three spaces) and "○ " or "● ". See
+# "questionary's checkbox draws five cells before each label" in docs/implementation_notes.md.
+_MENU_MARK_WIDTH = 5
 
 
 @dataclass(frozen=True)

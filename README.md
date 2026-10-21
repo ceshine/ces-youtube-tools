@@ -1,7 +1,7 @@
 # ces-youtube-tools
 
-Browse a YouTube channel's latest videos, pick one, and generate a Markdown **watching guide** from its transcript: an
-overview, then numbered segments with timestamped highlights that link back into the video.
+Browse a YouTube channel's latest videos, pick one or more, and generate a Markdown **watching guide** for each from
+its transcript: an overview, then numbered segments with timestamped highlights that link back into the video.
 
 Members-only videos work too, if you are a member of the channel.
 
@@ -15,8 +15,8 @@ Members-only videos work too, if you are a member of the channel.
 ```
 ces-youtube-tools browse
   1. pick a channel from your config
-  2. list its latest videos (yt-dlp, no cookies)  ─► pick one
-  3. fetch subtitles  ─►  build a prompt  ─►  `claude` CLI  ─►  "Watching Guide - <YYYYMMDD> - <title>.md"
+  2. list its latest videos (yt-dlp, no cookies)  ─► pick one or more
+  3. for each: fetch subtitles  ─►  build a prompt  ─►  `claude` CLI  ─►  "Watching Guide - <YYYYMMDD> - <title>.md"
 ```
 
 - **Listing** uses yt-dlp on the channel's upload playlists, without cookies.
@@ -62,7 +62,7 @@ ces-youtube-tools config add-channel @SomeChannel --members
 # 3. Check that the profile is signed in (optional)
 ces-youtube-tools config check
 
-# 4. Pick a channel and a video, and write the guide
+# 4. Pick a channel and some videos, and write their guides
 ces-youtube-tools browse
 ```
 
@@ -70,7 +70,7 @@ ces-youtube-tools browse
 
 | Command | What it does |
 | --- | --- |
-| `browse [CHANNEL] [-n N] [-o DIR] [--refresh]` | Pick a channel and a video from numbered menus, then write its guide |
+| `browse [CHANNEL] [-n N] [-o DIR] [--refresh]` | Pick a channel and one or more videos from arrow-key menus, then write their guides |
 | `list CHANNEL [-n N]` | List a configured channel's latest videos and livestream replays |
 | `transcript VIDEO [--json] [--refresh]` | Print a video's transcript to stdout |
 | `guide VIDEO [-o DIR] [--force] [--refresh]` | Write a guide for a video URL or ID |
@@ -84,8 +84,9 @@ ces-youtube-tools browse
 | `config check` | Check with YouTube that the profile is signed in |
 | `config template [--force]` | Write the built-in prompt template to the configured path, for editing |
 
-Every command takes `--config PATH` to use a different config file. In the menus, type a number to choose, press Enter
-for the default, or type `q` to quit.
+Every command takes `--config PATH` to use a different config file. The Firefox profile menu in `config init` /
+`config profile` takes a number, Enter for the default, or `q` to quit. `browse`'s menus use the arrow keys: Space
+selects videos, Enter confirms, Ctrl+C quits.
 
 ## The guides as a website
 
@@ -160,10 +161,11 @@ and a cache write only adds cost. Set `prompt_caching = true` under `[guide.opti
 - **Guides:** `Watching Guide - <YYYYMMDD> - <title>.md`, named by the day the video was published, in
   `guide.file_name_timezone` (left out when unknown), in `--output-dir`, else `guide.output_dir`, else the current
   directory. If the folder already has a guide for the video, under any name, `guide` stops unless you pass
-  `--force`, which replaces it; `browse` asks. Each guide's front matter records when the video was published and
-  when the guide was written, in UTC. `backfill` brings older guides up to date: it rewrites their front matter,
-  keeping keys it does not know and the text below, and renames them. A guide it cannot update is left as it is and
-  listed; two guides for one video, or a new name already taken, stop it before it changes anything.
+  `--force`, which replaces it; `browse` asks, for every selected video before it writes the first guide. Each
+  guide's front matter records when the video was published and when the guide was written, in UTC. `backfill`
+  brings older guides up to date: it rewrites their front matter, keeping keys it does not know and the text below,
+  and renames them. A guide it cannot update is left as it is and listed; two guides for one video, or a new name
+  already taken, stop it before it changes anything.
 - **Site:** `<video id>.html` for each guide, plus `index.html`, its script `index.mjs`, `robots.txt` and `_headers`,
   in `-o OUT`, else `site.output_dir`.
 - **Cache:** `~/.cache/ces-youtube-tools/<video id>/` holds the video metadata, subtitles, transcript, and the prompt

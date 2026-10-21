@@ -305,6 +305,53 @@ Google-style `Args:`, `Returns:` and `Raises:` sections. Typer does not parse do
 Recheck: register a command with `@APP.command("x")` and a Google-style docstring, then run
 `ces-youtube-tools x --help`.
 
+## questionary
+
+### questionary's checkbox draws five cells before each label
+
+Checked on 2026-10-21 with questionary 2.1.1, from its rendering code (`InquirerControl._get_choice_tokens`) and by
+rendering a checkbox's lines without a terminal, not in a real terminal. Each item line starts with the pointer, `" » "`
+on the current item and three spaces on the others, then the checkbox, `"○ "` or `"● "` (questionary's `use_indicator`,
+on by default), then the label: 5 cells, each mark one cell wide by `prompt_toolkit`'s count. `select` draws only the
+pointer, 3 cells. `browse` subtracts `_MENU_MARK_WIDTH` (5) from the terminal's width before cutting the video labels,
+so a cut title ends at the right edge without wrapping. Of the marks, only `○` and `●` have East Asian width "ambiguous"
+(`»` is "neutral", one cell everywhere), so a terminal set to draw ambiguous characters two cells wide would draw the
+circle two cells wide and wrap long labels by one cell (not yet verified).
+
+Not yet verified in a real terminal: that no video line wraps at 80 columns, that Space, `a` (all) and `i`
+(invert) toggle as documented, and that Enter with nothing selected shows "Select at least one item with Space."
+and stays in the menu.
+
+Recheck questionary's cell count:
+
+```sh
+uv run python - <<'EOF'
+import questionary
+from questionary.prompts import checkbox
+from prompt_toolkit.utils import get_cwidth
+
+made = []
+class Spy(checkbox.InquirerControl):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        made.append(self)
+checkbox.InquirerControl = Spy
+questionary.checkbox("q", choices=["LABEL"])
+line = "".join(text for style, text in made[0]._get_choice_tokens() if not style.startswith("["))
+print(repr(line), get_cwidth(line.split("LABEL")[0]))   # ' » ○ LABEL' 5
+EOF
+```
+
+Recheck the marks' East Asian widths:
+
+```sh
+uv run python -c "import unicodedata as u; print([u.east_asian_width(c) for c in '»○●'])"   # ['N', 'A', 'A']
+```
+
+Recheck by hand in an 80-column terminal: run `ces-youtube-tools browse` on a channel with long titles. Check that
+every video takes one line, then press Enter with nothing selected, then try Space, `a` and `i`. Record the
+terminal and the date here.
+
 ## claude CLI
 
 Checked with Claude Code 2.1.295 (`claude --help`).

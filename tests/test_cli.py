@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from rich.cells import cell_len
 from typer.testing import CliRunner
 
 from ces_youtube_tools import cli
@@ -504,6 +505,20 @@ def test_browse_single_channel_skips_the_channel_menu(
         "Latest videos of The Young Turks (Space selects, Enter confirms)"
     ]
     assert browse_setup == ["The Young Turks"]
+
+
+def test_browse_video_labels_fit_beside_the_checkbox(
+    browse_setup: list[str], pickers: FakePickers, config_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    long_title = VideoSummary(id="aaaaaaaaaaa", title="x" * 200, duration=300)
+    monkeypatch.setattr(cli, "list_latest_videos", lambda channel, ytdlp, limit: [long_title])
+    pickers.videos = None  # quit at the video menu
+    result = RUNNER.invoke(APP, ["browse", "3blue1brown", "--config", str(config_path)], env={"COLUMNS": "80"})
+    assert result.exit_code == 0, result.output
+    ((_, labels),) = pickers.menus
+    # questionary's checkbox draws 5 cells before each label (see docs/implementation_notes.md), so a cut label
+    # fills the rest of the line and no more.
+    assert cell_len(labels[0]) == 80 - 5
 
 
 def test_browse_errors(config_path: Path) -> None:
