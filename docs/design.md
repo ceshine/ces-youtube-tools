@@ -515,7 +515,7 @@ the tool; the command prints `npx wrangler pages deploy OUT`.
 - The index (`templates/site_index.html`) holds the published guides as a JSON payload (`index_payload`), and its script
   (`templates/site_index.mjs`, written as `index.mjs`) lists them: by default newest publish date first (no date last),
   then by channel and title, with the publish date, channel, length, and a badge for members-only or unknown
-  availability. Menus and a search box above the list change the sort, the grouping and the filter. Until the script
+  availability. Buttons and a search box above the list change the sort, the grouping and the filter. Until the script
   runs, the page shows only the count. The title is the YouTube title from the front matter, else the guide's heading,
   else the file name. See "Interactive index".
 - Two passes, as in `backfill`. The first reads and renders every guide in memory and reports all problems together
@@ -608,11 +608,17 @@ guides into the page as JSON, and a script renders it.
   grouping by channel and the filter cover finding a channel or a title. There is no members-only filter or grouping
   by year either. An unknown value in the hash falls back to the default, so adding or dropping a choice later breaks
   no saved link.
-- Controls above the list: menus for the sort, the order and the grouping, and a search box for the filter. The
-  script fills the menus from the same table (`CHOICES`) that `parseView` checks the hash against. A change is written
-  to the hash with `history.replaceState`, so typing in the filter adds no back-button entries, and a `hashchange`
-  (the hash edited by hand, or back and forward) sets the controls and renders again. The controls are `hidden` until
-  the script shows them.
+- Controls above the list: a row of joined buttons each for the sort, the order and the grouping, and a search box for
+  the filter. The buttons replaced menus on 2026-10-21, so every choice is in sight and one click away. Each row is a
+  set of radio inputs, invisible, each followed by the label drawn as its button: radios give one choice at a time,
+  arrow keys and a group name (`role="radiogroup"`) without code, and fire `input` as the menus did. The script reads
+  a row's checked radio with `querySelector` and checks one by its ID (`choice-<setting>-<value>`, a prefix no other
+  ID uses). The controls are not a `<form>`: Enter in the search box would submit it and reload the page, and
+  `form.elements.namedItem` gives a list of radios only when two or more match. The script fills the rows from the
+  same table (`CHOICES`) that `parseView` checks the hash against. A change is written to the hash with
+  `history.replaceState`, so typing in the filter adds no back-button entries, and a `hashchange` (the hash edited by
+  hand, or back and forward) sets the controls and renders again. The controls are `hidden` until the script shows
+  them.
 - Groups start closed (decided on 2026-10-21), so a grouped list reads as a table of contents: each group is a
   `<details>` whose `<summary>` holds the heading and the count. While the filter has a word, every group is open, so
   the matches are on screen. A group the reader opens stays open across renders (a new sort, typing in the filter)

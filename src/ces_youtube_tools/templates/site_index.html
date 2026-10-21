@@ -63,9 +63,9 @@ h1 {
 }
 /* `display: flex` above would otherwise win over the browser's `[hidden] { display: none }`. */
 .controls[hidden] { display: none; }
-.controls label { display: flex; align-items: center; gap: 6px; }
+.controls .choice, .controls .filter { display: flex; align-items: center; gap: 6px; }
 .controls .filter { flex: 1 1 16em; }
-.controls select, .controls input, .controls button {
+.controls input[type="search"], .controls button, .segmented label {
   font: inherit;
   color: var(--text);
   background: var(--field);
@@ -73,10 +73,32 @@ h1 {
   border-radius: 6px;
   padding: 4px 8px;
 }
-.controls input { flex: 1; min-width: 0; }
-.controls button { cursor: pointer; }
-.controls button:hover { border-color: var(--accent); color: var(--accent); }
-.controls :is(select, input, button):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.controls input[type="search"] { flex: 1; min-width: 0; }
+.controls button, .segmented label { cursor: pointer; }
+.controls button:hover, .segmented label:hover { border-color: var(--accent); color: var(--accent); }
+.controls :is(input[type="search"], button):focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* A row of joined buttons is a radio group: each radio is invisible but keeps the focus and the arrow keys, and the
+   label right after it is the button. */
+.segmented { position: relative; display: flex; }
+.segmented input { position: absolute; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+.segmented label { border-radius: 0; }
+.segmented label + input + label { margin-left: -1px; }
+.segmented label:first-of-type { border-radius: 6px 0 0 6px; }
+.segmented label:last-of-type { border-radius: 0 6px 6px 0; }
+/* Raised, so the border shared with the next button shows the hover, checked or focus color. */
+.segmented label:hover { position: relative; }
+.segmented input:checked + label {
+  position: relative;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.segmented input:focus-visible + label {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .count {
   margin: 0 0 1.5em;
   font-family: var(--font-ui);
@@ -159,9 +181,12 @@ h1 {
 <main>
 <h1>Watching guides</h1>
 <div class="controls" id="controls" hidden>
-<label>Sort by <select id="sort"></select></label>
-<label>Order <select id="order"></select></label>
-<label>Group <select id="group"></select></label>
+<div class="choice"><span id="sort-label">Sort by</span>
+<div class="segmented" id="sort-choices" role="radiogroup" aria-labelledby="sort-label"></div></div>
+<div class="choice"><span id="order-label">Order</span>
+<div class="segmented" id="order-choices" role="radiogroup" aria-labelledby="order-label"></div></div>
+<div class="choice"><span id="group-label">Group</span>
+<div class="segmented" id="group-choices" role="radiogroup" aria-labelledby="group-label"></div></div>
 <label class="filter">Filter <input type="search" id="q" placeholder="Title or channel" autocomplete="off"></label>
 <button type="button" id="reset">Reset view</button>
 </div>

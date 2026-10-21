@@ -350,7 +350,8 @@ export function describeView(view, shown, total) {
   return `${count}${grouping}, ${SORT_LABELS[view.sort][view.order]}.`;
 }
 
-// The code below touches the page. The controls have the IDs of the view's settings (`sort`, `order`, `group`, `q`).
+// The code below touches the page. The controls are a row of radio buttons per setting (`sort`, `order`, `group`),
+// named after it and filled into `#<setting>-choices`, and the filter box `#q`.
 // Text from the payload goes in with `textContent` only, never `innerHTML`: titles and channel names come from YouTube.
 
 function element(tag, className, text) {
@@ -435,18 +436,28 @@ function listing(guides, shown, view, openGroups) {
   });
 }
 
-function fillChoices(select, choices) {
-  const options = Object.entries(choices).map(([value, label]) => {
-    const option = element("option", null, label);
-    option.value = value;
-    return option;
+// A prefix of its own, so a choice cannot take the ID of a row (`sort-choices`) or of its name (`sort-label`).
+function choiceId(name, value) {
+  return `choice-${name}-${value}`;
+}
+
+function fillChoices(row, name, choices) {
+  const buttons = Object.entries(choices).flatMap(([value, label]) => {
+    const radio = element("input");
+    radio.type = "radio";
+    radio.name = name;
+    radio.value = value;
+    radio.id = choiceId(name, value);
+    const button = element("label", null, label);
+    button.htmlFor = radio.id;
+    return [radio, button];
   });
-  select.replaceChildren(...options);
+  row.replaceChildren(...buttons);
 }
 
 function setControls(view) {
   for (const name of Object.keys(CHOICES)) {
-    document.getElementById(name).value = view[name];
+    document.getElementById(choiceId(name, view[name])).checked = true;
   }
   document.getElementById("q").value = view.q;
 }
@@ -454,7 +465,7 @@ function setControls(view) {
 function readControls() {
   const view = { q: document.getElementById("q").value };
   for (const name of Object.keys(CHOICES)) {
-    view[name] = document.getElementById(name).value;
+    view[name] = document.querySelector(`input[name="${name}"]:checked`).value;
   }
   return view;
 }
@@ -538,7 +549,7 @@ function main() {
   try {
     guides = JSON.parse(document.getElementById("guides").textContent);
     for (const [name, choices] of Object.entries(CHOICES)) {
-      fillChoices(document.getElementById(name), choices);
+      fillChoices(document.getElementById(`${name}-choices`), name, choices);
     }
     storage = browserStorage();
     const { view, rewriteHash } = initialView(location.hash, storage);
@@ -572,7 +583,7 @@ function main() {
   };
   document.getElementById("listing").addEventListener("toggle", rememberToggle, true);
   const controls = document.getElementById("controls");
-  // `input` bubbles from the selects too.
+  // `input` bubbles from the radios too.
   controls.addEventListener("input", guarded(showControls));
   document.getElementById("reset").addEventListener("click", guarded(resetView));
   controls.hidden = false;
