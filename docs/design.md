@@ -265,22 +265,22 @@ commands that `site` has since replaced. What was built:
   optional toggle (kept in `localStorage`, on by default) scrolls the player into view. Middle clicks and clicks with
   Ctrl, Cmd, Shift or Alt, links to other videos, and links clicked while the player is not ready, is hidden or has
   reported an error keep their normal behavior (open YouTube).
-- The player is hidden, with a note that timestamps open YouTube, when the page is opened from disk (the note says to
-  open the published site) and when the player reports an error (153: the page sent no referrer; 100, 101, 150: private,
-  removed or not embeddable; others: shown as a number). Notes are plain text (`textContent`). Without JavaScript, the
-  page is a readable guide whose links open YouTube.
+- The player is hidden, with a note that timestamps open YouTube, when the player reports an error (153: the page sent
+  no referrer, which is also what a page opened from disk gets; 100, 101, 150: private, removed or not embeddable;
+  others: shown as a number). Notes are plain text (`textContent`). Without JavaScript, the page is a readable guide
+  whose links open YouTube.
 - Layout, the same on every screen size: the player at the top (16:9, centered, limited width) scrolls away with the
   page, so the guide gets the whole window; below it, the scroll toggle (hidden without JavaScript; `localStorage` is
-  read and written inside `try`/`catch`, because some browsers block it for `file://` pages); then the guide, at most
-  about 70 characters per line. Timestamp links are pills with fixed-width digits, picked out by a CSS selector on
-  `t=` in the link. A clicked link flashes so the reader can find the place again, and scrolling is smooth unless
+  read and written inside `try`/`catch`, because a browser may block site data); then the guide, at most about 70
+  characters per line. Timestamp links are pills with fixed-width digits, picked out by a CSS selector on `t=` in the
+  link. A clicked link flashes so the reader can find the place again, and scrolling is smooth unless
   `prefers-reduced-motion` is set. Tables scroll sideways when too wide. A print stylesheet hides the player and the
   toggle.
 - The only external resources are the YouTube player and its API script (both need a network connection anyway) and
   the fonts.
-- On a `file://` page the player is hidden before the page is drawn and the `<iframe>` is removed so it stops loading.
-  If only the IFrame API script fails to load, the player stays visible (it may still play) and the note says timestamps
-  open YouTube.
+- If only the IFrame API script fails to load, the player stays visible (it may still play) and the note says timestamps
+  open YouTube. Pages opened from disk (`file://`) are not supported (see "`site` command"); the check that hid the
+  player on them before it was drawn was removed on 2026-10-21.
 - For a members-only video (`members_only: true` in the front matter, from yt-dlp's `availability` of
   `subscriber_only`), the page gets a static hint under the player (`$members_hint` in the template): if the player
   asks the viewer to join, the browser is not sending the YouTube sign-in to the iframe, and in Firefox the fix is to
@@ -324,8 +324,8 @@ commands that `site` has since replaced. What was built:
 7. Guide metadata and a published site: front matter, `backfill`, the `site` command, Cloudflare Access with the
    first deploy, `deploy.sh`, and removing `html`, `serve` and `--html`, which `site` replaces. (Done, 2026-10-20.)
    See "Guide metadata and a private site" below.
-8. Serve the site over HTTP only: remove the guide page's `file://` handling and make the site's links extensionless.
-   (Planned.) See "`site` command" below.
+8. Serve the site over HTTP only: remove the guide page's `file://` handling (done, 2026-10-21) and make the site's
+   links extensionless (planned). See "`site` command" below.
 9. An interactive index: sorting, grouping and filtering in the browser, from a JSON payload, with `node --test`
    tests. (Planned.) See "Planned: an interactive index" below.
 
@@ -429,10 +429,10 @@ fails rather than picking a folder to clear. Deploying is kept outside the tool;
   expected to serve the build the way Pages does, extensionless names and `_headers` included (not yet verified).
   Opening the built files from disk (`file://`) is not supported, decided on 2026-10-21: nobody reads the site that
   way, the embedded player refuses such pages anyway (Error 153), and supporting it constrained the link format and
-  the index script. The Markdown guides stay readable without the site. Planned, as one change: remove the guide
-  page's `file://` handling (the early check in `<head>`, the branch that removes the player, and its note; opened
-  from disk, the player's Error 153 is still caught by the error note), and make links extensionless (`<video_id>`
-  and `./`), so a click no longer goes through a redirect.
+  the index script. The Markdown guides stay readable without the site. The guide page's `file://` handling (the
+  early check in `<head>`, the branch that removed the player, and its note) was removed on 2026-10-21; opened from
+  disk, the player's Error 153 is still caught by the error note. Planned: make links extensionless (`<video_id>` and
+  `./`), so a click no longer goes through a redirect.
 - Each page gets an "All guides" link to `index.html` above the player (`render_guide_page(link_to_index=True)`).
 - The index (`templates/site_index.html`) lists guides newest upload first (no date last, then by title), with the
   upload date, channel, length, and a badge for members-only or unknown availability. The title is the YouTube title

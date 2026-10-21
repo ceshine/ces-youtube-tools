@@ -104,8 +104,9 @@ ces-youtube-tools site -o ~/guides-site   # build from guide.output_dir
   [docs/design.md](docs/design.md).
 - `deploy.sh` deploys to the project named in `wrangler.toml`. It stops unless the site redirects to the Cloudflare
   Access login, then builds with `--include-members-only` and runs `npx wrangler pages deploy`.
-- YouTube refuses to play an embedded video on a page opened from disk (Error 153). Opened from disk, a page is still a
-  readable guide whose timestamps open YouTube.
+- Read the site over HTTP: on Cloudflare Pages, or locally with `npx wrangler pages dev OUT` (`_site` after
+  `./deploy.sh`; not yet verified). Opening the built files from disk is not supported; YouTube refuses to play the
+  embedded video there (Error 153).
 - **Members-only videos:** the player shows a "become a member" prompt unless your browser sends your YouTube sign-in
   to the embedded player. In Firefox, turn off Enhanced Tracking Protection for the site (the shield icon in the
   address bar). Pages for members-only videos say this under the player. Chrome may need third-party cookies allowed

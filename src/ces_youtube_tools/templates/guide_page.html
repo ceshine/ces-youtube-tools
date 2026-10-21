@@ -5,12 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="generator" content="ces-youtube-tools">
 <title>$title</title>
-<script>
-// YouTube's embedded player refuses pages opened from disk (Error 153), so hide it before it is drawn.
-if (window.location.protocol === "file:") {
-  document.documentElement.classList.add("no-player");
-}
-</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:ital,opsz,wght@0,7..72,400..700;1,7..72,400..700&amp;family=Inter:wght@400..700&amp;display=swap">
@@ -332,7 +326,7 @@ $body
       toggle.checked = saved === "1";
     }
   } catch (error) {
-    // Storage can be blocked, e.g. for file:// pages. The toggle still works for this visit.
+    // Storage can be blocked, e.g. when the browser blocks site data. The toggle still works for this visit.
   }
   toggle.addEventListener("change", function () {
     try {
@@ -447,16 +441,6 @@ $body
       document.querySelector(".player-area").scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth" });
     }
   });
-
-  if (window.location.protocol === "file:") {
-    // The player is already hidden (see <head>). Remove it so it stops loading.
-    document.getElementById("player").remove();
-    hidePlayer(
-      "The video player does not work on a page opened from disk; open it from the published site. On this page, " +
-        "timestamps open YouTube."
-    );
-    return;
-  }
 
   window.onYouTubeIframeAPIReady = function () {
     player = new YT.Player("player", {
