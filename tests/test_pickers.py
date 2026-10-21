@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 import pytest
@@ -55,6 +56,32 @@ def test_pick_many_returns_the_numbers_in_menu_order(asked: dict[str, Any]) -> N
     validate = asked["checkbox"]["validate"]
     assert validate(["2"]) is True
     assert validate([]) == "Select at least one item with Space."
+
+
+def test_pick_many_shows_the_checked_items_ticked(asked: dict[str, Any]) -> None:
+    asked["answer"] = ["1"]
+    assert pick_many("Videos", ["One", "Two", "Three"], checked={1, 3}) == [1]
+    assert [c.checked for c in asked["checkbox"]["choices"]] == [True, False, True]
+
+
+def test_pick_many_ticks_nothing_by_default(asked: dict[str, Any]) -> None:
+    asked["answer"] = ["1"]
+    _ = pick_many("Videos", ["One", "Two"])
+    assert [c.checked for c in asked["checkbox"]["choices"]] == [False, False]
+
+
+def test_pick_many_can_accept_an_empty_answer(asked: dict[str, Any]) -> None:
+    asked["answer"] = []
+    assert pick_many("Videos", ["One", "Two"], require_selection=False) == []
+    assert asked["checkbox"]["validate"]([]) is True
+
+
+@pytest.mark.parametrize("checked, named", [({0}, "[0]"), ({1, 2, 3}, "[3]")])
+def test_pick_many_rejects_checked_numbers_that_are_not_items(
+    asked: dict[str, Any], checked: set[int], named: str
+) -> None:
+    with pytest.raises(ValueError, match=re.escape(f"Checked item numbers {named} are not between 1 and 2.")):
+        _ = pick_many("Videos", ["One", "Two"], checked=checked)
 
 
 @pytest.mark.parametrize("pick", [lambda: pick_one("Channel", ["One"]), lambda: pick_many("Videos", ["One"])])

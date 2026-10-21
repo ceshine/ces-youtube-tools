@@ -84,7 +84,10 @@ anyway, so `--playlist-start` would not save requests.
     returns to shows its earlier ticks.
   - `require_selection`: when False, an empty answer is accepted. `browse` passes False when videos are already
     selected on other pages, so the user can confirm from a page where nothing is ticked.
-- `_items` gains the `checked` argument. `pick_one` is unchanged.
+- `_items` gains the `checked` argument, and raises ValueError for a checked number that is not an item, rather
+  than ticking nothing. `pick_one` is unchanged.
+- With `require_selection` False, `validate` is a named function that accepts any answer (`_accept_any`), so the test
+  can call the validator it was given.
 - Tests in `tests/test_pickers.py` with the `asked` fixture: the ticked choices, and that `validate` accepts `[]`
   only when `require_selection` is False.
 
