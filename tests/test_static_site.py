@@ -2,6 +2,7 @@ import re
 import json
 import datetime
 from pathlib import Path
+from importlib import resources
 
 import pytest
 from typer.testing import CliRunner
@@ -104,30 +105,26 @@ def test_collect_pages_checks_the_front_matter_of_guides_it_leaves_out(guides: P
         _ = collect_pages(guide_paths(guides), include_members_only=False)
 
 
-def test_render_index_escapes_and_marks_availability() -> None:
-    def page(video_id: str, title: str, members_only: bool | None) -> SitePage:
-        metadata = GuideMetadata(
-            channel="A & B", upload_date=datetime.date(2026, 10, 8), duration=3725, members_only=members_only
-        )
+def test_render_index_leaves_the_list_to_the_script() -> None:
+    def page(video_id: str, title: str) -> SitePage:
+        metadata = GuideMetadata(channel="A & B", upload_date=datetime.date(2026, 10, 8), members_only=False)
         return SitePage(source=Path("x.md"), video_id=video_id, title=title, metadata=metadata, html="")
 
-    index = render_index([page("aaaaaaaaaaa", "<Title>", False), page("bbbbbbbbbbb", "Two", True)])
-    assert "2 guides, newest upload first." in index
-    assert '<a href="aaaaaaaaaaa">&lt;Title&gt;</a>' in index
-    assert '<span class="channel">A &amp; B</span>' in index
-    assert '<time datetime="2026-10-08">2026-10-08</time>' in index
-    assert '<span class="length">1:02:05</span>' in index
-    assert index.count('<span class="badge">Members only</span>') == 1
+    pages = [page("aaaaaaaaaaa", "<Title>"), page("bbbbbbbbbbb", "Two")]
+    index = render_index(pages)
+    assert '<p class="count" id="count">2 guides.</p>' in index
+    assert '<script type="module" src="index.mjs"></script>' in index
+    assert "<noscript>" in index
+    assert "<ol" not in index and "<Title>" not in index
+    assert guides_block(index) == index_payload(pages)
     assert "$" not in index
 
-    unknown = render_index([page("ccccccccccc", "Three", None)])
-    assert "1 guide, newest upload first." in unknown
-    assert '<span class="badge">Availability unknown</span>' in unknown
+    assert '<p class="count" id="count">1 guide.</p>' in render_index(pages[:1])
 
 
 def test_render_index_without_guides() -> None:
     index = render_index([])
-    assert '<p class="empty">No guides yet.</p>' in index
+    assert '<p class="count" id="count">0 guides.</p>' in index
     assert guides_block(index) == []
 
 
@@ -206,8 +203,11 @@ def test_write_site_writes_every_file(guides: Path, tmp_path: Path) -> None:
         "aaaaaaaaaaa.html",
         "bbbbbbbbbbb.html",
         "index.html",
+        "index.mjs",
         "robots.txt",
     ]
+    script = resources.files("ces_youtube_tools").joinpath("templates/site_index.mjs").read_text("utf-8")
+    assert (out / "index.mjs").read_text(encoding="utf-8") == script
     assert (out / "robots.txt").read_text(encoding="utf-8") == "User-agent: *\nDisallow: /\n"
     headers = (out / "_headers").read_text(encoding="utf-8")
     assert headers.startswith("/*\n") and "  X-Robots-Tag: noindex, nofollow\n" in headers

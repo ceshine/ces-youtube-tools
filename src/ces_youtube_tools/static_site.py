@@ -7,13 +7,11 @@ fails there, the output folder is not touched. The second clears the output fold
 import json
 import shutil
 import datetime
-from html import escape
 from string import Template
 from pathlib import Path
 from importlib import resources
 from dataclasses import dataclass
 
-from .formatting import format_duration
 from .guide_html import guide_title, find_video_id, GuideHtmlError, render_guide_page
 from .front_matter import GuideMetadata, FrontMatterError, split_front_matter
 
@@ -146,6 +144,7 @@ def _duplicate_videos(pages: list[SitePage]) -> list[str]:
 
 
 def _newest_first(pages: list[SitePage]) -> list[SitePage]:
+    # A stable order for the payload, so the same guides give the same build; the index's script sorts on its own.
     # Two stable sorts: titles in order within a day, and guides with an unknown date last.
     by_title = sorted(pages, key=lambda page: page.title.casefold())
     return sorted(by_title, key=lambda page: page.metadata.upload_date or datetime.date.min, reverse=True)
@@ -154,20 +153,22 @@ def _newest_first(pages: list[SitePage]) -> list[SitePage]:
 def render_index(pages: list[SitePage]) -> str:
     """Build the index page.
 
+    The page holds the guides as a JSON payload, and its script (`index.mjs`) lists them; the page itself shows only
+    the count until the script runs.
+
     Args:
-        pages (list[SitePage]): The pages, in the order to list them.
+        pages (list[SitePage]): The pages, in the order to write them into the payload.
 
     Returns:
         str: The complete page.
     """
-    template = Template(resources.files("ces_youtube_tools").joinpath("templates/site_index.html").read_text("utf-8"))
-    if pages:
-        items = "\n".join(_index_item(page) for page in pages)
-        listing = f'<ol class="guides">\n{items}\n</ol>'
-    else:
-        listing = '<p class="empty">No guides yet.</p>'
+    template = Template(_read_template("site_index.html"))
     count = "1 guide" if len(pages) == 1 else f"{len(pages)} guides"
-    return template.substitute(count=count, listing=listing, guides_json=_script_json(index_payload(pages)))
+    return template.substitute(count=count, guides_json=_script_json(index_payload(pages)))
+
+
+def _read_template(name: str) -> str:
+    return resources.files("ces_youtube_tools").joinpath(f"templates/{name}").read_text("utf-8")
 
 
 def index_payload(pages: list[SitePage]) -> list[dict[str, object]]:
@@ -208,22 +209,6 @@ def _script_json(data: object) -> str:
     return text.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
 
 
-def _index_item(page: SitePage) -> str:
-    metadata = page.metadata
-    details: list[str] = []
-    if metadata.upload_date is not None:
-        details.append(f'<time datetime="{metadata.upload_date}">{metadata.upload_date}</time>')
-    if metadata.channel:
-        details.append(f'<span class="channel">{escape(metadata.channel)}</span>')
-    if metadata.duration is not None:
-        details.append(f'<span class="length">{format_duration(metadata.duration)}</span>')
-    if metadata.members_only is True:
-        details.append('<span class="badge">Members only</span>')
-    elif metadata.members_only is None:
-        details.append('<span class="badge">Availability unknown</span>')
-    return f'<li><a href="{page.video_id}">{escape(page.title)}</a>\n<p class="meta">{" ".join(details)}</p></li>'
-
-
 def write_site(build: SiteBuild, out_dir: Path) -> None:
     """Write the site into a folder, replacing what an earlier build wrote there.
 
@@ -242,7 +227,14 @@ def write_site(build: SiteBuild, out_dir: Path) -> None:
     out_dir = out_dir.expanduser()
     _prepare_out_dir(out_dir, [page.source for page in build.pages] + build.left_out)
     files = {page.filename: page.html for page in build.pages}
-    files.update({"index.html": render_index(build.pages), "robots.txt": _ROBOTS_TXT, "_headers": _HEADERS})
+    files.update(
+        {
+            "index.html": render_index(build.pages),
+            "index.mjs": _read_template("site_index.mjs"),
+            "robots.txt": _ROBOTS_TXT,
+            "_headers": _HEADERS,
+        }
+    )
     for name, content in files.items():
         try:
             (out_dir / name).write_text(content, encoding="utf-8")

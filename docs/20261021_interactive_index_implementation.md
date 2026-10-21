@@ -19,6 +19,9 @@ Decided on 2026-10-21:
 - Step 1b: `backfill` is no longer all-or-nothing. A guide with a problem of its own is left as it is and listed,
   and the others are written; only problems between guides stop the run. It rewrites every guide on every run, so
   one deleted or private video would otherwise block every run.
+- Steps B to D use no third-party JavaScript library, from a CDN or vendored; the built-ins cover sorting,
+  grouping, dates and the hash. See "No third-party JavaScript library" in "Planned: an interactive index" in
+  [design.md](design.md), including when to reconsider.
 
 ## Step 0: extensionless links (rest of build order item 8)
 
@@ -161,6 +164,20 @@ The page looks the same; the data is added and tested.
 
 ## Step B: the script renders the current view, and the list built in Python is removed
 
+Done on 2026-10-21. Differences from the list below:
+
+- The pure functions already follow Step C's rules for the two date sorts (`published`, `generated`), both orders,
+  the groupings (none, channel, month) and the filter, with both empty states. So the page renders any such view the
+  URL hash names when it loads, and the script writes the count line from the view (`describeView`). The title,
+  channel and length sorts wait for the open decision.
+- Also exported: `DEFAULT_VIEW`, `localDay` and `guideDay` (a payload time or date as a local `YYYY-MM-DD`; grouping
+  by month takes its first seven characters), `makeCollator` and `describeView`.
+- Groups use `Map.groupBy`, not `Object.groupBy`, which would list a channel named like a number first.
+- A row shows its generation date too when the view sorts by it.
+- Before the script runs, the count line is "N guides." (`$count`), without the sort label.
+
+The plan:
+
 - `templates/site_index.mjs`, with the pure functions exported (`export function`):
   - `formatDuration`, the same output as Python's `format_duration` (`H:MM:SS` or `M:SS`, empty when unknown).
   - `compareGuides`, `sortGuides`, `filterGuides` and `groupGuides`.
@@ -187,6 +204,9 @@ The page looks the same; the data is added and tested.
     `Asia/Taipei` and to `America/Los_Angeles`, so days are tested on both sides of UTC.
 
 ## Step C: the controls
+
+Left after Step B: the controls themselves, the `hashchange` listener, writing the hash with `history.replaceState`,
+and the sort keys besides the two dates. The rules below are what Step B's functions implement.
 
 - Sort, ascending or descending (descending by default for the dates):
   - Publish date (default): the day of `published` in the browser's time zone, else `upload_date` as it is; then

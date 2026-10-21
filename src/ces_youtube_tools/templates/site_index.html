@@ -94,6 +94,12 @@ h1 {
   line-height: 1.7;
 }
 .empty { color: var(--muted); }
+.group h2 {
+  font-family: var(--font-ui);
+  font-size: 1.15rem;
+  font-weight: 650;
+  margin: 1.6em 0 0.5em;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .guides li { transition: none; }
@@ -103,9 +109,11 @@ h1 {
 <body>
 <main>
 <h1>Watching guides</h1>
-<p class="count">$count, newest upload first.</p>
-$listing
+<p class="count" id="count">$count.</p>
+<noscript><p class="empty">The list of guides needs JavaScript.</p></noscript>
+<div id="listing"></div>
 </main>
 <script type="application/json" id="guides">$guides_json</script>
+<script type="module" src="index.mjs"></script>
 </body>
 </html>

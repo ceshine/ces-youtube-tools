@@ -90,7 +90,8 @@ for the default, or type `q` to quit.
 ## The guides as a website
 
 `site` turns a folder of guides into a static site for Cloudflare Pages: one page per guide, with the video's player
-embedded so that clicking a timestamp moves the player, and an index of all guides, newest upload first.
+embedded so that clicking a timestamp moves the player, and an index of all guides, newest first. The index is
+listed by a script, so it needs JavaScript.
 
 ```bash
 ces-youtube-tools site -o ~/guides-site   # build from guide.output_dir
@@ -161,8 +162,8 @@ and a cache write only adds cost. Set `prompt_caching = true` under `[guide.opti
   when the guide was written, in UTC. `backfill` brings older guides up to date: it rewrites their front matter,
   keeping keys it does not know and the text below, and renames them. A guide it cannot update is left as it is and
   listed; two guides for one video, or a new name already taken, stop it before it changes anything.
-- **Site:** `<video id>.html` for each guide, plus `index.html`, `robots.txt` and `_headers`, in `-o OUT`, else
-  `site.output_dir`.
+- **Site:** `<video id>.html` for each guide, plus `index.html`, its script `index.mjs`, `robots.txt` and `_headers`,
+  in `-o OUT`, else `site.output_dir`.
 - **Cache:** `~/.cache/ces-youtube-tools/<video id>/` holds the video metadata, subtitles, transcript, and the prompt
   and raw reply of the last generation. A rerun repeats only the failed step; `--refresh` ignores the cache.
 
@@ -176,6 +177,13 @@ uvx ruff format --line-length 120      # format
 
 Tests mock yt-dlp, the network, the `claude` CLI and Firefox profiles. The only subtitle fixture is a short synthetic
 file.
+
+The index script's tests are in `tests/js/` and use Node's test runner. `uv run pytest` runs them when Node 22 or
+later is on `PATH` (twice, in time zones on both sides of UTC) and skips them otherwise. To run them directly:
+
+```bash
+TZ=Asia/Taipei node --test tests/js/*.test.mjs
+```
 
 ## License
 

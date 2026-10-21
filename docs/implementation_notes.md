@@ -450,3 +450,22 @@ extensionless links work on Pages.
 - Recheck, signed in through Access in a browser: open `https://ces-youtube-watching-guides.pages.dev/<video_id>` for
   a published guide, then click "All guides" and check that the index loads. `curl` cannot check it, because Access
   answers requests without a session with its login redirect.
+
+### Pages serves `index.mjs` with a type module scripts accept
+
+Checked on 2026-10-21 by the owner, in a browser signed in through Access, on the production host name, after
+deploying the index script (the Step B changes, not yet committed, on top of 8dd062e): the index lists the guides.
+Browsers run a module script (`<script type="module" src="index.mjs">`) only when it is served with a JavaScript
+type, and show nothing otherwise, so Pages serves `.mjs` with one.
+
+- Not yet verified: the exact `Content-Type` value (`text/javascript` or `application/javascript`); that
+  `npx wrangler pages dev` serves `.mjs` the same way.
+- Recheck, signed in through Access in a browser: open the index and check that the guides are listed. For the
+  header, open the developer tools' Network tab, reload, and select `index.mjs`. A failed load leaves the list empty
+  under the count line, with "Expected a JavaScript module script" in the console. From a shell, with the
+  `CF_Authorization` cookie copied from the browser (it is a credential; keep it out of shell history):
+
+  ```sh
+  curl -sI -H "cookie: CF_Authorization=$CF" https://ces-youtube-watching-guides.pages.dev/index.mjs \
+    | grep -i -E '^(HTTP|content-type)'
+  ```

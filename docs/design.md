@@ -352,8 +352,8 @@ commands that `site` has since replaced. What was built:
    extensionless. (Done, 2026-10-21.) See "`site` command" below.
 9. An interactive index: sorting, grouping and filtering in the browser, from a JSON payload, with `node --test`
    tests, after recording publish and generation times in the guides. (In progress: since 2026-10-21, the guides
-   record the times and the index holds the payload.) See "Publish and generation times" and "Planned: an
-   interactive index" below.
+   record the times, and a script renders the index from the payload, in the view the URL hash names; the controls
+   are still to come.) See "Publish and generation times" and "Planned: an interactive index" below.
 
 ## Guide metadata and a private site
 
@@ -481,10 +481,10 @@ step", the front matter and `backfill` above.
 ### `site` command
 
 `ces-youtube-tools site [DIR] [-o OUT] [--include-members-only]` (`static_site.py`, done) writes the whole site into
-`OUT`: one page per guide, `index.html`, `robots.txt` and a `_headers` file. `DIR` defaults to `guide.output_dir`, and
-its `.md` files (not its subfolders) are the guides. `OUT` defaults to `site.output_dir`; with neither, the command
-fails rather than picking a folder to clear. Deploying is kept outside the tool; the command prints
-`npx wrangler pages deploy OUT`.
+`OUT`: one page per guide, `index.html` with its script `index.mjs`, `robots.txt` and a `_headers` file. `DIR`
+defaults to `guide.output_dir`, and its `.md` files (not its subfolders) are the guides. `OUT` defaults to
+`site.output_dir`; with neither, the command fails rather than picking a folder to clear. Deploying is kept outside
+the tool; the command prints `npx wrangler pages deploy OUT`.
 
 - `deploy.sh` in the repository root is how the site is deployed. It checks that Access still guards the site (see
   below), builds with `site -o _site --include-members-only`, and runs `npx wrangler pages deploy --branch=main`, so
@@ -513,10 +513,11 @@ fails rather than picking a folder to clear. Deploying is kept outside the tool;
   early check in `<head>`, the branch that removed the player, and its note) was removed on 2026-10-21; opened from
   disk, the player's Error 153 is still caught by the error note. Links were made extensionless on 2026-10-21.
 - Each page gets an "All guides" link to `./` above the player (`render_guide_page(link_to_index=True)`).
-- The index (`templates/site_index.html`) lists guides newest upload first (no date last, then by title), with the
-  upload date, channel, length, and a badge for members-only or unknown availability. The title is the YouTube title
-  from the front matter, else the guide's heading, else the file name. It also holds the same guides as a JSON
-  payload (`index_payload`), for the script planned in "Planned: an interactive index".
+- The index (`templates/site_index.html`) holds the published guides as a JSON payload (`index_payload`), and its
+  script (`templates/site_index.mjs`, written as `index.mjs`) lists them: by default newest publish date first (no
+  date last), then by channel and title, with the publish date, channel, length, and a badge for members-only or
+  unknown availability. Until the script runs, the page shows only the count. The title is the YouTube title from the
+  front matter, else the guide's heading, else the file name. See "Planned: an interactive index".
 - Two passes, as in `backfill`. The first reads and renders every guide in memory and reports all problems together
   (unreadable file, invalid front matter, no video ID, two guides for one video); if there is any, `OUT` is not
   touched and the exit status is 1. The front matter of guides that are left out is checked too.
@@ -588,7 +589,7 @@ page as JSON, and a script renders it.
   (ISO date, used only without `published`), `duration` (seconds) and `members_only` (`true` or `false`), each
   `null` when unknown. No description and no guide text. A test checks that a left-out guide's ID is not in the page.
 - Rendering uses `createElement` and `textContent`, never `innerHTML`: titles and channel names come from YouTube and
-  are untrusted. This replaces the `html.escape` calls in `_index_item`.
+  are untrusted. This replaced the `html.escape` calls of the list built in Python (`_index_item`, removed in Step B).
 - The view (sort key and order, grouping, filter text) is kept in the URL hash, such as `#sort=channel&group=month`,
   so reloading, the back button and saved links keep it. `localStorage` remembers the last sort, order and grouping
   (decided on 2026-10-21), so the guide pages' "All guides" link, which carries no hash, opens the index as it was
@@ -606,19 +607,42 @@ page as JSON, and a script renders it.
   `$count` fills only the text shown before the script runs; the script then sets the count and the sort label from
   the current view, since a filter or another sort makes the built text wrong. Reconsider a template engine if HTML
   built at build time grows elsewhere.
+- No third-party JavaScript library (decided on 2026-10-21). Loading one from a CDN was considered, to avoid writing
+  the sorting and rendering by hand. The built-ins cover the logic: `Intl.Collator` sorts titles and channels,
+  `Map.groupBy` groups (not `Object.groupBy`: an object lists integer-like keys first, so a channel named "2077"
+  would jump ahead of the others), `Date` and `Intl.DateTimeFormat` turn a UTC time into a day in the browser's time
+  zone, `URLSearchParams` reads and writes the hash, and `localStorage` remembers the view. A library could only
+  shorten the code that builds the list with `createElement`. Against a CDN:
+  - Tests: `node --test` imports the same `index.mjs` the browser loads, and Node 22 cannot import an `https://` URL,
+    so the tests would need the library from npm, with the `package.json` and `node_modules` this layout avoids.
+  - Supply chain: no page loads optional third-party code today (Google Fonts is a stylesheet; the guide page loads
+    the YouTube iframe API because the player needs it). A CDN script would run with full access to the guide list,
+    which includes members-only titles in a site built with `--include-members-only`. An exact version and an
+    `integrity` (SRI) hash would prevent a changed file from running, but each upgrade then updates both.
+  - Availability: with the CDN down or blocked, the index would be empty (guide pages would still work), and
+    `npx wrangler pages dev` would need the network.
+  - Fit: list libraries such as List.js, Grid.js and Tabulator keep their own state and markup, while the view here
+    lives in the URL hash and `localStorage` (Step D); bridging the two can take more code than the sort itself.
+
+  Reconsider for fuzzy search (Fuse.js), a full data table (resizable columns, sorting by several keys at once,
+  virtual scrolling for thousands of guides), or nested markup that hand-written `createElement` code makes hard to
+  read (`lit-html`, or Preact with `htm`). Even then, vendor the library rather than load it from a CDN: a pinned,
+  minified file in `templates/`, written to `OUT` next to `index.mjs`, with its license. It then works offline, the
+  Node tests can import it, and the page makes no third-party request.
 - Code layout: the script is `templates/site_index.mjs`, an ES module written to `OUT` as `index.mjs` and loaded with
-  `<script type="module" src="index.mjs">`. The `.mjs` name makes Node load it as a module without a `package.json`
-  or relying on its syntax detection; Cloudflare Pages is expected to serve it as JavaScript, which module scripts
-  require (not yet verified). It is not inlined, so the tests import the same file. The pure functions
-  (sorting, grouping, filtering, reading and writing the hash) are exported with `export function` and kept apart
-  from the code that touches the page, which runs only when there is a `document`, so importing the file in Node has
-  no side effects. Module scripts do not load from `file://` pages, which the site no longer supports (see "`site`
-  command").
+  `<script type="module" src="index.mjs">`. The `.mjs` name makes Node load it as a module without a `package.json` or
+  relying on its syntax detection; Cloudflare Pages serves it as JavaScript, which module scripts require (checked on
+  2026-10-21, see the implementation notes). It is not inlined, so the tests import the same file. The pure functions
+  (sorting, grouping, filtering, reading and writing the hash) are exported with `export function` and kept apart from
+  the code that touches the page, which runs only when there is a `document`, so importing the file in Node has no side
+  effects. Module scripts do not load from `file://` pages, which the site no longer supports (see "`site` command").
+  The script uses `Map.groupBy` and `Array.prototype.toSorted`, so it needs Chrome 117, Firefox 119 or Safari 17.4
+  or later. If it fails, the list area says so, and the error stays in the browser console.
 - Tests: `node --test` files in `tests/js/` (`*.test.mjs`) import the pure functions and test them. A pytest test
-  collects those files with `pathlib` and passes them to `node --test` by name (Node 21 and later read a folder
-  argument as a module path, not a folder of tests), and fails with Node's output if they fail; it is skipped when
-  `node` is not on `PATH`, so `uv run pytest` still works without Node. The Python side (payload, escaping, left-out
-  guides, `index.mjs` written) is tested in pytest as usual.
+  collects those files with `pathlib` and passes them to `node --test` by name (Node 21 and later read a folder argument
+  as a module path, not a folder of tests), and fails with Node's output if they fail; it is skipped when `node` is not
+  on `PATH` or is older than Node 22, so `uv run pytest` still works without Node. The Python side (payload, escaping,
+  left-out guides, `index.mjs` written) is tested in pytest as usual.
 
 ## Planned: interactive config session
 
