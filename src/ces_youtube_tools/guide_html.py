@@ -24,7 +24,7 @@ _MEMBERS_HINT = (
     "icon in the address bar); other browsers may need third-party cookies allowed for this site. Until then, "
     "timestamps still open YouTube when you Ctrl+click them.</p>\n"
 )
-_INDEX_LINK = '  <nav class="site-nav"><a href="index.html">&larr; All guides</a></nav>\n'
+_INDEX_LINK = '  <nav class="site-nav"><a href="./">&larr; All guides</a></nav>\n'
 
 
 class GuideHtmlError(Exception):
@@ -110,7 +110,7 @@ def render_guide_page(
             must be 11 characters from `A-Z`, `a-z`, `0-9`, `_` and `-`.
         fallback_title (str): The page title to use when the guide has no level-one heading.
         members_only (bool): Add a hint under the player about letting the browser send the YouTube sign-in.
-        link_to_index (bool): Add a link to `index.html` above the player, for pages of the site.
+        link_to_index (bool): Add a link to the index (`./`) above the player, for pages of the site.
 
     Returns:
         str: The complete page.

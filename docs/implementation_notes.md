@@ -444,8 +444,8 @@ Checked on 2026-10-21 by the owner, in a browser signed in through Access, on th
 (`ces-youtube-watching-guides.pages.dev`): `/<video_id>` serves the page `<video_id>.html`. So extensionless links
 work on Pages.
 
-- Not yet verified: that `/<video_id>.html` redirects (308) to `/<video_id>`; that `npx wrangler pages dev` serves
-  extensionless names the same way.
+- Not yet verified: that `/<video_id>.html` redirects (308) to `/<video_id>`; that `./`, the guide pages' "All
+  guides" link, serves `index.html`; that `npx wrangler pages dev` serves extensionless names the same way.
 - Recheck, signed in through Access in a browser: open `https://ces-youtube-watching-guides.pages.dev/<video_id>` for
-  a published guide. `curl` cannot check it, because Access answers requests without a session with its login
-  redirect.
+  a published guide, then click "All guides" and check that the index loads. `curl` cannot check it, because Access
+  answers requests without a session with its login redirect.

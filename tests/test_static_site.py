@@ -59,7 +59,7 @@ def test_collect_pages_leaves_out_members_only_and_unknown(guides: Path) -> None
     assert sorted(path.name for path in build.left_out) == ["members.md", "plain.md", "unknown.md"]
     page = build.pages[0]
     assert (page.title, page.filename, page.source) == ("New", "bbbbbbbbbbb.html", guides / "new.md")
-    assert '<a href="index.html">' in page.html
+    assert '<a href="./">' in page.html
     assert "members-hint" not in page.html.split("<body>")[1]
     assert "video_id:" not in page.html
 
@@ -102,7 +102,7 @@ def test_render_index_escapes_and_marks_availability() -> None:
 
     index = render_index([page("aaaaaaaaaaa", "<Title>", False), page("bbbbbbbbbbb", "Two", True)])
     assert "2 guides, newest upload first." in index
-    assert '<a href="aaaaaaaaaaa.html">&lt;Title&gt;</a>' in index
+    assert '<a href="aaaaaaaaaaa">&lt;Title&gt;</a>' in index
     assert '<span class="channel">A &amp; B</span>' in index
     assert '<time datetime="2026-10-08">2026-10-08</time>' in index
     assert '<span class="length">1:02:05</span>' in index

@@ -324,8 +324,8 @@ commands that `site` has since replaced. What was built:
 7. Guide metadata and a published site: front matter, `backfill`, the `site` command, Cloudflare Access with the
    first deploy, `deploy.sh`, and removing `html`, `serve` and `--html`, which `site` replaces. (Done, 2026-10-20.)
    See "Guide metadata and a private site" below.
-8. Serve the site over HTTP only: remove the guide page's `file://` handling (done, 2026-10-21) and make the site's
-   links extensionless (planned). See "`site` command" below.
+8. Serve the site over HTTP only: remove the guide page's `file://` handling and make the site's links
+   extensionless. (Done, 2026-10-21.) See "`site` command" below.
 9. An interactive index: sorting, grouping and filtering in the browser, from a JSON payload, with `node --test`
    tests, after recording publish and generation times in the guides. (Planned.) See "Planned: publish and generation
    times" and "Planned: an interactive index" below.
@@ -450,19 +450,18 @@ fails rather than picking a folder to clear. Deploying is kept outside the tool;
   by default, undoing `"html": False`, which keeps a `<script>` in model output from running.
 - The module is `static_site.py`, not `site.py`, which would shadow the standard library's `site` module.
 - A page is named after its video, `<video_id>.html`: the ID is checked to be URL-safe, and the URL stays the same
-  when the guide's file is renamed. Two guides for the same video are an error. Links use the `.html` names, which
-  Cloudflare Pages redirects (308, not yet verified) to the names without `.html`. Pages serves `/<video_id>` from
-  `<video_id>.html` (checked on 2026-10-21, see the implementation notes), so extensionless links, which are
-  planned (see below), will work.
+  when the guide's file is renamed. Two guides for the same video are an error. Links leave out `.html`
+  (`<video_id>`, and `./` for the index), so a click does not go through Cloudflare Pages' redirect (308, not yet
+  verified) from the `.html` name. Pages serves `/<video_id>` from `<video_id>.html` (checked on 2026-10-21, see the
+  implementation notes); that it serves `index.html` for `./` is not yet verified.
 - The site is served only over HTTP: by Cloudflare Pages, or locally with `npx wrangler pages dev _site`, which is
   expected to serve the build the way Pages does, extensionless names and `_headers` included (not yet verified).
   Opening the built files from disk (`file://`) is not supported, decided on 2026-10-21: nobody reads the site that
   way, the embedded player refuses such pages anyway (Error 153), and supporting it constrained the link format and
   the index script. The Markdown guides stay readable without the site. The guide page's `file://` handling (the
   early check in `<head>`, the branch that removed the player, and its note) was removed on 2026-10-21; opened from
-  disk, the player's Error 153 is still caught by the error note. Planned: make links extensionless (`<video_id>` and
-  `./`), so a click no longer goes through a redirect.
-- Each page gets an "All guides" link to `index.html` above the player (`render_guide_page(link_to_index=True)`).
+  disk, the player's Error 153 is still caught by the error note. Links were made extensionless on 2026-10-21.
+- Each page gets an "All guides" link to `./` above the player (`render_guide_page(link_to_index=True)`).
 - The index (`templates/site_index.html`) lists guides newest upload first (no date last, then by title), with the
   upload date, channel, length, and a badge for members-only or unknown availability. The title is the YouTube title
   from the front matter, else the guide's heading, else the file name.

@@ -179,7 +179,7 @@ def _index_item(page: SitePage) -> str:
         details.append('<span class="badge">Members only</span>')
     elif metadata.members_only is None:
         details.append('<span class="badge">Availability unknown</span>')
-    return f'<li><a href="{page.filename}">{escape(page.title)}</a>\n<p class="meta">{" ".join(details)}</p></li>'
+    return f'<li><a href="{page.video_id}">{escape(page.title)}</a>\n<p class="meta">{" ".join(details)}</p></li>'
 
 
 def write_site(build: SiteBuild, out_dir: Path) -> None:
