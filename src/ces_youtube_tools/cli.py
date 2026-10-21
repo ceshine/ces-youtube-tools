@@ -5,6 +5,8 @@ import time
 import inspect
 import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
+from dataclasses import dataclass
 from collections.abc import Callable
 from typing import Any, TypeVar, Annotated
 
@@ -14,7 +16,7 @@ from rich.markup import escape
 from rich.console import Console
 
 from .menu import QuitMenu, parse_choice
-from .guide import GuideError, guide_filename, default_template
+from .guide import GuideError, GuideGenerator, guide_filename, default_template
 from .video import VideoInfo, parse_video_id
 from .ytdlp import YtDlp, YtDlpError
 from .config import ChannelConfig
@@ -37,11 +39,11 @@ from .youtube import VideoSummary, verify_login, resolve_channel, list_latest_vi
 from .backfill import rename_guide, BackfillError, plan_backfill, write_content, describe_changes
 from .pipeline import CacheError, work_dir_for, load_transcript, load_video_info, make_transcript_provider
 from .pipeline import write_guide, guides_to_replace, load_prompt_template, make_guide_generator
-from .pipeline import check_existing_guides, find_guides_for_video
+from .pipeline import GuideScan, GuideResult, check_existing_guides, find_guides_for_video
 from .claude_cli import GENERATOR_NAME, ClaudeCliOptions
 from .formatting import format_age, format_duration
 from .guide_html import expand_paths, GuideHtmlError
-from .transcript import TranscriptError
+from .transcript import TranscriptError, TranscriptProvider
 from .static_site import SiteError, write_site, collect_pages
 
 APP = typer.Typer(no_args_is_help=True, help="Browse YouTube channels and generate watching guides.")
@@ -749,6 +751,175 @@ def build_site(
     CONSOLE.print(f"Deploy with: npx wrangler pages deploy {out_dir}", markup=False, highlight=False, soft_wrap=True)
 
 
+# The errors of a guide run that are reported as a message, without a traceback.
+_GUIDE_ERRORS = (ValueError, YtDlpError, TranscriptError, GuideError, CacheError)
+
+
+@dataclass(frozen=True)
+class _GuideTools:
+    """What writing guides needs, made once per command run.
+
+    Attributes:
+        ytdlp (YtDlp): The yt-dlp runner, with cookies because members-only videos need them.
+        provider (TranscriptProvider): The configured transcript provider.
+        generator (GuideGenerator): The configured guide generator.
+        template (str): The prompt template.
+        timezone (ZoneInfo | None): The time zone for the date in guide file names, or None for the system's.
+    """
+
+    ytdlp: YtDlp
+    provider: TranscriptProvider
+    generator: GuideGenerator
+    template: str
+    timezone: ZoneInfo | None
+
+
+@dataclass(frozen=True)
+class _PreparedGuide:
+    """A video whose metadata is loaded, with where its guide goes and the files already about it.
+
+    Attributes:
+        info (VideoInfo): The video's metadata.
+        work_dir (Path): The video's cache directory.
+        scan (GuideScan): The files already about the video in the guide's folder.
+        target (Path): Where the guide goes: always `target_dir / guide_filename(info, timezone)`, a bare file name
+            in the guide's folder, so `target.parent` is that folder.
+    """
+
+    info: VideoInfo
+    work_dir: Path
+    scan: GuideScan
+    target: Path
+
+
+def _make_guide_tools(config: AppConfig) -> _GuideTools:
+    """Make the yt-dlp runner, transcript provider, generator and prompt template for writing guides.
+
+    Prints a notice when the built-in prompt template is used because the configured file does not exist.
+
+    Args:
+        config (AppConfig): The configuration.
+
+    Returns:
+        _GuideTools: The tools.
+
+    Raises:
+        ValueError: If the configured transcript provider or guide generator is unknown, or the generator's settings
+            are invalid.
+    """
+    ytdlp = _make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
+    provider = make_transcript_provider(config, ytdlp)
+    generator = make_guide_generator(config)
+    template, is_default = load_prompt_template(config.guide.prompt_template)
+    if is_default:
+        STDERR.print(
+            f"Using the built-in prompt template ({config.guide.prompt_template} does not exist). "
+            "Run `ces-youtube-tools config template` for an editable copy.",
+            markup=False,
+            highlight=False,
+        )
+    return _GuideTools(ytdlp, provider, generator, template, config.guide.file_name_zone())
+
+
+def _prepare_guide(
+    config: AppConfig, tools: _GuideTools, video_id: str, target_dir: Path, *, refresh: bool
+) -> _PreparedGuide:
+    """Load a video's metadata, work out where its guide goes, and find the files already about the video.
+
+    Prints a warning for each file in `target_dir` that could not be read or whose front matter is invalid.
+
+    Args:
+        config (AppConfig): The configuration.
+        tools (_GuideTools): The tools from `_make_guide_tools`.
+        video_id (str): YouTube video ID.
+        target_dir (Path): Directory for the guide file.
+        refresh (bool): Ignore cached metadata.
+
+    Returns:
+        _PreparedGuide: The video and its guide's path.
+
+    Raises:
+        CacheError: If the video's cache directory cannot be created, or its metadata cannot be saved there.
+        YtDlpError: If yt-dlp fails, e.g. for a members-only video without a membership.
+    """
+    work_dir = work_dir_for(config.cache_dir, video_id)
+    with STDERR.status("Fetching video metadata..."):
+        info = load_video_info(video_id, tools.ytdlp, work_dir, refresh=refresh)
+    scan = find_guides_for_video(target_dir, info.id)
+    for warning in scan.warnings:
+        STDERR.print(f"[yellow]Warning:[/yellow] {escape(warning)}", highlight=False, soft_wrap=True)
+    return _PreparedGuide(info, work_dir, scan, target_dir / guide_filename(info, tools.timezone))
+
+
+def _generate_guide(
+    config: AppConfig, tools: _GuideTools, prepared: _PreparedGuide, *, force: bool, refresh: bool
+) -> GuideResult:
+    """Fetch a prepared video's transcript, generate its guide and write it.
+
+    Args:
+        config (AppConfig): The configuration.
+        tools (_GuideTools): The tools from `_make_guide_tools`.
+        prepared (_PreparedGuide): The video, from `_prepare_guide`.
+        force (bool): Replace an existing guide for the video, and overwrite a file with the guide's name.
+        refresh (bool): Ignore the cached transcript.
+
+    Returns:
+        GuideResult: The written guide.
+
+    Raises:
+        GuideError: If an existing guide is in the way and `force` is not set, a file is about the video only by its
+            links, or generating or writing the guide fails.
+        TranscriptError: If the provider cannot produce a transcript.
+        YtDlpError: If yt-dlp fails while fetching the transcript.
+        CacheError: If the transcript or the prompt cannot be saved in the cache.
+        ValueError: If the prepared scan is for another video.
+    """
+    # Refuse before fetching the transcript; `write_guide` checks again.
+    _ = check_existing_guides(prepared.target, prepared.scan, force)
+    with STDERR.status("Fetching transcript..."):
+        transcript = load_transcript(prepared.info, tools.provider, prepared.work_dir, refresh=refresh)
+    with STDERR.status(f"Writing the guide with {config.guide.generator} (this can take a few minutes)..."):
+        return write_guide(
+            prepared.info,
+            transcript,
+            tools.template,
+            tools.generator,
+            prepared.work_dir,
+            prepared.target.parent,
+            datetime.datetime.now().astimezone(),
+            timezone=tools.timezone,
+            existing=prepared.scan,
+            force=force,
+        )
+
+
+def _report_guide(result: GuideResult) -> None:
+    """Print where a guide was written, the older guides it replaced, and what the link check found.
+
+    Args:
+        result (GuideResult): The written guide.
+
+    Returns:
+        None
+    """
+    links = result.links
+    CONSOLE.print(f"Wrote {result.path}", markup=False, highlight=False)
+    for old in result.removed:
+        CONSOLE.print(f"Removed the older guide {old}", markup=False, highlight=False)
+    CONSOLE.print(f"{links.links} timestamp links, {links.relabeled} labels corrected.")
+    if links.out_of_range:
+        times = ", ".join(format_duration(seconds) for seconds in links.out_of_range)
+        STDERR.print(f"[yellow]Warning:[/yellow] links past the end of the video: {times}. Check those parts.")
+    if links.links == 0:
+        STDERR.print("[yellow]Warning:[/yellow] the guide has no timestamp links. Check the prompt template.")
+    if result.raw_reply_error is not None:
+        STDERR.print(
+            f"[yellow]Warning:[/yellow] the raw reply was not kept in the cache: {escape(result.raw_reply_error)}",
+            highlight=False,
+            soft_wrap=True,
+        )
+
+
 def _run_guide(
     config: AppConfig,
     video_id: str,
@@ -776,27 +947,10 @@ def _run_guide(
         typer.Exit: If any step fails.
     """
     try:
-        ytdlp = _make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
-        provider = make_transcript_provider(config, ytdlp)
-        generator = make_guide_generator(config)
-        work_dir = work_dir_for(config.cache_dir, video_id)
-        template, is_default = load_prompt_template(config.guide.prompt_template)
-        if is_default:
-            STDERR.print(
-                f"Using the built-in prompt template ({config.guide.prompt_template} does not exist). "
-                "Run `ces-youtube-tools config template` for an editable copy.",
-                markup=False,
-                highlight=False,
-            )
-        timezone = config.guide.file_name_zone()
-        with STDERR.status("Fetching video metadata..."):
-            info = load_video_info(video_id, ytdlp, work_dir, refresh=refresh)
-        scan = find_guides_for_video(target_dir, info.id)
-        for warning in scan.warnings:
-            STDERR.print(f"[yellow]Warning:[/yellow] {escape(warning)}", highlight=False, soft_wrap=True)
-        target = target_dir / guide_filename(info, timezone)
+        tools = _make_guide_tools(config)
+        prepared = _prepare_guide(config, tools, video_id, target_dir, refresh=refresh)
         if ask_to_overwrite and not force:
-            replaced = guides_to_replace(target, scan)
+            replaced = guides_to_replace(prepared.target, prepared.scan)
             if replaced:
                 names = ", ".join(str(path) for path in replaced)
                 question = (
@@ -808,42 +962,10 @@ def _run_guide(
                     CONSOLE.print("Kept the existing guide.")
                     return
                 force = True
-        # Refuse before fetching the transcript; `write_guide` checks again.
-        _ = check_existing_guides(target, scan, force)
-        with STDERR.status("Fetching transcript..."):
-            transcript = load_transcript(info, provider, work_dir, refresh=refresh)
-        with STDERR.status(f"Writing the guide with {config.guide.generator} (this can take a few minutes)..."):
-            result = write_guide(
-                info,
-                transcript,
-                template,
-                generator,
-                work_dir,
-                target_dir,
-                datetime.datetime.now().astimezone(),
-                timezone=timezone,
-                existing=scan,
-                force=force,
-            )
-    except (ValueError, YtDlpError, TranscriptError, GuideError, CacheError) as exc:
+        result = _generate_guide(config, tools, prepared, force=force, refresh=refresh)
+    except _GUIDE_ERRORS as exc:
         raise _fail(str(exc)) from exc
-
-    links = result.links
-    CONSOLE.print(f"Wrote {result.path}", markup=False, highlight=False)
-    for old in result.removed:
-        CONSOLE.print(f"Removed the older guide {old}", markup=False, highlight=False)
-    CONSOLE.print(f"{links.links} timestamp links, {links.relabeled} labels corrected.")
-    if links.out_of_range:
-        times = ", ".join(format_duration(seconds) for seconds in links.out_of_range)
-        STDERR.print(f"[yellow]Warning:[/yellow] links past the end of the video: {times}. Check those parts.")
-    if links.links == 0:
-        STDERR.print("[yellow]Warning:[/yellow] the guide has no timestamp links. Check the prompt template.")
-    if result.raw_reply_error is not None:
-        STDERR.print(
-            f"[yellow]Warning:[/yellow] the raw reply was not kept in the cache: {escape(result.raw_reply_error)}",
-            highlight=False,
-            soft_wrap=True,
-        )
+    _report_guide(result)
 
 
 def _channels_table(channels: list[ChannelConfig]) -> Table:
