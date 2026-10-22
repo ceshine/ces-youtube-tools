@@ -16,6 +16,8 @@ import {
   isGroupOpen,
   describeView,
   filterGuides,
+  showGuides,
+  emptyMessage,
   formatDuration,
   initialView,
   saveView,
@@ -200,20 +202,35 @@ test("groups start closed, except the ones the reader opened, and every one whil
   assert.equal(isGroupOpen(view({ group: "channel", q: " \t" }), "Talks 10", opened), false, "spaces are no filter");
 });
 
+test("showGuides leaves out the done guides only for To do with marks to read", () => {
+  const guides = [guide("a"), guide("b"), guide("c")];
+  const done = new Set(["b", "x"]);
+  assert.deepEqual(ids(showGuides(guides, view(), done)), ["a", "b", "c"]);
+  assert.deepEqual(ids(showGuides(guides, view({ show: "todo" }), done)), ["a", "c"]);
+  assert.deepEqual(ids(showGuides(guides, view({ show: "todo" }), null)), ["a", "b", "c"]);
+});
+
 test("parseView reads each setting on its own", () => {
   assert.deepEqual(parseView(""), DEFAULT_VIEW);
   assert.deepEqual(parseView("#"), DEFAULT_VIEW);
-  assert.deepEqual(parseView("#sort=generated&order=asc&group=channel&q=rust+talk"), {
+  assert.deepEqual(parseView("#sort=generated&order=asc&group=channel&show=todo&q=rust+talk"), {
     sort: "generated",
     order: "asc",
     group: "channel",
+    show: "todo",
     q: "rust talk",
   });
-  assert.deepEqual(parseView("sort=bogus&order=sideways&group=month"), view({ group: "month" }));
+  assert.deepEqual(parseView("sort=bogus&order=sideways&group=month&show=done"), view({ group: "month" }));
+});
+
+test("the Show setting is All by default, or To do", () => {
+  assert.deepEqual(CHOICES.show, { all: "All", todo: "To do" });
+  assert.equal(DEFAULT_VIEW.show, "all");
 });
 
 test("formatView writes what parseView reads", () => {
-  assert.equal(formatView(DEFAULT_VIEW), "sort=published&order=desc&group=none");
+  assert.equal(formatView(DEFAULT_VIEW), "sort=published&order=desc&group=none&show=all");
+  assert.equal(formatView(view({ show: "todo" })), "sort=published&order=desc&group=none&show=todo");
   const filtered = view({ sort: "generated", group: "month", q: "a & b #1" });
   assert.deepEqual(parseView(`#${formatView(filtered)}`), filtered);
 });
@@ -225,9 +242,11 @@ test("every choice of the controls is a view the hash keeps and the count line d
   for (const sort of Object.keys(CHOICES.sort)) {
     for (const order of Object.keys(CHOICES.order)) {
       for (const group of Object.keys(CHOICES.group)) {
-        const choice = view({ sort, order, group });
-        assert.deepEqual(parseView(`#${formatView(choice)}`), choice);
-        assert.match(describeView(choice, 2, 2), /^2 guides, .+ first\.$/);
+        for (const show of Object.keys(CHOICES.show)) {
+          const choice = view({ sort, order, group, show });
+          assert.deepEqual(parseView(`#${formatView(choice)}`), choice);
+          assert.match(describeView(choice, 2, 2), /^2 guides( to do)?, .+ first\.$/);
+        }
       }
     }
   }
@@ -238,6 +257,17 @@ test("describeView says what the list shows", () => {
   assert.equal(describeView(view(), 0, 0), "0 guides, newest publish date first.");
   const grouped = view({ sort: "generated", order: "asc", group: "month" });
   assert.equal(describeView(grouped, 1, 3), "1 of 3 guides, grouped by month, oldest generation date first.");
+  const todo = view({ show: "todo", group: "month" });
+  assert.equal(describeView(todo, 12, 40), "12 of 40 guides to do, grouped by month, newest publish date first.");
+  assert.equal(describeView(todo, 40, 40), "40 guides to do, grouped by month, newest publish date first.");
+  assert.equal(describeView(view({ show: "todo" }), 1, 1), "1 guide to do, newest publish date first.");
+});
+
+test("emptyMessage says why no guide is shown", () => {
+  assert.equal(emptyMessage(view({ q: "rust" })), "No guides match “rust”.");
+  assert.equal(emptyMessage(view({ show: "todo", q: "rust" })), "No guides to do match “rust”.");
+  assert.equal(emptyMessage(view({ show: "todo" })), "Nothing left to do.");
+  assert.equal(emptyMessage(view({ show: "todo", q: " " })), "Nothing left to do.", "spaces are no filter");
 });
 
 test("the hash beats the stored view, which beats the default and asks for the hash to be rewritten", () => {
@@ -255,6 +285,8 @@ test("a stored value is read like a hash, without its filter text", () => {
   const read = (value) => initialView("", memoryStorage({ [STORAGE_KEY]: value })).view;
   assert.deepEqual(read("sort=title&group=channel"), view({ group: "channel" }));
   assert.deepEqual(read("group=month&q=rust"), view({ group: "month" }));
+  assert.deepEqual(read("show=todo"), view({ show: "todo" }));
+  assert.deepEqual(read("sort=generated&order=desc&group=none"), view({ sort: "generated" }), "stored before Show");
   assert.deepEqual(initialView("", memoryStorage({ [STORAGE_KEY]: "not a view" })), {
     view: DEFAULT_VIEW,
     rewriteHash: false,
@@ -264,8 +296,12 @@ test("a stored value is read like a hash, without its filter text", () => {
 test("saveView leaves out the filter text, and removes the key for the default view", () => {
   const storage = memoryStorage();
   saveView(storage, view({ sort: "generated", order: "asc", group: "channel", q: "rust" }));
-  assert.deepEqual([...storage.items], [[STORAGE_KEY, "sort=generated&order=asc&group=channel"]]);
+  assert.deepEqual([...storage.items], [[STORAGE_KEY, "sort=generated&order=asc&group=channel&show=all"]]);
   saveView(storage, view({ q: "rust" }));
+  assert.deepEqual([...storage.items], []);
+  saveView(storage, view({ show: "todo" }));
+  assert.deepEqual([...storage.items], [[STORAGE_KEY, "sort=published&order=desc&group=none&show=todo"]]);
+  saveView(storage, view({ show: "all" }));
   assert.deepEqual([...storage.items], []);
 });
 

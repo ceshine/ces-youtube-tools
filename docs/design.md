@@ -421,7 +421,7 @@ commands that `site` has since replaced. What was built:
     pages, on a `VideoPager` that fetches deeper for each page. (Done, 2026-10-22.) See "Video listing" and "Browse
     step" above, and [the plan](20261021_browse_pagination_implementation.md).
 11. Done marks on the site: a "Done" toggle on each guide page and index row, kept in `localStorage`, and a
-    "Show: All | To do" setting in the index. (Planned, 2026-10-22.) See "Done marks" below, and
+    "Show: All | To do" setting in the index. (Done, 2026-10-22.) See "Done marks" below, and
     [the plan](20261022_done_marks_implementation.md).
 
 ## Guide metadata and a private site
@@ -660,16 +660,17 @@ guides into the page as JSON, and a script renders it.
   `null` when unknown. No description and no guide text. A test checks that a left-out guide's ID is not in the page.
 - Rendering uses `createElement` and `textContent`, never `innerHTML`: titles and channel names come from YouTube and
   are untrusted. This replaced the `html.escape` calls of the list built in Python (`_index_item`, removed in Step B).
-- The view (sort key and order, grouping, filter text) is kept in the URL hash, such as `#sort=generated&group=month`,
-  so reloading, the back button and saved links keep it. `localStorage` remembers the last sort, order and grouping
-  (decided on 2026-10-21), so the guide pages' "All guides" link, which carries no hash, opens the index as it was
-  left. A view in the hash wins over the stored one, and a stored view is written into the hash when used. Every view
-  shown is stored, from the controls, the hash or the page load; the default view removes the key instead, so a later
-  build can change the default. So a link that names only the filter, such as `#q=rust`, shows the default sort and
-  grouping and removes the stored view. The filter text is not stored, so a later visit never starts with guides
-  hidden. (The planned "Show" setting is stored all the same; see "Done marks" below for why.) A "Reset view" button returns to the default. A stored view that fails to render is removed, so the next
-  visit starts from the default. Read and written inside `try`/`catch`, as on the guide page; without storage the
-  index works as before, and the console has a warning. Details in
+- The view (sort key and order, grouping, "Show: All | To do", filter text) is kept in the URL hash, such as
+  `#sort=generated&group=month`, so reloading, the back button and saved links keep it. `localStorage` remembers the
+  last sort, order and grouping (decided on 2026-10-21), so the guide pages' "All guides" link, which carries no hash,
+  opens the index as it was left. A view in the hash wins over the stored one, and a stored view is written into the
+  hash when used. Every view shown is stored, from the controls, the hash or the page load; the default view removes
+  the key instead, so a later build can change the default. So a link that names only the filter, such as `#q=rust`,
+  shows the default sort and grouping and removes the stored view. The filter text is not stored, so a later visit
+  never starts with guides hidden. (The "Show" setting is stored all the same; see "Done marks" below for why.) A
+  "Reset view" button returns to the default. A stored view that fails to render is removed, so the next visit starts
+  from the default. Read and written inside `try`/`catch`, as on the guide page; without storage the index works as
+  before, and the console has a warning. Details in
   [20261021_interactive_index_implementation.md](20261021_interactive_index_implementation.md), Step D.
 - The default view sorts by publish date, newest first, then by channel, then by title; the second date sort is the
   generation date, also then by channel and title (decided on 2026-10-21). Each date is a day in the browser's time
@@ -678,8 +679,9 @@ guides into the page as JSON, and a script renders it.
   grouping by channel and the filter cover finding a channel or a title. There is no members-only filter or grouping
   by year either. An unknown value in the hash falls back to the default, so adding or dropping a choice later breaks
   no saved link.
-- Controls above the list: a row of joined buttons each for the sort, the order and the grouping, and a search box for
-  the filter. The buttons replaced menus on 2026-10-21, so every choice is in sight and one click away. Each row is a
+- Controls above the list: a row of joined buttons each for the sort, the order, the grouping and "Show: All | To do",
+  and a search box for the filter. The "Show" row stays hidden when the done marks cannot be read (see "Done marks"
+  below). The buttons replaced menus on 2026-10-21, so every choice is in sight and one click away. Each row is a
   set of radio inputs, invisible, each followed by the label drawn as its button: radios give one choice at a time,
   arrow keys and a group name (`role="radiogroup"`) without code, and fire `input` as the menus did. The script reads
   a row's checked radio with `querySelector` and checks one by its ID (`choice-<setting>-<value>`, a prefix no other
@@ -744,7 +746,7 @@ guides into the page as JSON, and a script renders it.
 
 ### Done marks
 
-Planned on 2026-10-22; the steps are in [20261022_done_marks_implementation.md](20261022_done_marks_implementation.md).
+Done on 2026-10-22; the steps are in [20261022_done_marks_implementation.md](20261022_done_marks_implementation.md).
 The reader can mark a guide "Done" on its page or in the index, and show only the guides still to do.
 
 - One state per guide, keyed by `video_id`, which is one guide per video (see "`site` command"). "Done" rather than

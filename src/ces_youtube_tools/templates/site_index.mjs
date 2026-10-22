@@ -1,6 +1,6 @@
 // The index page's script, written to the site as `index.mjs`. It reads the guides from the page's JSON block and
 // renders the view named in the URL hash, such as `#sort=generated&group=month&q=rust`. Without one, it renders the
-// sort, order and grouping it remembered in `localStorage`.
+// sort, order, grouping and "Show" setting it remembered in `localStorage`. The done marks come from `site_done.mjs`.
 //
 // The pure functions are exported for the Node tests in `tests/js/`. Only `main()` touches the page, and it runs only
 // when there is a `document`, so importing this file in Node has no side effects.
@@ -9,9 +9,9 @@
 // turned into a `YYYY-MM-DD` string first (`localDay`); a date-only value (`upload_date`, an old `generated`) is used
 // as it is, never through `Date`, since `new Date("2026-10-01")` is midnight UTC, which is still September west of UTC.
 
-import { browserStorage } from "./site_done.mjs";
+import { DONE_KEY, browserStorage, readDone, setDone, showToggle } from "./site_done.mjs";
 
-export const DEFAULT_VIEW = Object.freeze({ sort: "published", order: "desc", group: "none", q: "" });
+export const DEFAULT_VIEW = Object.freeze({ sort: "published", order: "desc", group: "none", show: "all", q: "" });
 
 // Each setting's choices with their labels, in the order the controls list them. `parseView` accepts only these, and
 // the controls are filled from them.
@@ -19,6 +19,7 @@ export const CHOICES = Object.freeze({
   sort: Object.freeze({ published: "Publish date", generated: "Generation date" }),
   order: Object.freeze({ desc: "Newest first", asc: "Oldest first" }),
   group: Object.freeze({ none: "None", channel: "Channel", month: "Month" }),
+  show: Object.freeze({ all: "All", todo: "To do" }),
 });
 const SORT_LABELS = {
   published: { desc: "newest publish date first", asc: "oldest publish date first" },
@@ -168,6 +169,22 @@ export function filterGuides(guides, text) {
 }
 
 /**
+ * Keep the guides the view's "Show" setting asks for.
+ *
+ * @param {object[]} guides The payload entries.
+ * @param {object} view The view; its `show` is used.
+ * @param {Set<string> | null} done The video IDs marked done, or null when the marks cannot be read.
+ * @returns {object[]} With `show=todo` and marks to read, the guides not marked done, in the same order; otherwise all
+ *     of them.
+ */
+export function showGuides(guides, view, done) {
+  if (view.show !== "todo" || done === null) {
+    return guides;
+  }
+  return guides.filter((guide) => !done.has(guide.video_id));
+}
+
+/**
  * Whether the filter text holds a word, which is when `filterGuides` can leave guides out.
  *
  * @param {object} view The view; its `q` is used.
@@ -244,7 +261,7 @@ function pick(value, choices, fallback) {
  * setting's default, and the other settings are kept.
  *
  * @param {string} hash The hash, such as `#sort=generated&group=month`, with or without the `#`.
- * @returns {{sort: string, order: string, group: string, q: string}} The view.
+ * @returns {{sort: string, order: string, group: string, show: string, q: string}} The view.
  */
 export function parseView(hash) {
   const params = new URLSearchParams(hash.replace(/^#/, ""));
@@ -252,6 +269,7 @@ export function parseView(hash) {
     sort: pick(params.get("sort"), CHOICES.sort, DEFAULT_VIEW.sort),
     order: pick(params.get("order"), CHOICES.order, DEFAULT_VIEW.order),
     group: pick(params.get("group"), CHOICES.group, DEFAULT_VIEW.group),
+    show: pick(params.get("show"), CHOICES.show, DEFAULT_VIEW.show),
     q: params.get("q") ?? "",
   };
 }
@@ -260,18 +278,20 @@ export function parseView(hash) {
  * Write a view as `parseView` reads it, without the `#`.
  *
  * @param {object} view The view.
- * @returns {string} Such as `sort=published&order=desc&group=month&q=rust`; `q` only when there is filter text.
+ * @returns {string} Such as `sort=published&order=desc&group=month&show=all&q=rust`; `q` only when there is filter
+ *     text.
  */
 export function formatView(view) {
-  const params = new URLSearchParams({ sort: view.sort, order: view.order, group: view.group });
+  const params = new URLSearchParams({ sort: view.sort, order: view.order, group: view.group, show: view.show });
   if (view.q !== "") {
     params.set("q", view.q);
   }
   return params.toString();
 }
 
-// The key `localStorage` keeps the last sort, order and grouping under, as `formatView` writes them. The guide page
-// keeps its toggle under `ces-youtube-tools:scroll-to-player`, and `site_done.mjs` the done marks under `DONE_KEY`.
+// The key `localStorage` keeps the last sort, order, grouping and "Show" setting under, as `formatView` writes them.
+// The guide page keeps its toggle under `ces-youtube-tools:scroll-to-player`, and `site_done.mjs` the done marks under
+// `DONE_KEY`.
 export const STORAGE_KEY = "ces-youtube-tools:index-view";
 
 function namesAny(text, names) {
@@ -313,7 +333,7 @@ export function initialView(hash, storage) {
 }
 
 /**
- * Remember a view's sort, order and grouping; for the default view, forget any stored one.
+ * Remember a view's sort, order, grouping and "Show" setting; for the default view, forget any stored one.
  *
  * Removing the key for the default lets a later build change the default without an old stored value hiding it.
  *
@@ -341,19 +361,34 @@ export function saveView(storage, view) {
  * Describe what the list shows, for the line under the heading.
  *
  * @param {object} view The view.
- * @param {number} shown The guides that match the filter.
+ * @param {number} shown The guides that match the filter, and with `show=todo` are not marked done.
  * @param {number} total All the guides.
- * @returns {string} Such as "12 of 40 guides, grouped by month, newest publish date first."
+ * @returns {string} Such as "12 of 40 guides, grouped by month, newest publish date first.", or with `show=todo`
+ *     "12 of 40 guides to do, …".
  */
 export function describeView(view, shown, total) {
   const all = total === 1 ? "1 guide" : `${total} guides`;
-  const count = shown === total ? all : `${shown} of ${all}`;
+  const count = (shown === total ? all : `${shown} of ${all}`) + (view.show === "todo" ? " to do" : "");
   const grouping = view.group === "none" ? "" : `, grouped by ${view.group}`;
   return `${count}${grouping}, ${SORT_LABELS[view.sort][view.order]}.`;
 }
 
-// The code below touches the page. The controls are a row of radio buttons per setting (`sort`, `order`, `group`),
-// named after it and filled into `#<setting>-choices`, and the filter box `#q`.
+/**
+ * Say why the list is empty when there are guides but the view shows none.
+ *
+ * @param {object} view The view; its `show` and `q` are used.
+ * @returns {string} Such as `No guides match “rust”.`, or with `show=todo` `No guides to do match “rust”.`, or
+ *     "Nothing left to do." without filter text.
+ */
+export function emptyMessage(view) {
+  if (view.show !== "todo") {
+    return `No guides match “${view.q}”.`;
+  }
+  return isFiltering(view) ? `No guides to do match “${view.q}”.` : "Nothing left to do.";
+}
+
+// The code below touches the page. The controls are a row of radio buttons per setting (`sort`, `order`, `group`,
+// `show`), named after it and filled into `#<setting>-choices`, and the filter box `#q`.
 // Text from the payload goes in with `textContent` only, never `innerHTML`: titles and channel names come from YouTube.
 
 function element(tag, className, text) {
@@ -373,9 +408,30 @@ function timeElement(day) {
   return node;
 }
 
-function guideItem(guide, view) {
+// The ID of a row's title link. A video ID holds only letters, digits, `-` and `_`, and appears once in the list.
+function titleId(guide) {
+  return `title-${guide.video_id}`;
+}
+
+// The row's "Done" toggle; `site_done.mjs`'s `showToggle` sets its state. Its name is "Done", as on the guide page, and
+// the guide's title is its description, so a screen reader can tell the rows' toggles apart.
+function doneToggle(guide, isDone) {
+  const button = element("button", "done-toggle");
+  button.type = "button";
+  button.setAttribute("aria-label", "Done");
+  button.setAttribute("aria-describedby", titleId(guide));
+  button.dataset.videoId = guide.video_id;
+  const mark = element("span", "done-mark");
+  mark.setAttribute("aria-hidden", "true");
+  button.append(mark);
+  showToggle(button, isDone);
+  return button;
+}
+
+function guideItem(guide, view, done) {
   const link = element("a", null, guide.title);
   link.setAttribute("href", guide.video_id);
+  link.id = titleId(guide);
   const meta = element("p", "meta");
   const published = guideDay(guide, "published");
   if (published !== null) {
@@ -398,18 +454,26 @@ function guideItem(guide, view) {
   } else if (guide.members_only === null) {
     meta.append(element("span", "badge", "Availability unknown"));
   }
+  const entry = element("div", "entry");
+  entry.append(link, meta);
   const item = element("li");
-  item.append(link, meta);
+  // Without marks to read, there is no toggle to offer.
+  if (done !== null) {
+    const isDone = done.has(guide.video_id);
+    item.classList.toggle("done", isDone);
+    item.append(doneToggle(guide, isDone));
+  }
+  item.append(entry);
   return item;
 }
 
-function guideList(guides, view) {
+function guideList(guides, view, done) {
   const list = element("ol", "guides");
-  list.append(...guides.map((guide) => guideItem(guide, view)));
+  list.append(...guides.map((guide) => guideItem(guide, view, done)));
   return list;
 }
 
-function groupDetails(group, view, openGroups) {
+function groupDetails(group, view, openGroups, done) {
   const summary = element("summary");
   summary.append(element("h2", null, `${group.label} · ${group.guides.length}`));
   const details = element("details", "group");
@@ -419,22 +483,22 @@ function groupDetails(group, view, openGroups) {
     details.dataset.filtered = "";
   }
   details.open = isGroupOpen(view, group.label, openGroups);
-  details.append(summary, guideList(group.guides, view));
+  details.append(summary, guideList(group.guides, view, done));
   return details;
 }
 
-function listing(guides, shown, view, openGroups) {
+function listing(guides, shown, view, openGroups, done) {
   if (guides.length === 0) {
     return [element("p", "empty", "No guides yet.")];
   }
   if (shown.length === 0) {
-    return [element("p", "empty", `No guides match “${view.q}”.`)];
+    return [element("p", "empty", emptyMessage(view))];
   }
   return groupGuides(shown, view).map((group) => {
     if (group.label === null) {
-      return guideList(group.guides, view);
+      return guideList(group.guides, view, done);
     }
-    return groupDetails(group, view, openGroups);
+    return groupDetails(group, view, openGroups, done);
   });
 }
 
@@ -472,12 +536,32 @@ function readControls() {
   return view;
 }
 
-function render(guides, view, openGroups) {
-  const shown = sortGuides(filterGuides(guides, view.q), view);
+// The marks are read on every render, so a render shows the ones made on a guide page or in another tab since.
+function render(guides, view, openGroups, storage) {
+  const done = readDone(storage);
+  // Without marks to read, "To do" cannot be told apart from "All", so the list and the count line show "All"; the
+  // hash keeps the setting, and the "Show" row is hidden.
+  const shownView = done === null ? { ...view, show: "all" } : view;
+  const shown = sortGuides(showGuides(filterGuides(guides, view.q), shownView, done), view);
   // Built before the page is changed, so a view that fails leaves the count line as it was.
-  const items = listing(guides, shown, view, openGroups);
-  document.getElementById("count").textContent = describeView(view, shown.length, guides.length);
+  const items = listing(guides, shown, shownView, openGroups, done);
+  document.getElementById("count").textContent = describeView(shownView, shown.length, guides.length);
+  document.getElementById("show-row").hidden = done === null;
   document.getElementById("listing").replaceChildren(...items);
+}
+
+// One listener for every row's toggle. The row is changed in place, without a render, so a row marked done under
+// "To do" stays until the next render, and a wrong click can be undone where it was made.
+function markRow(storage, event) {
+  const button = event.target.closest(".done-toggle");
+  if (button === null) {
+    return;
+  }
+  const done = button.getAttribute("aria-pressed") !== "true";
+  if (setDone(storage, button.dataset.videoId, done)) {
+    showToggle(button, done);
+    button.closest("li").classList.toggle("done", done);
+  }
 }
 
 function writeHash(view) {
@@ -523,16 +607,18 @@ function main() {
   // Every view shown is remembered, wherever it comes from, since it is the view on screen.
   const show = (view) => {
     setControls(view);
-    render(guides, view, openGroups);
+    render(guides, view, openGroups, storage);
     saveView(storage, view);
   };
   const showHash = () => show(parseView(location.hash));
   const showControls = () => {
     const view = readControls();
-    render(guides, view, openGroups);
+    render(guides, view, openGroups, storage);
     writeHash(view);
     saveView(storage, view);
   };
+  // The view on screen, with the marks read again; the hash and the stored view are already this view's.
+  const showMarks = () => render(guides, readControls(), openGroups, storage);
   const resetView = () => {
     openGroups.clear();
     show(DEFAULT_VIEW);
@@ -574,6 +660,20 @@ function main() {
     }
   };
   document.getElementById("listing").addEventListener("toggle", rememberToggle, true);
+  document.getElementById("listing").addEventListener("click", (event) => markRow(storage, event));
+  // A page shown again from the back-forward cache has the marks it had when left. On a plain load the page was
+  // rendered already, so it is not rendered twice.
+  window.addEventListener("pageshow", (event) => {
+    if (event.persisted) {
+      guarded(showMarks)();
+    }
+  });
+  // A mark made in another tab; a null key is storage cleared. The event never fires in the tab that made the change.
+  window.addEventListener("storage", (event) => {
+    if (event.key === DONE_KEY || event.key === null) {
+      guarded(showMarks)();
+    }
+  });
   const controls = document.getElementById("controls");
   // `input` bubbles from the radios too.
   controls.addEventListener("input", guarded(showControls));

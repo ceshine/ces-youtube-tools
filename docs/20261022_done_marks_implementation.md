@@ -4,7 +4,7 @@ Written on 2026-10-22. The reader marks a guide "Done" on its page or in the ind
 guides still to do. The marks are kept in the browser's `localStorage`. The design is in "Done marks" in
 [design.md](design.md) (build order item 11); this file lists the steps to build it. Each step passes the tests and
 can be deployed on its own: Step 1 adds a script nothing loads yet, Step 2 gives the guide pages their toggles, and
-Step 3 the index.
+Step 3 the index. All steps were done on 2026-10-22.
 
 ## Open decisions
 

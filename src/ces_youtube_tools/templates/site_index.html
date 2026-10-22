@@ -62,7 +62,7 @@ h1 {
   color: var(--muted);
 }
 /* `display: flex` above would otherwise win over the browser's `[hidden] { display: none }`. */
-.controls[hidden] { display: none; }
+.controls[hidden], .controls .choice[hidden] { display: none; }
 .controls .choice, .controls .filter { display: flex; align-items: center; gap: 6px; }
 .controls .filter { flex: 1 1 16em; }
 .controls input[type="search"], .controls button, .segmented label {
@@ -113,11 +113,37 @@ h1 {
   border-top: 1px solid var(--border);
 }
 .guides li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
   padding: 12px 10px;
   border-bottom: 1px solid var(--border);
   transition: background-color 0.15s;
 }
 .guides li:hover { background: var(--row-hover); }
+.guides .entry { flex: 1; min-width: 0; transition: opacity 0.15s; }
+/* A done row is dimmed, but not its toggle, which stays easy to find and to undo. */
+.guides li.done .entry { opacity: 0.55; }
+/* The row's "Done" toggle, added by the script when there are marks to read: a round button holding `○` or `✓`. */
+.done-toggle {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  line-height: 24px;
+  text-align: center;
+  color: var(--muted);
+  background: var(--field);
+  border: 1px solid var(--field-border);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+}
+.done-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.done-toggle[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+.done-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .guides a {
   color: var(--text);
   font-weight: 600;
@@ -173,7 +199,7 @@ h1 {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .guides li, .group summary::before { transition: none; }
+  .guides li, .guides .entry, .done-toggle, .group summary::before { transition: none; }
 }
 </style>
 </head>
@@ -187,6 +213,8 @@ h1 {
 <div class="segmented" id="order-choices" role="radiogroup" aria-labelledby="order-label"></div></div>
 <div class="choice"><span id="group-label">Group</span>
 <div class="segmented" id="group-choices" role="radiogroup" aria-labelledby="group-label"></div></div>
+<div class="choice" id="show-row" hidden><span id="show-label">Show</span>
+<div class="segmented" id="show-choices" role="radiogroup" aria-labelledby="show-label"></div></div>
 <label class="filter">Filter <input type="search" id="q" placeholder="Title or channel" autocomplete="off"></label>
 <button type="button" id="reset">Reset view</button>
 </div>
