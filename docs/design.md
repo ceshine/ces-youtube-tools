@@ -417,6 +417,9 @@ commands that `site` has since replaced. What was built:
 10. Pages in `browse`: "Previous page" and "Next page" entries in the video menu, with the selection kept across
     pages, on a `VideoPager` that fetches deeper for each page. (Done, 2026-10-22.) See "Video listing" and "Browse
     step" above, and [the plan](20261021_browse_pagination_implementation.md).
+11. Done marks on the site: a "Done" toggle on each guide page and index row, kept in `localStorage`, and a
+    "Show: All | To do" setting in the index. (Planned, 2026-10-22.) See "Done marks" below, and
+    [the plan](20261022_done_marks_implementation.md).
 
 ## Guide metadata and a private site
 
@@ -661,7 +664,7 @@ guides into the page as JSON, and a script renders it.
   shown is stored, from the controls, the hash or the page load; the default view removes the key instead, so a later
   build can change the default. So a link that names only the filter, such as `#q=rust`, shows the default sort and
   grouping and removes the stored view. The filter text is not stored, so a later visit never starts with guides
-  hidden. A "Reset view" button returns to the default. A stored view that fails to render is removed, so the next
+  hidden. (The planned "Show" setting is stored all the same; see "Done marks" below for why.) A "Reset view" button returns to the default. A stored view that fails to render is removed, so the next
   visit starts from the default. Read and written inside `try`/`catch`, as on the guide page; without storage the
   index works as before, and the console has a warning. Details in
   [20261021_interactive_index_implementation.md](20261021_interactive_index_implementation.md), Step D.
@@ -735,6 +738,56 @@ guides into the page as JSON, and a script renders it.
   as a module path, not a folder of tests), and fails with Node's output if they fail; it is skipped when `node` is not
   on `PATH` or is older than Node 22, so `uv run pytest` still works without Node. The Python side (payload, escaping,
   left-out guides, `index.mjs` written) is tested in pytest as usual.
+
+### Done marks
+
+Planned on 2026-10-22; the steps are in [20261022_done_marks_implementation.md](20261022_done_marks_implementation.md).
+The reader can mark a guide "Done" on its page or in the index, and show only the guides still to do.
+
+- One state per guide, keyed by `video_id`, which is one guide per video (see "`site` command"). "Done" rather than
+  "Read", so it covers reading the guide and watching the video. A boolean only: no time is kept.
+- Marked by hand only, with a toggle that works both ways. Opening a page, scrolling to its end or the player
+  reaching the end of the video does not mark it: opening a guide is not reading it, and a wrong mark would have to be
+  undone by hand.
+- Kept in `localStorage`, under one key, `ces-youtube-tools:done`, as a JSON array of video IDs. No server: the site
+  stays static, and no Pages Function or KV store is added (considered on 2026-10-22, and the way to go if marks need
+  to follow the reader across devices). The cost:
+  - The marks belong to one browser on one device, and are lost when its site data is cleared. There is no export or
+    import yet; one key makes that a small addition later.
+  - `localStorage` is per origin, so marks made on `ces-youtube-watching-guides.pages.dev` do not show on a preview
+    host (`<hash>.ces-youtube-watching-guides.pages.dev`) or on `npx wrangler pages dev`. `deploy.sh` always deploys
+    to the production host, so that is the one in daily use.
+- The CLI does not see the marks: they are a concern of the site only. `browse` already reports the guides that
+  exist, which is what matters when picking videos.
+- Format: a missing key is "nothing done". A value that is not a JSON array of strings is read as "nothing done" with a
+  warning in the console, and the next toggle replaces it. IDs of guides that are no longer published stay in the
+  array; they cost a few bytes each. The key is removed when the last mark is. Each toggle reads the key again just
+  before writing it, so a mark made in another tab is not lost.
+- Without storage (blocked site data), or without JavaScript, the toggles and the "Show" row stay hidden rather than
+  offering marks that cannot be kept. A write that fails leaves the toggle as it was, with a warning in the console.
+- Wording: one word, "Done", everywhere; the state is shown by a glyph, `○` or `✓`, in an `aria-hidden` span, and by
+  `aria-pressed` on the button, so the button's name stays "Done" and screen readers announce the state.
+- Guide page: a toggle `○ Done` / `✓ Done` next to the "All guides" link above the player, and the same toggle after
+  the guide's text, where reading ends. The two stay in step. Both come with the "All guides" link
+  (`render_guide_page(link_to_index=True)`), since `site` is what writes the shared script they need. Hidden in print.
+- Index: each row starts with an icon button (`○` / `✓`, named "Done"), and a done row is dimmed; no separate badge,
+  the `✓` is the cue. A fourth row of buttons, "Show: All | To do", is a view setting like the others: `show=todo` in
+  the hash, "All" by default.
+- The "Show" setting is remembered in `localStorage` with the sort, order and grouping (decided on 2026-10-22), unlike
+  the filter text. The rule that "a later visit never starts with guides hidden" is about guides hidden without the
+  reader seeing why; "To do" is a highlighted button and the count line says it, and it is likely the view the reader
+  works in. "Reset view" returns to "All".
+- A row marked done while "To do" is shown stays, dimmed, until the next render (the filter, another setting, a reload),
+  so a wrong click can be undone where it was made. The click changes the row in place and does not render the list.
+- "To do" does not open the groups as the filter text does: it is a standing view, and the groups stay a table of
+  contents. Group headings keep their count of the guides shown, with no done count.
+- Both pages read the marks again on `pageshow` (Back and Forward can show a page from the browser's cache, with old
+  marks) and on the `storage` event (a mark made in another tab).
+- Code: the storage format and the toggle's state live in one module, `templates/site_done.mjs`, written to `OUT`
+  under the same name. The index script imports it as `./site_done.mjs`, and the guide page loads it from a small
+  module script; the guide page's inline script is left as it is. The file keeps its `templates/` name in `OUT`
+  because the index script's import must find it both there and when the Node tests import the script from
+  `templates/`. Its pure functions are tested with `node --test` like the index script's.
 
 ## Planned: interactive config session
 
