@@ -547,10 +547,10 @@ step", the front matter and `backfill` above.
 ### `site` command
 
 `ces-youtube-tools site [DIR] [-o OUT] [--include-members-only]` (`static_site.py`, done) writes the whole site into
-`OUT`: one page per guide, `index.html` with its script `index.mjs`, `robots.txt` and a `_headers` file. `DIR`
-defaults to `guide.output_dir`, and its `.md` files (not its subfolders) are the guides. `OUT` defaults to
-`site.output_dir`; with neither, the command fails rather than picking a folder to clear. Deploying is kept outside
-the tool; the command prints `npx wrangler pages deploy OUT`.
+`OUT`: one page per guide, `index.html` with its script `index.mjs`, `site_done.mjs` (see "Done marks" below),
+`robots.txt` and a `_headers` file. `DIR` defaults to `guide.output_dir`, and its `.md` files (not its subfolders) are
+the guides. `OUT` defaults to `site.output_dir`; with neither, the command fails rather than picking a folder to
+clear. Deploying is kept outside the tool; the command prints `npx wrangler pages deploy OUT`.
 
 - `deploy.sh` in the repository root is how the site is deployed. It checks that Access still guards the site (see
   below), builds with `site -o _site --include-members-only`, and runs `npx wrangler pages deploy --branch=main`, so

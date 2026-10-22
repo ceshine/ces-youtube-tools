@@ -212,6 +212,9 @@ def _script_json(data: object) -> str:
 def write_site(build: SiteBuild, out_dir: Path) -> None:
     """Write the site into a folder, replacing what an earlier build wrote there.
 
+    The site is one page per guide, `index.html` with its script `index.mjs`, `site_done.mjs` (the done marks, used by
+    the index's script and the guide pages), `robots.txt` and `_headers`.
+
     Args:
         build (SiteBuild): The pages. Its guides, published or left out, are the files the output folder may not
             hold.
@@ -231,6 +234,8 @@ def write_site(build: SiteBuild, out_dir: Path) -> None:
         {
             "index.html": render_index(build.pages),
             "index.mjs": _read_template("site_index.mjs"),
+            # The same name as the template: `index.mjs` imports it as `./site_done.mjs`, in the site and in the tests.
+            "site_done.mjs": _read_template("site_done.mjs"),
             "robots.txt": _ROBOTS_TXT,
             "_headers": _HEADERS,
         }

@@ -9,6 +9,8 @@
 // turned into a `YYYY-MM-DD` string first (`localDay`); a date-only value (`upload_date`, an old `generated`) is used
 // as it is, never through `Date`, since `new Date("2026-10-01")` is midnight UTC, which is still September west of UTC.
 
+import { browserStorage } from "./site_done.mjs";
+
 export const DEFAULT_VIEW = Object.freeze({ sort: "published", order: "desc", group: "none", q: "" });
 
 // Each setting's choices with their labels, in the order the controls list them. `parseView` accepts only these, and
@@ -269,7 +271,7 @@ export function formatView(view) {
 }
 
 // The key `localStorage` keeps the last sort, order and grouping under, as `formatView` writes them. The guide page
-// keeps its toggle under `ces-youtube-tools:scroll-to-player`.
+// keeps its toggle under `ces-youtube-tools:scroll-to-player`, and `site_done.mjs` the done marks under `DONE_KEY`.
 export const STORAGE_KEY = "ces-youtube-tools:index-view";
 
 function namesAny(text, names) {
@@ -508,16 +510,6 @@ function guarded(listener) {
       showFailure(error);
     }
   };
-}
-
-function browserStorage() {
-  // Reading the property itself can throw, such as when the browser blocks site data.
-  try {
-    return window.localStorage ?? null;
-  } catch (error) {
-    console.warn("The view will not be remembered: the browser gives no storage.", error);
-    return null;
-  }
 }
 
 function main() {

@@ -209,13 +209,30 @@ def test_write_site_writes_every_file(guides: Path, tmp_path: Path) -> None:
         "index.html",
         "index.mjs",
         "robots.txt",
+        "site_done.mjs",
     ]
-    script = resources.files("ces_youtube_tools").joinpath("templates/site_index.mjs").read_text("utf-8")
-    assert (out / "index.mjs").read_text(encoding="utf-8") == script
+    templates = resources.files("ces_youtube_tools").joinpath("templates")
+    assert (out / "index.mjs").read_text(encoding="utf-8") == templates.joinpath("site_index.mjs").read_text("utf-8")
+    assert (out / "site_done.mjs").read_text(encoding="utf-8") == templates.joinpath("site_done.mjs").read_text("utf-8")
     assert (out / "robots.txt").read_text(encoding="utf-8") == "User-agent: *\nDisallow: /\n"
     headers = (out / "_headers").read_text(encoding="utf-8")
     assert headers.startswith("/*\n") and "  X-Robots-Tag: noindex, nofollow\n" in headers
     assert "no-referrer" not in headers  # the player needs the Referer
+
+
+def test_write_site_writes_every_module_a_script_imports(guides: Path, tmp_path: Path) -> None:
+    # The Node tests import the scripts from `templates/`, where `index.mjs` is `site_index.mjs`, so only the written
+    # site shows whether a file written under another name breaks a relative import.
+    out = tmp_path / "site"
+    write_site(collect_pages(guide_paths(guides), include_members_only=False), out)
+    imports = {
+        (script.name, target)
+        for script in out.glob("*.mjs")
+        for target in re.findall(r"""\b(?:from|import)\s*["'](\.{1,2}/[^"']+)["']""", script.read_text("utf-8"))
+    }
+    assert ("index.mjs", "./site_done.mjs") in imports
+    missing = [(script, target) for script, target in imports if not (out / target).is_file()]
+    assert missing == []
 
 
 def test_write_site_clears_its_own_folder(guides: Path, tmp_path: Path) -> None:

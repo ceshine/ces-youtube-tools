@@ -169,8 +169,8 @@ and a cache write only adds cost. Set `prompt_caching = true` under `[guide.opti
   brings older guides up to date: it rewrites their front matter, keeping keys it does not know and the text below,
   and renames them. A guide it cannot update is left as it is and listed; two guides for one video, or a new name
   already taken, stop it before it changes anything.
-- **Site:** `<video id>.html` for each guide, plus `index.html`, its script `index.mjs`, `robots.txt` and `_headers`,
-  in `-o OUT`, else `site.output_dir`.
+- **Site:** `<video id>.html` for each guide, plus `index.html`, its script `index.mjs`, `site_done.mjs`, `robots.txt`
+  and `_headers`, in `-o OUT`, else `site.output_dir`.
 - **Cache:** `~/.cache/ces-youtube-tools/<video id>/` holds the video metadata, subtitles, transcript, and the prompt
   and raw reply of the last generation. A rerun repeats only the failed step; `--refresh` ignores the cache.
 
