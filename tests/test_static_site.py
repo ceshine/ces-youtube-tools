@@ -222,15 +222,21 @@ def test_write_site_writes_every_file(guides: Path, tmp_path: Path) -> None:
 
 def test_write_site_writes_every_module_a_script_imports(guides: Path, tmp_path: Path) -> None:
     # The Node tests import the scripts from `templates/`, where `index.mjs` is `site_index.mjs`, so only the written
-    # site shows whether a file written under another name breaks a relative import.
+    # site shows whether a file written under another name breaks a relative import. A guide page's imports are in its
+    # module scripts, which are read alone, so an import shown in a guide's code span is not taken for one.
     out = tmp_path / "site"
     write_site(collect_pages(guide_paths(guides), include_members_only=False), out)
+    scripts = [(script.name, script.read_text("utf-8")) for script in out.glob("*.mjs")]
+    for page in out.glob("*.html"):
+        found = re.findall(r'<script type="module">(.*?)</script>', page.read_text("utf-8"), re.DOTALL)
+        scripts.extend((page.name, code) for code in found)
     imports = {
-        (script.name, target)
-        for script in out.glob("*.mjs")
-        for target in re.findall(r"""\b(?:from|import)\s*["'](\.{1,2}/[^"']+)["']""", script.read_text("utf-8"))
+        (name, target)
+        for name, code in scripts
+        for target in re.findall(r"""\b(?:from|import)\s*["'](\.{1,2}/[^"']+)["']""", code)
     }
     assert ("index.mjs", "./site_done.mjs") in imports
+    assert ("aaaaaaaaaaa.html", "./site_done.mjs") in imports
     missing = [(script, target) for script, target in imports if not (out / target).is_file()]
     assert missing == []
 

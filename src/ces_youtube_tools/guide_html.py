@@ -24,7 +24,11 @@ _MEMBERS_HINT = (
     "icon in the address bar); other browsers may need third-party cookies allowed for this site. Until then, "
     "timestamps still open YouTube when you Ctrl+click them.</p>\n"
 )
-_INDEX_LINK = '  <nav class="site-nav"><a href="./">&larr; All guides</a></nav>\n'
+# Hidden until `site_done.mjs` finds storage to keep the mark in. Its name stays "Done"; the glyph shows the state.
+_DONE_TOGGLE = (
+    '<button type="button" class="done-toggle" data-video-id="{video_id}" aria-pressed="false" hidden>'
+    '<span class="done-mark" aria-hidden="true">○</span> Done</button>'
+)
 
 
 class GuideHtmlError(Exception):
@@ -118,11 +122,12 @@ def render_guide_page(
 
     Args:
         markdown (str): The guide, without front matter.
-        video_id (str): The YouTube video ID. It is put into a URL and a JavaScript string without escaping, so it
-            must be 11 characters from `A-Z`, `a-z`, `0-9`, `_` and `-`.
+        video_id (str): The YouTube video ID. It is put into a URL, a JavaScript string and an HTML attribute
+            without escaping, so it must be 11 characters from `A-Z`, `a-z`, `0-9`, `_` and `-`.
         fallback_title (str): The page title to use when the guide has no level-one heading.
         members_only (bool): Add a hint under the player about letting the browser send the YouTube sign-in.
-        link_to_index (bool): Add a link to the index (`./`) above the player, for pages of the site.
+        link_to_index (bool): For pages of the site: add a link to the index (`./`) above the player, and a "Done"
+            toggle next to it and after the guide's text, run by the site's `site_done.mjs`.
 
     Returns:
         str: The complete page.
@@ -138,8 +143,38 @@ def render_guide_page(
         video_id=video_id,
         body=markdown_to_html(markdown),
         members_hint=_MEMBERS_HINT if members_only else "",
-        index_link=_INDEX_LINK if link_to_index else "",
+        index_link=_index_link(video_id) if link_to_index else "",
+        done_end=_done_end(video_id) if link_to_index else "",
     )
+
+
+def _index_link(video_id: str) -> str:
+    """Build the nav above the player of a page of the site: the link to the index and a "Done" toggle.
+
+    Args:
+        video_id (str): The page's video. It goes into an attribute without escaping, so it must have passed
+            `is_video_id`.
+
+    Returns:
+        str: The nav, for `$index_link`.
+    """
+    toggle = _DONE_TOGGLE.format(video_id=video_id)
+    return f'  <nav class="site-nav"><a href="./">&larr; All guides</a>{toggle}</nav>\n'
+
+
+def _done_end(video_id: str) -> str:
+    """Build the end of a page of the site: a second "Done" toggle, and the module script that runs both.
+
+    Args:
+        video_id (str): The page's video. It goes into an attribute without escaping, so it must have passed
+            `is_video_id`.
+
+    Returns:
+        str: The toggle and the script, for `$done_end`.
+    """
+    toggle = _DONE_TOGGLE.format(video_id=video_id)
+    script = 'import { browserStorage, initGuidePage } from "./site_done.mjs"; initGuidePage(browserStorage());'
+    return f'<p class="done-end">{toggle}</p>\n<script type="module">{script}</script>\n'
 
 
 def expand_paths(paths: list[str], cwd: Path) -> list[Path]:

@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 import pytest
@@ -123,3 +124,20 @@ def test_render_guide_page_index_link_only_when_asked(guide: str) -> None:
     page = render_guide_page(guide, "abcdefghijk", "fallback", link_to_index=True)
     assert '<nav class="site-nav"><a href="./">' in page.split("<body>")[1]
     assert "$index_link" not in page
+
+
+def test_render_guide_page_done_toggles_only_with_the_index_link(guide: str) -> None:
+    body = render_guide_page(guide, "abcdefghijk", "fallback").split("<body>")[1]
+    assert "done-toggle" not in body and "site_done.mjs" not in body
+    page = render_guide_page(guide, "abcdefghijk", "fallback", link_to_index=True)
+    body = page.split("<body>")[1]
+    toggles = re.findall(r'<button type="button" class="done-toggle"[^>]*>', body)
+    assert (
+        toggles
+        == ['<button type="button" class="done-toggle" data-video-id="abcdefghijk" aria-pressed="false" hidden>'] * 2
+    )
+    # One above the player, one after the guide's text.
+    assert body.index(toggles[0]) < body.index('<div class="player-frame">')
+    assert body.rindex(toggles[0]) > body.index("<h2>Opening</h2>")
+    assert '<script type="module">import { browserStorage, initGuidePage } from "./site_done.mjs";' in body
+    assert "$done_end" not in page

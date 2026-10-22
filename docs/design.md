@@ -339,9 +339,9 @@ commands that `site` has since replaced. What was built:
   `A-Za-z0-9_-`, whichever caller passed it, because the template puts the ID in a URL and a JavaScript string
   without escaping. This check is what keeps the template safe. `site` reports a guide with no video ID as a problem.
 - The page template is `templates/guide_page.html`, filled with `string.Template` (`$title`, `$video_id`, `$body`,
-  `$members_hint`, `$index_link`; a literal `$` must be written `$$`). CSS and JavaScript are inline, so one file is the
-  whole page. It is not user-editable yet. The title comes from the guide's first level-one heading (without
-  "Watching Guide: "), else the file name.
+  `$members_hint`, `$index_link`, `$done_end`; a literal `$` must be written `$$`). CSS and JavaScript are inline, so
+  one file is the whole page. It is not user-editable yet. The title comes from the guide's first level-one heading
+  (without "Watching Guide: "), else the file name.
 - The page depends only on timestamp links, not on the guide's structure, because a model's output, an edited prompt
   template or a hand-written guide may not follow the prompt. Style hints (`li.stamped`, `p.range`, `p.labeled`) are
   classes a short script adds by looking at how an element starts; without them the plain element styles apply.
@@ -360,7 +360,10 @@ commands that `site` has since replaced. What was built:
   characters per line. Timestamp links are pills with fixed-width digits, picked out by a CSS selector on `t=` in the
   link. A clicked link flashes so the reader can find the place again, and scrolling is smooth unless
   `prefers-reduced-motion` is set. Tables scroll sideways when too wide. A print stylesheet hides the player and the
-  toggle.
+  toggles.
+- Pages of the site (`link_to_index`) also have a "Done" toggle next to the "All guides" link and another after the
+  guide's text, both hidden until `site_done.mjs`, loaded by a small module script, finds storage to keep the mark
+  in; see "Done marks" below.
 - The only external resources are the YouTube player and its API script (both need a network connection anyway) and
   the fonts.
 - If only the IFrame API script fails to load, the player stays visible (it may still play) and the note says timestamps
