@@ -3,7 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from ces_youtube_tools.front_matter import GuideMetadata, render_front_matter
+from ces_youtube_tools.video import VideoInfo
+from ces_youtube_tools.front_matter import GuideMetadata, read_front_matter, render_front_matter
 
 PROFILES_INI = """\
 [General]
@@ -97,4 +98,49 @@ def write_sample_guides(parent: Path) -> Path:
     _ = write_guide(folder, "members.md", "ccccccccccc", title="Members", upload_date="2026-10-09", members_only=True)
     _ = write_guide(folder, "unknown.md", "ddddddddddd", title="Unknown", members_only=None)
     _ = (folder / "plain.md").write_text(GUIDE_BODY.format(video_id="eeeeeeeeeee"), encoding="utf-8")
+    return folder
+
+
+# The backfill samples, shared by tests/test_backfill.py and tests/cli/test_backfill_cmd.py. GUIDE is a fixed guide
+# for VIDEO, with CRLF line endings and no front matter; unlike GUIDE_BODY, it is not a template.
+
+GUIDE = "# Watching Guide: A talk\r\n\r\n[0:05](https://www.youtube.com/watch?v=abcdefghijk&t=5s): Hello.\r\n"
+OTHER_GUIDE = "# Another talk\n\n[0:01](https://www.youtube.com/watch?v=zzzzzzzzzzz&t=1s): Hi.\n"
+# 2026-10-08T16:30:00Z, which is 2026-10-09 in Asia/Taipei.
+VIDEO = VideoInfo(
+    id="abcdefghijk", title="A talk", channel="A channel", upload_date="20261008", duration=60, timestamp=1791477000
+)
+NEW_NAME = "Watching Guide - 20261009 - A talk.md"
+
+
+class FakeLoader:
+    def __init__(self, failing: dict[str, Exception] | None = None) -> None:
+        self.failing: dict[str, Exception] = failing or {}
+        self.calls: list[str] = []
+
+    def __call__(self, video_id: str) -> VideoInfo:
+        self.calls.append(video_id)
+        if video_id in self.failing:
+            raise self.failing[video_id]
+        if video_id == VIDEO.id:
+            return VIDEO
+        return VIDEO.model_copy(update={"id": video_id, "title": f"Talk {video_id}", "timestamp": None})
+
+
+def front_matter(path: Path) -> dict[object, object] | None:
+    return read_front_matter(path.read_bytes().decode("utf-8")).data
+
+
+def write_backfill_guides(parent: Path) -> Path:
+    """Write `GUIDE`, a guide without front matter, as `new.md` in `parent / "guides"`.
+
+    Args:
+        parent (Path): The folder to create the `guides` folder in.
+
+    Returns:
+        Path: The `guides` folder.
+    """
+    folder = parent / "guides"
+    folder.mkdir()
+    _ = (folder / "new.md").write_bytes(GUIDE.encode("utf-8"))
     return folder
