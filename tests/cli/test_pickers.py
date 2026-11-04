@@ -3,8 +3,8 @@ from typing import Any
 
 import pytest
 
-from ces_youtube_tools import pickers
-from ces_youtube_tools.pickers import pick_one, pick_many, NotATerminalError
+from ces_youtube_tools.cli import pickers
+from ces_youtube_tools.cli.pickers import pick_one, pick_many, NotATerminalError
 
 
 class FakeQuestion:

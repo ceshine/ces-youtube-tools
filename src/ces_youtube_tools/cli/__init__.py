@@ -12,9 +12,10 @@ from collections.abc import Callable
 import typer
 from rich.table import Table
 from rich.markup import escape
-from rich.console import Console
 
-from ..menu import QuitMenu, parse_choice
+from .menu import QuitMenu, parse_choice
+from .common import fail, STDERR, CONSOLE, print_error, ConfigPathOption, load_config_or_exit
+from .pickers import pick_one, pick_many, require_terminal, NotATerminalError
 from ..cache import CacheError, work_dir_for, load_transcript, load_video_info
 from ..guide import GuideError, default_template
 from ..video import VideoInfo, parse_video_id
@@ -22,9 +23,7 @@ from ..ytdlp import YtDlpError
 from ..config import ChannelConfig
 from ..config import (
     AppConfig,
-    ConfigError,
     dump_config,
-    load_config,
     save_config,
     describe_options,
     DEFAULT_CONFIG_PATH,
@@ -34,7 +33,6 @@ from ..firefox import (
     FirefoxProfile,
     discover_all_profiles,
 )
-from ..pickers import pick_one, pick_many, require_terminal, NotATerminalError
 from ..youtube import VideoPager, VideoSummary, verify_login, resolve_channel, list_latest_videos
 from ..backfill import rename_guide, BackfillError, plan_backfill, write_content, describe_changes
 from ..pipeline import (
@@ -59,11 +57,6 @@ APP = typer.Typer(no_args_is_help=True, help="Browse YouTube channels and genera
 CONFIG_APP = typer.Typer(no_args_is_help=True, help="Create and edit the configuration file.")
 APP.add_typer(CONFIG_APP, name="config")
 
-CONSOLE = Console()
-# Status and headers for commands whose stdout is data meant for piping.
-STDERR = Console(stderr=True)
-
-ConfigPathOption = Annotated[Path, typer.Option("--config", help="Path of the configuration file.")]
 _DOCSTRING_SECTION = re.compile(r"^(Args|Returns|Raises|Yields|Examples?|Notes?):\s*$")
 
 CommandFunction = TypeVar("CommandFunction", bound=Callable[..., Any])
@@ -117,50 +110,6 @@ def main() -> None:
     """
 
 
-def _print_error(message: str) -> None:
-    """Print an error message.
-
-    Args:
-        message (str): The error message, as plain text. Square brackets in it are printed as they are, not read as
-            Rich markup, because messages often hold paths, video titles and yt-dlp output such as `[youtube]`.
-
-    Returns:
-        None
-    """
-    STDERR.print(f"[red]Error:[/red] {escape(message)}", markup=True, highlight=False)
-
-
-def _fail(message: str) -> typer.Exit:
-    """Print an error message and build the exit to raise.
-
-    Args:
-        message (str): The error message, as plain text, as for `_print_error`.
-
-    Returns:
-        typer.Exit: An exit with status 1, for the caller to raise.
-    """
-    _print_error(message)
-    return typer.Exit(code=1)
-
-
-def _load(config_path: Path) -> AppConfig:
-    """Load the configuration or exit with a readable error.
-
-    Args:
-        config_path (Path): Path of the configuration file.
-
-    Returns:
-        AppConfig: The loaded configuration.
-
-    Raises:
-        typer.Exit: If the configuration cannot be loaded.
-    """
-    try:
-        return load_config(config_path)
-    except ConfigError as exc:
-        raise _fail(str(exc)) from exc
-
-
 def _choose(prompt: str, count: int, default: int | None = None) -> int:
     """Ask for a menu item number until the answer is valid.
 
@@ -199,7 +148,7 @@ def _pick_profile() -> FirefoxProfile:
     """
     profiles = discover_all_profiles(Path.home())
     if not profiles:
-        raise _fail("No Firefox profiles found. Create one in Firefox (about:profiles) first.")
+        raise fail("No Firefox profiles found. Create one in Firefox (about:profiles) first.")
 
     signed_in = [is_signed_in(profile.path) for profile in profiles]
     table = Table(title="Firefox profiles")
@@ -241,7 +190,7 @@ def config_init(
         typer.Exit: If the file exists and `force` is not set.
     """
     if config_path.exists() and not force:
-        raise _fail(f"{config_path} already exists. Use --force to overwrite it, or `config profile` to change it.")
+        raise fail(f"{config_path} already exists. Use --force to overwrite it, or `config profile` to change it.")
     profile = _pick_profile()
     config = AppConfig()
     config.auth.firefox_profile = profile.path
@@ -289,9 +238,9 @@ def config_template(
     Raises:
         typer.Exit: If the template file exists and `force` is not set.
     """
-    path = _load(config_path).guide.prompt_template
+    path = load_config_or_exit(config_path).guide.prompt_template
     if not _write_default_template(path, force):
-        raise _fail(f"{path} already exists. Use --force to replace it with the built-in template.")
+        raise fail(f"{path} already exists. Use --force to replace it with the built-in template.")
     CONSOLE.print(f"Wrote the guide prompt template to {path}.")
 
 
@@ -305,7 +254,7 @@ def config_profile(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     Returns:
         None
     """
-    config = _load(config_path)
+    config = load_config_or_exit(config_path)
     profile = _pick_profile()
     config.auth.firefox_profile = profile.path
     save_config(config, config_path)
@@ -333,16 +282,16 @@ def config_add_channel(
     Raises:
         typer.Exit: If the channel cannot be resolved or is already in the configuration.
     """
-    config = _load(config_path)
+    config = load_config_or_exit(config_path)
     try:
         resolved = resolve_channel(channel, make_ytdlp(config, with_cookies=False))
     except (ValueError, YtDlpError) as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     resolved.members = members
 
     existing = config.find_channel(resolved.channel_id)
     if existing is not None:
-        raise _fail(f"{existing.name} ({existing.channel_id}) is already in the configuration.")
+        raise fail(f"{existing.name} ({existing.channel_id}) is already in the configuration.")
 
     CONSOLE.print(f"Found [bold]{resolved.name}[/bold] ({resolved.channel_id}) at {resolved.url}", highlight=False)
     if not yes and not typer.confirm("Add this channel?", default=True):
@@ -369,10 +318,10 @@ def config_remove_channel(
     Raises:
         typer.Exit: If the channel is not in the configuration.
     """
-    config = _load(config_path)
+    config = load_config_or_exit(config_path)
     found = config.find_channel(channel)
     if found is None:
-        raise _fail(f"No channel named {channel!r} in the configuration.")
+        raise fail(f"No channel named {channel!r} in the configuration.")
     config.channels.remove(found)
     save_config(config, config_path)
     CONSOLE.print(f"Removed {found.name}.")
@@ -388,7 +337,7 @@ def config_show(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     Returns:
         None
     """
-    config = _load(config_path)
+    config = load_config_or_exit(config_path)
     CONSOLE.print(f"[bold]{config_path}[/bold]")
     CONSOLE.print(dump_config(config), markup=False, highlight=False)
     profile = config.auth.firefox_profile
@@ -434,11 +383,11 @@ def config_check(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     Raises:
         typer.Exit: If no profile is configured or YouTube rejects the cookies.
     """
-    config = _load(config_path)
+    config = load_config_or_exit(config_path)
     if config.auth.firefox_profile is None:
-        raise _fail("No Firefox profile configured. Run `ces-youtube-tools config profile`.")
+        raise fail("No Firefox profile configured. Run `ces-youtube-tools config profile`.")
     if not verify_login(make_ytdlp(config, with_cookies=True)):
-        raise _fail(
+        raise fail(
             "YouTube did not accept the cookies. Sign in with the Firefox profile "
             f"{config.auth.firefox_profile}, or choose another with `ces-youtube-tools config profile`."
         )
@@ -497,18 +446,18 @@ def list_videos(
     Raises:
         typer.Exit: If the channel is not configured or yt-dlp fails.
     """
-    config = _load(config_path)
+    config = load_config_or_exit(config_path)
     found = config.find_channel(channel)
     if found is None:
         names = (
             ", ".join(c.name for c in config.channels) or "none, add one with `ces-youtube-tools config add-channel`"
         )
-        raise _fail(f"No channel named {channel!r} in the configuration. Configured channels: {names}.")
+        raise fail(f"No channel named {channel!r} in the configuration. Configured channels: {names}.")
     try:
         with CONSOLE.status(f"Fetching the latest videos of {found.name}..."):
             videos = list_latest_videos(found, make_ytdlp(config, with_cookies=False), limit)
     except YtDlpError as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     if not videos:
         CONSOLE.print(f"No videos found for {found.name}.")
         return
@@ -538,7 +487,7 @@ def show_transcript(
     Raises:
         typer.Exit: If the video ID is invalid or no transcript can be fetched.
     """
-    config = _load(config_path)
+    config = load_config_or_exit(config_path)
     try:
         video_id = parse_video_id(video)
         ytdlp = make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
@@ -549,7 +498,7 @@ def show_transcript(
         with STDERR.status("Fetching transcript..."):
             transcript = load_transcript(info, provider, work_dir, refresh=refresh)
     except (ValueError, YtDlpError, TranscriptError, CacheError) as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
 
     STDERR.print(f"[bold]{info.title}[/bold] ({info.channel or 'unknown channel'})", highlight=False)
     STDERR.print(
@@ -592,11 +541,11 @@ def make_guide(
     Raises:
         typer.Exit: If any step fails.
     """
-    config = _load(config_path)
+    config = load_config_or_exit(config_path)
     try:
         video_id = parse_video_id(video)
     except ValueError as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     _run_guide(config, video_id, output_dir or config.guide.output_dir or Path.cwd(), force=force, refresh=refresh)
 
 
@@ -630,11 +579,11 @@ def backfill_guides(
         typer.Exit: If a path does not exist, two guides are about one video, a new name is taken, or any guide has a
             problem (left as it is, or written but not renamed).
     """
-    config = _load(config_path)
+    config = load_config_or_exit(config_path)
     try:
         files = expand_paths(paths, Path.cwd())
     except GuideHtmlError as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     ytdlp = make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
 
     def load_video(video_id: str) -> VideoInfo:
@@ -644,7 +593,7 @@ def backfill_guides(
         with STDERR.status("Loading video metadata..."):
             plan = plan_backfill(files, load_video, config.guide.file_name_zone())
     except BackfillError as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     problems = list(plan.problems)
     written = renamed = 0
     for update in plan.updates:
@@ -678,7 +627,7 @@ def backfill_guides(
     CONSOLE.print(f"{counts}, {len(plan.unchanged)} unchanged, {len(problems)} with problems.")
     if problems:
         details = "\n".join(f"- {problem}" for problem in problems)
-        raise _fail(f"{len(problems)} of {len(files)} guides have problems:\n{details}")
+        raise fail(f"{len(problems)} of {len(files)} guides have problems:\n{details}")
 
 
 @command(APP, "site")
@@ -721,13 +670,13 @@ def build_site(
             cannot be used.
     """
     if directory is None or out_dir is None:
-        config = _load(config_path)
+        config = load_config_or_exit(config_path)
         directory = directory if directory is not None else config.guide.output_dir
         out_dir = out_dir if out_dir is not None else config.site.output_dir
     if directory is None:
-        raise _fail("No folder given and guide.output_dir is not set. Pass the folder of guides.")
+        raise fail("No folder given and guide.output_dir is not set. Pass the folder of guides.")
     if out_dir is None:
-        raise _fail("No --out given and site.output_dir is not set. Pass the output folder with -o.")
+        raise fail("No --out given and site.output_dir is not set. Pass the output folder with -o.")
     directory = directory.expanduser()
     out_dir = out_dir.expanduser()
     try:
@@ -735,7 +684,7 @@ def build_site(
         build = collect_pages(files, include_members_only)
         write_site(build, out_dir)
     except (GuideHtmlError, SiteError) as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     pages = "1 guide page" if len(build.pages) == 1 else f"{len(build.pages)} guide pages"
     CONSOLE.print(f"Wrote {pages} and the index to {out_dir}.", markup=False, highlight=False, soft_wrap=True)
     if build.left_out:
@@ -841,7 +790,7 @@ def _run_guide(config: AppConfig, video_id: str, target_dir: Path, *, force: boo
         _print_scan_warnings(prepared)
         result = generate_guide(tools, prepared, force=force, refresh=refresh, status=STDERR.status)
     except GUIDE_ERRORS as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     _report_guide(result)
 
 
@@ -946,7 +895,7 @@ def _fetch_next_page(pager: VideoPager, channel_name: str) -> bool:
         with CONSOLE.status(f"Fetching older videos of {channel_name}..."):
             older = pager.page(pager.page_count + 1)
     except YtDlpError as exc:
-        _print_error(str(exc))
+        print_error(str(exc))
         return False
     if not older:
         CONSOLE.print("No older videos.")
@@ -1045,7 +994,7 @@ def _plan_failure(video: VideoSummary, message: str) -> _Outcome:
     Returns:
         _Outcome: The video's failed outcome, with the message alone, as the summary row names the video.
     """
-    _print_error(f"{video.title} ({video.id}): {message}")
+    print_error(f"{video.title} ({video.id}): {message}")
     return _Outcome("failed", message)
 
 
@@ -1132,7 +1081,7 @@ def _write_guides(tools: GuideTools, pending: list[_PendingGuide], *, refresh: b
         try:
             result = generate_guide(tools, guide.prepared, force=guide.force, refresh=refresh, status=STDERR.status)
         except GUIDE_ERRORS as exc:
-            _print_error(str(exc))
+            print_error(str(exc))
             outcomes[video.id] = _Outcome("failed", str(exc))
             continue
         _report_guide(result)
@@ -1192,19 +1141,19 @@ def browse(
         typer.Exit: If no channel is configured, the channel is unknown, there is no terminal for the menus, or a
             step fails for any selected video. Status 0 when the user quits with Ctrl+C, in a menu or while videos load.
     """
-    config = _load(config_path)
+    config = load_config_or_exit(config_path)
     if not config.channels:
-        raise _fail("No channels configured. Add one with `ces-youtube-tools config add-channel @handle`.")
+        raise fail("No channels configured. Add one with `ces-youtube-tools config add-channel @handle`.")
     found: ChannelConfig | None = None
     if channel is not None:
         found = config.find_channel(channel)
         if found is None:
             names = ", ".join(c.name for c in config.channels)
-            raise _fail(f"No channel named {channel!r} in the configuration. Configured channels: {names}.")
+            raise fail(f"No channel named {channel!r} in the configuration. Configured channels: {names}.")
     try:
         require_terminal()
     except NotATerminalError as exc:
-        raise _fail(f"{exc} For scripts, use `ces-youtube-tools guide VIDEO`.") from exc
+        raise fail(f"{exc} For scripts, use `ces-youtube-tools guide VIDEO`.") from exc
     if found is None:
         if len(config.channels) == 1:
             found = config.channels[0]
@@ -1220,7 +1169,7 @@ def browse(
         with CONSOLE.status(f"Fetching the latest videos of {found.name}..."):
             first_page = pager.page(1)
     except YtDlpError as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     except KeyboardInterrupt:
         CONSOLE.print("Bye.")
         return
@@ -1235,7 +1184,7 @@ def browse(
     try:
         tools = _make_guide_tools(config)
     except GUIDE_ERRORS as exc:
-        raise _fail(str(exc)) from exc
+        raise fail(str(exc)) from exc
     target_dir = output_dir or config.guide.output_dir or Path.cwd()
     pending, planned = _plan_guides(tools, selected, target_dir, refresh=refresh)
     outcomes = {**planned, **_write_guides(tools, pending, refresh=refresh)}
@@ -1244,5 +1193,5 @@ def browse(
     failed = sum(1 for outcome in outcomes.values() if outcome.status == "failed")
     if failed:
         if len(selected) > 1:
-            raise _fail(f"{failed} of {len(selected)} guides failed.")
+            raise fail(f"{failed} of {len(selected)} guides failed.")
         raise typer.Exit(code=1)
