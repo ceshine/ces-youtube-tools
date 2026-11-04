@@ -18,7 +18,8 @@ from .common import fail, STDERR, CONSOLE, print_error, ConfigPathOption, load_c
 from .pickers import pick_one, pick_many, require_terminal, NotATerminalError
 from .list_cmd import list_videos
 from .site_cmd import build_site
-from ..cache import CacheError, work_dir_for, load_transcript, load_video_info
+from .transcript_cmd import show_transcript
+from ..cache import work_dir_for, load_video_info
 from ..guide import GuideError, default_template
 from ..video import VideoInfo, parse_video_id
 from ..ytdlp import YtDlpError
@@ -46,12 +47,10 @@ from ..pipeline import (
     prepare_guide,
     generate_guide,
     make_guide_tools,
-    make_transcript_provider,
 )
 from ..formatting import format_duration, video_choice_label
 from ..generators import GUIDE_GENERATORS
 from ..guide_html import expand_paths, GuideHtmlError
-from ..transcript import TranscriptError
 from ..existing_guides import guides_to_replace
 
 APP = typer.Typer(no_args_is_help=True, help="Browse YouTube channels and generate watching guides.")
@@ -398,51 +397,7 @@ def config_check(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
 _ = command(APP, "list")(list_videos)
 
 
-@command(APP, "transcript")
-def show_transcript(
-    video: Annotated[str, typer.Argument(help="Video URL or ID.")],
-    refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcript.")] = False,
-    as_json: Annotated[bool, typer.Option("--json", help="Print the transcript as JSON.")] = False,
-    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
-) -> None:
-    """Fetch a video's transcript and print it to stdout, with timestamps.
-
-    Results are cached in the video's work directory under `cache_dir`.
-
-    Args:
-        video (str): Video URL or ID.
-        refresh (bool): Ignore cached metadata and transcript.
-        as_json (bool): Print the transcript as JSON instead of timestamped lines.
-        config_path (Path): Path of the configuration file.
-
-    Returns:
-        None
-
-    Raises:
-        typer.Exit: If the video ID is invalid or no transcript can be fetched.
-    """
-    config = load_config_or_exit(config_path)
-    try:
-        video_id = parse_video_id(video)
-        ytdlp = make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
-        provider = make_transcript_provider(config, ytdlp)
-        work_dir = work_dir_for(config.cache_dir, video_id)
-        with STDERR.status("Fetching video metadata..."):
-            info = load_video_info(video_id, ytdlp, work_dir, refresh=refresh)
-        with STDERR.status("Fetching transcript..."):
-            transcript = load_transcript(info, provider, work_dir, refresh=refresh)
-    except (ValueError, YtDlpError, TranscriptError, CacheError) as exc:
-        raise fail(str(exc)) from exc
-
-    STDERR.print(f"[bold]{info.title}[/bold] ({info.channel or 'unknown channel'})", highlight=False)
-    STDERR.print(
-        f"{transcript.source}, {len(transcript.segments)} segments. Cached in {work_dir}", markup=False, highlight=False
-    )
-    if as_json:
-        typer.echo(transcript.model_dump_json(indent=2))
-        return
-    for segment in transcript.segments:
-        typer.echo(f"[{format_duration(segment.start)}] {segment.text}")
+_ = command(APP, "transcript")(show_transcript)
 
 
 @command(APP, "guide")
