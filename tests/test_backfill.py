@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 
 from ces_youtube_tools import cli
 from ces_youtube_tools.cli import APP
+from ces_youtube_tools.cache import CacheError
 from ces_youtube_tools.video import VideoInfo
 from ces_youtube_tools.ytdlp import YtDlp, YtDlpError
 from ces_youtube_tools.config import AppConfig, GuideConfig, save_config
@@ -17,7 +18,6 @@ from ces_youtube_tools.backfill import (
     write_content,
     describe_changes,
 )
-from ces_youtube_tools.pipeline import CacheError
 from ces_youtube_tools.front_matter import read_front_matter
 
 TAIPEI = ZoneInfo("Asia/Taipei")

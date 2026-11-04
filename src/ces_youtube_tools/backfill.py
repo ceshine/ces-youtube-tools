@@ -14,10 +14,10 @@ from pathlib import Path
 from dataclasses import dataclass
 from collections.abc import Callable
 
+from .cache import CacheError
 from .guide import guide_filename
 from .video import VideoInfo
 from .ytdlp import YtDlpError
-from .pipeline import CacheError, is_same_file
 from .guide_html import is_video_id, find_video_id
 from .front_matter import (
     FrontMatter,
@@ -27,6 +27,7 @@ from .front_matter import (
     metadata_from_video,
     render_front_matter,
 )
+from .existing_guides import is_same_file
 
 VideoLoader = Callable[[str], VideoInfo]
 

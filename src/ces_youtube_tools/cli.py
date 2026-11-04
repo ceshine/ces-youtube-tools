@@ -8,8 +8,8 @@ import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from dataclasses import dataclass
-from collections.abc import Callable
 from typing import Any, Literal, TypeVar, Annotated
+from collections.abc import Callable
 
 import typer
 from rich.table import Table
@@ -17,6 +17,7 @@ from rich.markup import escape
 from rich.console import Console
 
 from .menu import QuitMenu, parse_choice
+from .cache import CacheError, work_dir_for, load_transcript, load_video_info
 from .guide import GuideError, GuideGenerator, guide_filename, default_template
 from .video import VideoInfo, parse_video_id
 from .ytdlp import YtDlp, YtDlpError
@@ -39,14 +40,13 @@ from .firefox import (
 from .pickers import pick_one, pick_many, require_terminal, NotATerminalError
 from .youtube import VideoPager, VideoSummary, verify_login, resolve_channel, list_latest_videos
 from .backfill import rename_guide, BackfillError, plan_backfill, write_content, describe_changes
-from .pipeline import CacheError, work_dir_for, load_transcript, load_video_info, make_transcript_provider
-from .pipeline import write_guide, guides_to_replace, load_prompt_template, make_guide_generator
-from .pipeline import GuideScan, GuideResult, check_existing_guides, find_guides_for_video
+from .pipeline import GuideResult, write_guide, load_prompt_template, make_guide_generator, make_transcript_provider
 from .claude_cli import GENERATOR_NAME, ClaudeCliOptions
 from .formatting import format_age, format_duration, video_choice_label
 from .guide_html import expand_paths, GuideHtmlError
 from .transcript import TranscriptError, TranscriptProvider
 from .static_site import SiteError, write_site, collect_pages
+from .existing_guides import GuideScan, guides_to_replace, check_existing_guides, find_guides_for_video
 
 APP = typer.Typer(no_args_is_help=True, help="Browse YouTube channels and generate watching guides.")
 CONFIG_APP = typer.Typer(no_args_is_help=True, help="Create and edit the configuration file.")
