@@ -101,16 +101,16 @@ def write_sample_guides(parent: Path) -> Path:
     return folder
 
 
-# The backfill samples, shared by tests/test_backfill.py and tests/cli/test_backfill_cmd.py. GUIDE is a fixed guide
-# for VIDEO, with CRLF line endings and no front matter; unlike GUIDE_BODY, it is not a template.
+# The backfill samples, shared by tests/test_backfill.py and tests/cli/test_backfill_cmd.py. BACKFILL_GUIDE is a
+# fixed guide for BACKFILL_VIDEO, with CRLF line endings and no front matter; unlike GUIDE_BODY, it is not a template.
 
-GUIDE = "# Watching Guide: A talk\r\n\r\n[0:05](https://www.youtube.com/watch?v=abcdefghijk&t=5s): Hello.\r\n"
-OTHER_GUIDE = "# Another talk\n\n[0:01](https://www.youtube.com/watch?v=zzzzzzzzzzz&t=1s): Hi.\n"
+BACKFILL_GUIDE = "# Watching Guide: A talk\r\n\r\n[0:05](https://www.youtube.com/watch?v=abcdefghijk&t=5s): Hello.\r\n"
+BACKFILL_OTHER_GUIDE = "# Another talk\n\n[0:01](https://www.youtube.com/watch?v=zzzzzzzzzzz&t=1s): Hi.\n"
 # 2026-10-08T16:30:00Z, which is 2026-10-09 in Asia/Taipei.
-VIDEO = VideoInfo(
+BACKFILL_VIDEO = VideoInfo(
     id="abcdefghijk", title="A talk", channel="A channel", upload_date="20261008", duration=60, timestamp=1791477000
 )
-NEW_NAME = "Watching Guide - 20261009 - A talk.md"
+BACKFILL_NEW_NAME = "Watching Guide - 20261009 - A talk.md"
 
 
 class FakeLoader:
@@ -122,9 +122,9 @@ class FakeLoader:
         self.calls.append(video_id)
         if video_id in self.failing:
             raise self.failing[video_id]
-        if video_id == VIDEO.id:
-            return VIDEO
-        return VIDEO.model_copy(update={"id": video_id, "title": f"Talk {video_id}", "timestamp": None})
+        if video_id == BACKFILL_VIDEO.id:
+            return BACKFILL_VIDEO
+        return BACKFILL_VIDEO.model_copy(update={"id": video_id, "title": f"Talk {video_id}", "timestamp": None})
 
 
 def front_matter(path: Path) -> dict[object, object] | None:
@@ -132,7 +132,7 @@ def front_matter(path: Path) -> dict[object, object] | None:
 
 
 def write_backfill_guides(parent: Path) -> Path:
-    """Write `GUIDE`, a guide without front matter, as `new.md` in `parent / "guides"`.
+    """Write `BACKFILL_GUIDE`, a guide without front matter, as `new.md` in `parent / "guides"`.
 
     Args:
         parent (Path): The folder to create the `guides` folder in.
@@ -142,5 +142,5 @@ def write_backfill_guides(parent: Path) -> Path:
     """
     folder = parent / "guides"
     folder.mkdir()
-    _ = (folder / "new.md").write_bytes(GUIDE.encode("utf-8"))
+    _ = (folder / "new.md").write_bytes(BACKFILL_GUIDE.encode("utf-8"))
     return folder

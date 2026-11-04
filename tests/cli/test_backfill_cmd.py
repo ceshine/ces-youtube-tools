@@ -9,7 +9,14 @@ from ces_youtube_tools.ytdlp import YtDlp, YtDlpError
 from ces_youtube_tools.config import AppConfig, GuideConfig, save_config
 from ces_youtube_tools.backfill import GuideUpdate, BackfillError
 
-from ..conftest import GUIDE, NEW_NAME, FakeLoader, OTHER_GUIDE, front_matter, write_backfill_guides
+from ..conftest import (
+    FakeLoader,
+    front_matter,
+    BACKFILL_GUIDE,
+    BACKFILL_NEW_NAME,
+    BACKFILL_OTHER_GUIDE,
+    write_backfill_guides,
+)
 
 RUNNER = CliRunner()
 
@@ -46,9 +53,9 @@ def test_backfill_command_writes_renames_then_changes_nothing(
     result = RUNNER.invoke(APP, ["backfill", ".", "--config", str(config_path)], env={"COLUMNS": "300"})
     assert result.exit_code == 0, result.output
     assert f"Wrote {guides / 'new.md'}: front matter added" in result.output
-    assert f"Renamed {guides / 'new.md'} to {NEW_NAME}" in result.output
+    assert f"Renamed {guides / 'new.md'} to {BACKFILL_NEW_NAME}" in result.output
     assert "1 written, 1 renamed, 0 unchanged, 0 with problems." in result.output
-    assert sorted(child.name for child in guides.iterdir()) == [NEW_NAME]
+    assert sorted(child.name for child in guides.iterdir()) == [BACKFILL_NEW_NAME]
 
     result = RUNNER.invoke(APP, ["backfill", ".", "--refresh", "--config", str(config_path)])
     assert result.exit_code == 0, result.output
@@ -63,11 +70,11 @@ def test_backfill_command_dry_run_changes_nothing(cli_setup: tuple[Path, FakeLoa
     )
     assert result.exit_code == 0, result.output
     assert f"Would write {guides / 'new.md'}: front matter added" in result.output
-    assert f"Would rename {guides / 'new.md'} to {NEW_NAME}" in result.output
+    assert f"Would rename {guides / 'new.md'} to {BACKFILL_NEW_NAME}" in result.output
     assert "1 to write, 1 to rename, 0 unchanged, 0 with problems." in result.output
     assert loader.calls == ["abcdefghijk"]
     assert sorted(child.name for child in guides.iterdir()) == ["new.md"]
-    assert (guides / "new.md").read_bytes() == GUIDE.encode("utf-8")
+    assert (guides / "new.md").read_bytes() == BACKFILL_GUIDE.encode("utf-8")
 
 
 def test_backfill_command_writes_the_others_when_one_video_fails(
@@ -75,14 +82,14 @@ def test_backfill_command_writes_the_others_when_one_video_fails(
 ) -> None:
     config_path, loader, _ = cli_setup
     loader.failing = {"zzzzzzzzzzz": YtDlpError("ERROR: [youtube] zzzzzzzzzzz: Join this channel")}
-    (guides / "other.md").write_text(OTHER_GUIDE, encoding="utf-8")
+    (guides / "other.md").write_text(BACKFILL_OTHER_GUIDE, encoding="utf-8")
     result = RUNNER.invoke(APP, ["backfill", ".", "--config", str(config_path)], env={"COLUMNS": "300"})
     assert result.exit_code == 1
     assert "1 written, 1 renamed, 0 unchanged, 1 with problems." in result.output
     assert "1 of 2 guides have problems:" in result.output
     assert "[youtube] zzzzzzzzzzz: Join this channel" in result.output
-    assert sorted(child.name for child in guides.iterdir()) == [NEW_NAME, "other.md"]
-    assert (guides / "other.md").read_text(encoding="utf-8") == OTHER_GUIDE
+    assert sorted(child.name for child in guides.iterdir()) == [BACKFILL_NEW_NAME, "other.md"]
+    assert (guides / "other.md").read_text(encoding="utf-8") == BACKFILL_OTHER_GUIDE
 
 
 def test_backfill_command_reports_a_write_whose_rename_fails(
@@ -107,7 +114,7 @@ def test_backfill_command_stops_on_two_guides_for_one_video(
     cli_setup: tuple[Path, FakeLoader, list[bool]], guides: Path
 ) -> None:
     config_path, _, _ = cli_setup
-    (guides / "copy.md").write_bytes(GUIDE.encode("utf-8"))
+    (guides / "copy.md").write_bytes(BACKFILL_GUIDE.encode("utf-8"))
     result = RUNNER.invoke(APP, ["backfill", ".", "--config", str(config_path)], env={"COLUMNS": "300"})
     assert result.exit_code == 1
     assert "No guide was changed, because of problems between guides" in result.output
