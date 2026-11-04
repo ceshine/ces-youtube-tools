@@ -16,6 +16,7 @@ from rich.markup import escape
 from .menu import QuitMenu, parse_choice
 from .common import fail, STDERR, CONSOLE, print_error, ConfigPathOption, load_config_or_exit
 from .pickers import pick_one, pick_many, require_terminal, NotATerminalError
+from .list_cmd import list_videos
 from .site_cmd import build_site
 from ..cache import CacheError, work_dir_for, load_transcript, load_video_info
 from ..guide import GuideError, default_template
@@ -34,7 +35,7 @@ from ..firefox import (
     FirefoxProfile,
     discover_all_profiles,
 )
-from ..youtube import VideoPager, VideoSummary, verify_login, resolve_channel, list_latest_videos
+from ..youtube import VideoPager, VideoSummary, verify_login, resolve_channel
 from ..backfill import rename_guide, BackfillError, plan_backfill, write_content, describe_changes
 from ..pipeline import (
     GuideTools,
@@ -47,7 +48,7 @@ from ..pipeline import (
     make_guide_tools,
     make_transcript_provider,
 )
-from ..formatting import format_age, format_duration, video_choice_label
+from ..formatting import format_duration, video_choice_label
 from ..generators import GUIDE_GENERATORS
 from ..guide_html import expand_paths, GuideHtmlError
 from ..transcript import TranscriptError
@@ -394,74 +395,7 @@ def config_check(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     CONSOLE.print("[green]Signed in:[/green] YouTube accepted the profile's cookies.")
 
 
-def _videos_table(title: str, videos: list[VideoSummary], now: float) -> Table:
-    """Build a table of videos for display.
-
-    Args:
-        title (str): The table title.
-        videos (list[VideoSummary]): The videos, newest first.
-        now (float): The current Unix time, for the age column.
-
-    Returns:
-        Table: The table.
-    """
-    table = Table(title=title)
-    table.add_column("#", justify="right")
-    table.add_column("Published", justify="right")
-    table.add_column("Length", justify="right")
-    table.add_column("Type")
-    table.add_column("Title")
-    table.add_column("ID")
-    for index, video in enumerate(videos, start=1):
-        kinds = (["[magenta]members[/magenta]"] if video.members_only else []) + (
-            ["stream"] if video.live_status == "was_live" else []
-        )
-        table.add_row(
-            str(index),
-            format_age(video.timestamp, now),
-            format_duration(video.duration),
-            " ".join(kinds),
-            video.title,
-            video.id,
-        )
-    return table
-
-
-@command(APP, "list")
-def list_videos(
-    channel: Annotated[str, typer.Argument(help="Channel name or ID from the configuration.")],
-    limit: Annotated[int, typer.Option("--limit", "-n", min=1, help="Maximum number of videos to show.")] = 20,
-    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
-) -> None:
-    """List a configured channel's latest videos and livestream replays, newest first.
-
-    Args:
-        channel (str): Channel name (case-insensitive) or channel ID from the configuration.
-        limit (int): Maximum number of videos to show.
-        config_path (Path): Path of the configuration file.
-
-    Returns:
-        None
-
-    Raises:
-        typer.Exit: If the channel is not configured or yt-dlp fails.
-    """
-    config = load_config_or_exit(config_path)
-    found = config.find_channel(channel)
-    if found is None:
-        names = (
-            ", ".join(c.name for c in config.channels) or "none, add one with `ces-youtube-tools config add-channel`"
-        )
-        raise fail(f"No channel named {channel!r} in the configuration. Configured channels: {names}.")
-    try:
-        with CONSOLE.status(f"Fetching the latest videos of {found.name}..."):
-            videos = list_latest_videos(found, make_ytdlp(config, with_cookies=False), limit)
-    except YtDlpError as exc:
-        raise fail(str(exc)) from exc
-    if not videos:
-        CONSOLE.print(f"No videos found for {found.name}.")
-        return
-    CONSOLE.print(_videos_table(f"Latest videos of {found.name}", videos, time.time()))
+_ = command(APP, "list")(list_videos)
 
 
 @command(APP, "transcript")
