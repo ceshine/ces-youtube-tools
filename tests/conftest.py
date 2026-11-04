@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+from ces_youtube_tools.front_matter import GuideMetadata, render_front_matter
+
 PROFILES_INI = """\
 [General]
 StartWithLastProfile=1
@@ -66,3 +68,33 @@ def fake_home(tmp_path: Path) -> Path:
     make_cookies_db(signed_in, ["SAPISID", "LOGIN_INFO", "PREF"])
     make_cookies_db(signed_out, ["PREF", "VISITOR_INFO1_LIVE"])
     return tmp_path
+
+
+GUIDE_BODY = "# Watching Guide: The heading\n\n[0:05](https://www.youtube.com/watch?v={video_id}&t=5s): Hello.\n"
+
+
+def write_guide(folder: Path, name: str, video_id: str, **fields: object) -> Path:
+    """Write a guide with front matter; `fields` are `GuideMetadata` fields besides the video ID."""
+    metadata = GuideMetadata.model_validate({"video_id": video_id, **fields})
+    path = folder / name
+    _ = path.write_text(render_front_matter(metadata) + GUIDE_BODY.format(video_id=video_id), encoding="utf-8")
+    return path
+
+
+def write_sample_guides(parent: Path) -> Path:
+    """Write five guides into `parent / "guides"`: two public, one members-only, one unknown, one without front matter.
+
+    Args:
+        parent (Path): The folder to create the `guides` folder in.
+
+    Returns:
+        Path: The `guides` folder.
+    """
+    folder = parent / "guides"
+    folder.mkdir()
+    _ = write_guide(folder, "old.md", "aaaaaaaaaaa", title="Old", upload_date="2026-10-01", members_only=False)
+    _ = write_guide(folder, "new.md", "bbbbbbbbbbb", title="New", upload_date="2026-10-08", members_only=False)
+    _ = write_guide(folder, "members.md", "ccccccccccc", title="Members", upload_date="2026-10-09", members_only=True)
+    _ = write_guide(folder, "unknown.md", "ddddddddddd", title="Unknown", members_only=None)
+    _ = (folder / "plain.md").write_text(GUIDE_BODY.format(video_id="eeeeeeeeeee"), encoding="utf-8")
+    return folder
