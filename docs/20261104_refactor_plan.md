@@ -1,28 +1,13 @@
-# Module refactor and the `agy` generator: implementation plan
+# Module refactor: implementation plan
 
-Written on 2026-11-04. The goal is to add Antigravity CLI (`agy`) as a second guide generator. Before that, the code
-is reorganised so each module has one job, and adding a generator touches one package. This is item 12 of "Build
-order" in [design.md](design.md). Each step passes the tests. Steps 1–5 change no behaviour: they move or extract
-code, so a green test suite after each one shows nothing changed. Step 6 adds the generator.
+Written on 2026-11-04. The code is reorganised so each module has one job, and adding a guide generator touches one
+package. It prepares for a second generator, Antigravity CLI (`agy`), which has its own plan:
+[20261104_agy_generator_plan.md](20261104_agy_generator_plan.md). This is item 12 of "Build order" in
+[design.md](design.md). Each step passes the tests and changes no behaviour: the steps move or extract code, so a
+green test suite after each one shows nothing changed.
 
 ## Open decisions
 
-These only affect Step 6. Steps 1–5 can be done first.
-
-- **How `agy -p` takes the prompt.** The help does not say whether `--print` reads stdin. If the prompt must be a
-  command-line argument, Linux limits one argument to 128 KiB (`MAX_ARG_STRLEN`), which a transcript of a long
-  livestream can exceed. Try `echo "say hi" | agy -p` before Step 6. If stdin is not read, look for another input
-  before passing the prompt as an argument. `--input-format stream-json` reads NDJSON from stdin, but it requires
-  `--output-format stream-json`, so the reply would then have to be parsed out of NDJSON output.
-- **Keeping `agy` from using tools.** Without `--tools ""`, the agent runs in the video's work directory and could
-  read or change files there. Choose between `--mode plan`, `--sandbox`, both, or a `--settings` JSON that turns tools
-  off, after checking what each one allows. Also check what happens when the agent asks for a tool permission in
-  `--print` mode: whether the request is denied or the run waits until `--print-timeout`. The help lists
-  `--dangerously-skip-permissions`, so such requests can happen. That flag is not an option here.
-- **The system prompt.** With no `--system-prompt`, `SYSTEM_PROMPT` has to be put before the prompt text, unless
-  `--settings` or `--agent` offers something better.
-- **Session logs.** Find out where `agy` keeps its conversations and whether they can be turned off, to match
-  `claude-cli`'s default of keeping none. Check `--project`, `--new-project` and `--log-file`.
 - **Typing the registry.** `dict[str, GeneratorSpec[Any]]` may trip basedpyright's explicit `Any` rule. If it does,
   annotate the dict with a union of the concrete spec types.
 
@@ -39,8 +24,8 @@ These only affect Step 6. Steps 1–5 can be done first.
   generator's options "must be added to the command by hand". The registry maps a name to a bare factory, so it cannot
   tell `config options` which options model each generator has.
 - `claude_cli.py` mixes generic work (running a command with the prompt on stdin, and turning a missing command,
-  timeout, non-zero exit or empty reply into `GuideError`) with the `claude` flags. An `agy` generator would copy the
-  generic part.
+  timeout, non-zero exit or empty reply into `GuideError`) with the `claude` flags. A second generator that runs a
+  command, such as `agy`, would copy the generic part.
 - `cli.py` puts every command in one file. `browse` alone is about 400 lines, and `tests/test_cli.py` is 1021.
 
 ## Target layout
@@ -56,7 +41,6 @@ src/ces_youtube_tools/
     __init__.py        GUIDE_GENERATORS registry, make_guide_generator
     _subprocess.py     run_prompt_command: stdin, timeout, exit status, empty reply -> GuideError
     claude_cli.py      ClaudeCliOptions, ClaudeCliGenerator (moved, thinner)
-    agy_cli.py         AgyCliOptions, AgyCliGenerator (new)
   pipeline.py          composition and orchestration only: make_ytdlp, make_transcript_provider, GuideTools,
                        make_guide_tools, PreparedGuide, prepare_guide, generate_guide, write_guide,
                        load_prompt_template, GUIDE_ERRORS
@@ -106,7 +90,7 @@ GUIDE_GENERATORS = {
     spec.name: spec
     for spec in (
         GeneratorSpec(claude_cli.GENERATOR_NAME, ClaudeCliOptions, ClaudeCliGenerator),
-        GeneratorSpec(agy_cli.GENERATOR_NAME, AgyCliOptions, AgyCliGenerator),
+        # A new generator adds its spec here.
     )
 }
 ```
@@ -183,13 +167,12 @@ work: plan, ask about replacing guides, write, and summarise.
 ## Tests
 
 - Tests mirror the package (see "Testing Strategy" in `AGENTS.md`): `tests/test_cache.py`,
-  `tests/test_existing_guides.py`, `tests/generators/test_registry.py`, `tests/generators/test_claude_cli.py` and
-  `tests/generators/test_agy_cli.py`. `tests/test_cli.py` becomes `tests/cli/`, with one file per command module,
-  plus `test_app.py` (`test_help_runs`, `test_help_text_stops_at_docstring_sections`), `test_video_menu.py`,
-  `test_menu.py` and `test_pickers.py`. The tests in `tests/test_backfill.py` that invoke `APP` move to
-  `tests/cli/test_backfill_cmd.py`, and the tests of `backfill.py` stay. Shared fixtures (`config_path`,
-  `guide_setup`, `FakeGuideGenerator`) go in `tests/cli/conftest.py`. Each new test folder gets an `__init__.py`, as
-  `tests/` has.
+  `tests/test_existing_guides.py`, `tests/generators/test_registry.py` and `tests/generators/test_claude_cli.py`.
+  `tests/test_cli.py` becomes `tests/cli/`, with one file per command module, plus `test_app.py` (`test_help_runs`,
+  `test_help_text_stops_at_docstring_sections`), `test_video_menu.py`, `test_menu.py` and `test_pickers.py`. The tests
+  in `tests/test_backfill.py` that invoke `APP` move to `tests/cli/test_backfill_cmd.py`, and the tests of
+  `backfill.py` stay. Shared fixtures (`config_path`, `guide_setup`, `FakeGuideGenerator`) go in
+  `tests/cli/conftest.py`. Each new test folder gets an `__init__.py`, as `tests/` has.
 - A moved name must be patched in the module that looks it up. `monkeypatch.setattr(cli, "pick_many", ...)` changes
   the package attribute and nothing else, so `video_menu` would still call the real `pick_many` and the patch would
   silently do nothing. The same function can need different targets: `transcript` and `backfill` call
@@ -313,16 +296,4 @@ Step 4 comes after Step 3 so the orchestration code is moved once, to `pipeline.
   reply.". `tests/generators/test_claude_cli.py` must pass without changes.
 - The missing-command message names the command that was run, `args[0]!r`, as today, so `command = ["npx",
   "claude"]` still gives "Cannot run 'npx'. ...". `display_name` appears only in the other three messages.
-
-## Step 6: the `agy` generator
-
-- Settle the open decisions first.
-- `generators/agy_cli.py`: `GENERATOR_NAME = "agy-cli"`, `AgyCliOptions` (`extra="forbid"`, a `Field(description=...)`
-  on every option), its runner, and `AgyCliGenerator`, using `run_prompt_command`. Register its spec.
-- `agy --help` (checked on 2026-11-04) has `--print`, `--model`, `--effort` (`low` to `max`), `--output-format text`,
-  `--disable-slash-commands`, `--print-timeout`, `--mode` (`accept-edits`, `auto`, `plan`) and `--sandbox`. It has no
-  equivalent of `claude`'s `--tools ""`, `--system-prompt` or `--no-session-persistence`.
-- Tests: the built command line, options validation, and each error path, with a fake runner.
-- `docs/design.md`: an "agy-cli generator" section next to "claude-cli generator", with the command line it runs, and
-  item 12 of "Build order" marked done.
-- `README.md`: how to choose the generator (`guide.generator = "agy-cli"`) and its options.
+- `docs/design.md`: mark item 12 of "Build order" done.
