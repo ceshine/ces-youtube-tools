@@ -1,17 +1,10 @@
 from pathlib import Path
 
-import pytest
 from typer.testing import CliRunner
 
-from ces_youtube_tools import cli
-from ces_youtube_tools.cli import APP
+from ces_youtube_tools.cli import APP, app
 
 RUNNER = CliRunner()
-
-
-@pytest.fixture
-def config_path(tmp_path: Path) -> Path:
-    return tmp_path / "config" / "config.toml"
 
 
 def test_help_runs() -> None:
@@ -36,7 +29,7 @@ def test_help_text_stops_at_docstring_sections() -> None:
             x (int): Hidden from help.
         """
 
-    assert cli.help_text(documented) == "Do a thing.\n\nMore detail."
+    assert app.help_text(documented) == "Do a thing.\n\nMore detail."
     result = RUNNER.invoke(APP, ["list", "--help"], env={"COLUMNS": "200"})
     assert "Args:" not in result.output
     assert "newest first" in result.output
