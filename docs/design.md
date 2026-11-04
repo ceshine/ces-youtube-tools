@@ -286,7 +286,8 @@ Details and recheck commands are in [implementation_notes.md](implementation_not
 3. **Videos**: a checkbox menu of the channel's videos, `-n` (20) per page, the same listing as `list` (no cookies),
    one line per video (`video_choice_label`: age, length, type, title cut to the terminal's width). Space selects,
    Enter confirms, and an empty selection is refused with a hint. Ctrl+C in any menu, or while a page of videos
-   loads, prints "Bye." and exits with status 0. Paging (`video_menu.pick_videos`, decided on 2026-10-21):
+   loads, prints "Bye." and exits with status 0. Paging (`pick_videos` in `cli/video_menu.py`, decided on
+   2026-10-21):
    - After the videos, `◂ Previous page (videos 1–20)` on pages after the first, and `▸ Next page (older videos)` while
      there may be older videos. They are menu entries, ticked with Space and acted on with Enter, so picking from the
      first page takes the same keys as before. No separator line: the pickers number every item.
@@ -324,12 +325,12 @@ replaces) are claimed in listing order (newest first across pages), and a later 
 before its question, with a hint to write it to another folder with `guide VIDEO -o DIR`. A video whose existing guide
 the user keeps still claims its files, so a later video cannot replace what the user chose to keep.
 
-The menus are in `pickers.py` (`pick_one`, `pick_many`), on `questionary`. They return item numbers and know nothing
+The menus are in `cli/pickers.py` (`pick_one`, `pick_many`), on `questionary`. They return item numbers and know nothing
 about channels or videos, so `browse` is tested with fakes in their place (`CliRunner` has no terminal), and the
 loop over videos lives in `browse`, not in the pickers. The Firefox profile picker in `config init` /
 `config profile` stays a typed menu for now (decided on 2026-10-17 to keep this change to `browse`; it moves to
-`questionary` with the interactive config session): `menu.parse_choice`, where a number picks, an empty answer takes
-the default and `q` quits.
+`questionary` with the interactive config session): `parse_choice` in `cli/menu.py`, where a number picks, an empty
+answer takes the default and `q` quits.
 
 ## Guide pages
 
@@ -397,9 +398,14 @@ commands that `site` has since replaced. What was built:
 
 ## CLI conventions
 
-- Register commands with `@command(APP, "name")` / `@command(CONFIG_APP, "name")` from `cli.py`, not
-  `@APP.command(...)`. It passes Typer only the docstring's description; Typer would otherwise print the Google-style
-  `Args:` / `Returns:` / `Raises:` sections in `--help`.
+- The CLI is the `cli/` package. Each top-level command is a plain function in its own module (`cli/list_cmd.py`,
+  `cli/browse_cmd.py`, ...), and the `config` subcommands are together in `cli/config_cmd.py`. Code every command
+  uses (the consoles, the `--config` option, loading the config, error reporting) is in `cli/common.py`. Helpers
+  that only some commands use, such as `cli/pickers.py`, `cli/menu.py` and `cli/guide_report.py`, have their own
+  modules. `cli/app.py` registers every command in one place, each group in the order its `--help` lists them.
+- Register a command there with `_ = command(APP, "name")(function)` / `_ = command(CONFIG_APP, "name")(function)`,
+  not `@APP.command(...)`. `command` passes Typer only the docstring's description; Typer would otherwise print the
+  Google-style `Args:` / `Returns:` / `Raises:` sections in `--help`.
 - Data a command prints for piping (`transcript`) goes to stdout. Status, warnings and errors go to stderr.
 - The project is called `ces-youtube-tools` (distribution, command, config and cache directories) to avoid clashing
   with other tools. The Python package is `ces_youtube_tools`, the same name with underscores.
@@ -852,5 +858,5 @@ UI options:
 | Arrow-key prompts | `questionary` (`prompt_toolkit`) | Arrow keys, checkboxes | Prompts need a real terminal, so test the functions from step 1 and keep the menu thin |
 | Full TUI | `textual` | Full-screen forms | `App.run_test()`. Too much for a dozen settings |
 
-`browse` uses `questionary` since 2026-10-21 (`pickers.py`), so the config session should too, with its menus
+`browse` uses `questionary` since 2026-10-21 (`cli/pickers.py`), so the config session should too, with its menus
 replaced by fakes in tests as `browse` does.
