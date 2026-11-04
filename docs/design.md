@@ -124,6 +124,9 @@ class GuideGenerator(Protocol):
   name, the Pydantic model of its `[guide.options.<name>]` table, and a function that builds it from validated
   options. `make_guide_generator` validates the table with the spec, and `config options` lists every spec's options,
   so a new generator needs only its module and its spec.
+- Generators that run a command (`claude-cli`) send the prompt with `run_prompt_command` in `generators/_subprocess.py`,
+  which turns a missing command, a timeout, a non-zero exit status and an empty reply into `GuideError`. Each passes its
+  own runner, so it can set its tool's environment variables.
 - The guide steps shared by `guide` and `browse` are in `pipeline.py`: `make_guide_tools` (once per run),
   `prepare_guide` (metadata, target path, existing guides) and `generate_guide` (transcript, generation, write). They
   never print. `prepare_guide` and `generate_guide` take a `status` argument for their spinners (the CLI passes
@@ -440,7 +443,7 @@ commands that `site` has since replaced. What was built:
     "Show: All | To do" setting in the index. (Done, 2026-10-22.) See "Done marks" below, and
     [the plan](20261022_done_marks_implementation.md).
 12. Module refactor: split `pipeline.py`, move the guide steps out of the CLI, a `generators/` package with a spec
-    registry, and a `cli/` package with one module per command. (Planned, 2026-11-04.) See
+    registry, and a `cli/` package with one module per command. (Done, 2026-11-04.) See
     [the plan](20261104_refactor_plan.md).
 13. A second guide generator, `agy-cli`, which runs Antigravity CLI, after item 12. (Planned, 2026-11-04.) See
     [the plan](20261104_agy_generator_plan.md).

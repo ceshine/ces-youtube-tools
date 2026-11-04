@@ -1,17 +1,14 @@
 """Guide generator that runs the `claude` CLI (Claude Code) in print mode."""
 
 import os
-import logging
 import subprocess
 from pathlib import Path
-from collections.abc import Callable
 
 from pydantic import Field, BaseModel, ConfigDict, field_validator
 
+from ._subprocess import PromptRunner, run_prompt_command
 from ..guide import GuideError
 from ..video import VideoInfo
-
-LOGGER = logging.getLogger(__name__)
 
 GENERATOR_NAME = "claude-cli"
 SYSTEM_PROMPT = (
@@ -21,8 +18,6 @@ SYSTEM_PROMPT = (
 
 DISABLE_CLAUDE_MDS_ENV = "CLAUDE_CODE_DISABLE_CLAUDE_MDS"
 DISABLE_PROMPT_CACHING_ENV = "DISABLE_PROMPT_CACHING"
-
-ClaudeRunner = Callable[[list[str], str, Path, float, dict[str, str]], subprocess.CompletedProcess[str]]
 
 
 def run_claude(
@@ -111,12 +106,12 @@ class ClaudeCliGenerator:
 
     Args:
         options (ClaudeCliOptions): Settings.
-        runner (ClaudeRunner): Function that runs the command. Replace it in tests.
+        runner (PromptRunner): Function that runs the command. Replace it in tests.
     """
 
-    def __init__(self, options: ClaudeCliOptions, runner: ClaudeRunner = run_claude) -> None:
+    def __init__(self, options: ClaudeCliOptions, runner: PromptRunner = run_claude) -> None:
         self.options: ClaudeCliOptions = options
-        self.runner: ClaudeRunner = runner
+        self.runner: PromptRunner = runner
 
     def build_args(self, video_id: str | None = None) -> list[str]:
         """Build the command line.
@@ -173,19 +168,14 @@ class ClaudeCliGenerator:
             except OSError as exc:
                 raise GuideError(f"Cannot use session_dir {cwd}: {exc}") from exc
         extra_env = {} if self.options.prompt_caching else {DISABLE_PROMPT_CACHING_ENV: "1"}
-        LOGGER.debug("Running %s in %s with a %d-character prompt", args[0], cwd, len(prompt))
-        try:
-            result = self.runner(args, prompt, cwd, self.options.timeout_seconds, extra_env)
-        except FileNotFoundError as exc:
-            raise GuideError(f"Cannot run {args[0]!r}. Is Claude Code installed and on PATH?") from exc
-        except subprocess.TimeoutExpired as exc:
-            raise GuideError(
-                f"claude did not finish within {self.options.timeout_seconds:g} seconds. Raise timeout_seconds in "
-                f"[guide.options.{GENERATOR_NAME}]."
-            ) from exc
-        if result.returncode != 0:
-            detail = (result.stderr.strip() or result.stdout.strip())[-1000:]
-            raise GuideError(f"claude exited with status {result.returncode}: {detail}")
-        if not result.stdout.strip():
-            raise GuideError("claude returned an empty reply.")
-        return result.stdout
+        return run_prompt_command(
+            self.runner,
+            args,
+            prompt,
+            cwd,
+            self.options.timeout_seconds,
+            extra_env,
+            display_name="claude",
+            install_hint="Is Claude Code installed and on PATH?",
+            options_table=f"guide.options.{GENERATOR_NAME}",
+        )
