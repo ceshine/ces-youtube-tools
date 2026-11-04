@@ -22,128 +22,16 @@ def config_path(tmp_path: Path) -> Path:
     return tmp_path / "config" / "config.toml"
 
 
-@pytest.fixture
-def saved_config(config_path: Path) -> AppConfig:
-    config = AppConfig()
-    config.auth.firefox_profile = Path("/p/abc.Profile 1")
-    save_config(config, config_path)
-    return config
-
-
 def test_help_runs() -> None:
     result = RUNNER.invoke(APP, ["--help"])
     assert result.exit_code == 0
     assert "watching guides" in result.output
 
 
-def test_init_defaults_to_first_signed_in_profile(
-    fake_home: Path, config_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("HOME", str(fake_home))
-    result = RUNNER.invoke(APP, ["config", "init", "--config", str(config_path)], input="\n")
-    assert result.exit_code == 0, result.output
-    assert "YouTube Turk" in result.output
-    expected = fake_home / ".mozilla" / "firefox" / "abc.Profile 1"
-    assert load_config(config_path).auth.firefox_profile == expected
-
-
-def test_init_warns_for_signed_out_profile(fake_home: Path, config_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HOME", str(fake_home))
-    result = RUNNER.invoke(APP, ["config", "init", "--config", str(config_path)], input="5\n2\n")
-    assert result.exit_code == 0, result.output
-    assert "Enter a number from 1 to 3" in result.output
-    assert "not signed in to YouTube" in result.output
-    assert load_config(config_path).auth.firefox_profile == fake_home / ".mozilla" / "firefox" / "def.default"
-
-
-def test_init_refuses_to_overwrite(saved_config: AppConfig, config_path: Path) -> None:
-    result = RUNNER.invoke(APP, ["config", "init", "--config", str(config_path)])
-    assert result.exit_code == 1
-    assert "already exists" in result.output
-
-
-def test_init_without_firefox(tmp_path: Path, config_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HOME", str(tmp_path))
-    result = RUNNER.invoke(APP, ["config", "init", "--config", str(config_path)])
-    assert result.exit_code == 1
-    assert "No Firefox profiles found" in result.output
-    assert not config_path.exists()
-
-
 def test_commands_need_a_config(config_path: Path) -> None:
     result = RUNNER.invoke(APP, ["config", "show", "--config", str(config_path)])
     assert result.exit_code == 1
     assert "config init" in result.output
-
-
-def test_add_channel(saved_config: AppConfig, config_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    seen: list[str | None] = []
-
-    def fake_resolve(value: str, ytdlp: YtDlp) -> ChannelConfig:
-        seen.append(ytdlp.cookies_spec)
-        return CHANNEL.model_copy()
-
-    monkeypatch.setattr(cli, "resolve_channel", fake_resolve)
-    result = RUNNER.invoke(
-        APP, ["config", "add-channel", "@3blue1brown", "--members", "--config", str(config_path)], input="y\n"
-    )
-    assert result.exit_code == 0, result.output
-    assert seen == [None]  # channel lookups never send cookies
-    channels = load_config(config_path).channels
-    assert channels == [CHANNEL.model_copy(update={"members": True})]
-
-    result = RUNNER.invoke(APP, ["config", "add-channel", "@3blue1brown", "-y", "--config", str(config_path)])
-    assert result.exit_code == 1
-    assert "already in the configuration" in result.output
-
-
-def test_add_channel_declined(saved_config: AppConfig, config_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(cli, "resolve_channel", lambda value, ytdlp: CHANNEL.model_copy())
-    result = RUNNER.invoke(APP, ["config", "add-channel", "@3blue1brown", "--config", str(config_path)], input="n\n")
-    assert result.exit_code == 0
-    assert load_config(config_path).channels == []
-
-
-def test_add_channel_bad_url(saved_config: AppConfig, config_path: Path) -> None:
-    result = RUNNER.invoke(APP, ["config", "add-channel", "not-a-channel", "--config", str(config_path)])
-    assert result.exit_code == 1
-    assert "Not a YouTube channel" in result.output
-
-
-def test_remove_channel(config_path: Path) -> None:
-    save_config(AppConfig(channels=[CHANNEL]), config_path)
-    result = RUNNER.invoke(APP, ["config", "remove-channel", "3blue1brown", "--config", str(config_path)])
-    assert result.exit_code == 0, result.output
-    assert load_config(config_path).channels == []
-
-    result = RUNNER.invoke(APP, ["config", "remove-channel", "3blue1brown", "--config", str(config_path)])
-    assert result.exit_code == 1
-
-
-def test_show(fake_home: Path, config_path: Path) -> None:
-    config = AppConfig(channels=[CHANNEL])
-    config.auth.firefox_profile = fake_home / ".mozilla" / "firefox" / "abc.Profile 1"
-    save_config(config, config_path)
-    result = RUNNER.invoke(APP, ["config", "show", "--config", str(config_path)])
-    assert result.exit_code == 0, result.output
-    assert 'channel_id = "UCYO"' in result.output
-    assert "has YouTube sign-in cookies" in result.output
-
-
-def test_options_needs_no_config() -> None:
-    result = RUNNER.invoke(APP, ["config", "options"], terminal_width=200)
-    assert result.exit_code == 0, result.output
-    assert "guide.output_dir" in result.output
-    assert "guide.options.claude-cli.model" in result.output
-
-
-@pytest.mark.parametrize(("accepted", "exit_code"), [(True, 0), (False, 1)])
-def test_check(
-    saved_config: AppConfig, config_path: Path, monkeypatch: pytest.MonkeyPatch, accepted: bool, exit_code: int
-) -> None:
-    monkeypatch.setattr(cli, "verify_login", lambda ytdlp: accepted)
-    result = RUNNER.invoke(APP, ["config", "check", "--config", str(config_path)])
-    assert result.exit_code == exit_code, result.output
 
 
 def guide_body(path: Path) -> str:
@@ -181,80 +69,6 @@ def guide_setup(config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(pipeline, "load_transcript", fake_transcript)
     monkeypatch.setattr(pipeline, "make_guide_generator", lambda config: generator)
     return generator
-
-
-def test_guide_writes_to_the_current_directory_by_default(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    workdir = tmp_path / "here"
-    workdir.mkdir()
-    monkeypatch.chdir(workdir)
-    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "--config", str(config_path)], env={"COLUMNS": "300"})
-    assert result.exit_code == 0, result.output
-    assert guide_body(workdir / "Watching Guide - 20261008 - A video.md") == GUIDE_REPLY
-    assert "Using the built-in prompt template" in result.output
-    assert "1 timestamp links, 0 labels corrected." in result.output
-    assert "[0:05 | 5s] Hello." in guide_setup.prompts[0]
-
-    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "--config", str(config_path)], env={"COLUMNS": "300"})
-    assert result.exit_code == 1
-    assert "already exists" in result.output
-    assert len(guide_setup.prompts) == 1
-
-
-def test_guide_output_dir_option_beats_config(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
-) -> None:
-    config = load_config(config_path)
-    config.guide.output_dir = tmp_path / "from-config"
-    save_config(config, config_path)
-    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "--config", str(config_path)])
-    assert result.exit_code == 0, result.output
-    assert (tmp_path / "from-config" / "Watching Guide - 20261008 - A video.md").exists()
-    result = RUNNER.invoke(
-        APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path / "from-option"), "--config", str(config_path)]
-    )
-    assert result.exit_code == 0, result.output
-    assert (tmp_path / "from-option" / "Watching Guide - 20261008 - A video.md").exists()
-
-
-def test_guide_warns_about_bad_links(guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path) -> None:
-    guide_setup.reply = "# Guide\n\n[9:00](https://www.youtube.com/watch?v=3i2C3IB3PaA&t=540s)\n"
-    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)])
-    assert result.exit_code == 0, result.output
-    assert "links past the end of the video: 9:00" in result.output
-
-    guide_setup.reply = "# Guide without links\n"
-    result = RUNNER.invoke(APP, ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--force", "--config", str(config_path)])
-    assert "no timestamp links" in result.output
-
-
-def test_config_template(config_path: Path, tmp_path: Path) -> None:
-    config = AppConfig()
-    config.guide.prompt_template = tmp_path / "templates" / "guide_prompt.md"
-    save_config(config, config_path)
-    result = RUNNER.invoke(APP, ["config", "template", "--config", str(config_path)])
-    assert result.exit_code == 0, result.output
-    assert "$transcript" in config.guide.prompt_template.read_text(encoding="utf-8")
-
-    config.guide.prompt_template.write_text("edited", encoding="utf-8")
-    result = RUNNER.invoke(APP, ["config", "template", "--config", str(config_path)])
-    assert result.exit_code == 1
-    assert config.guide.prompt_template.read_text(encoding="utf-8") == "edited"
-    result = RUNNER.invoke(APP, ["config", "template", "--force", "--config", str(config_path)])
-    assert result.exit_code == 0
-    assert "$transcript" in config.guide.prompt_template.read_text(encoding="utf-8")
-
-
-def test_init_writes_template_next_to_config(
-    fake_home: Path, config_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("HOME", str(fake_home))
-    result = RUNNER.invoke(APP, ["config", "init", "--config", str(config_path)], input="\n")
-    assert result.exit_code == 0, result.output
-    template = config_path.parent / "guide_prompt.md"
-    assert load_config(config_path).guide.prompt_template == template
-    assert "$transcript" in template.read_text(encoding="utf-8")
 
 
 def test_help_text_stops_at_docstring_sections() -> None:
@@ -789,101 +603,8 @@ def test_browse_refuses_a_video_whose_older_guide_another_video_overwrites(
     assert summary_results(result.output) == {"First video": "written", "Bonus episode": "failed"}
 
 
-def test_guide_write_failure_exits_1_with_a_message(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
-) -> None:
-    (tmp_path / "Watching Guide - 20261008 - A video.md").mkdir()
-    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--force", "--config", str(config_path)]
-    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
-    assert result.exit_code == 1
-    assert result.exception is None or isinstance(result.exception, SystemExit)
-    assert "Error: Cannot write" in result.output
-    assert "raw reply is kept in" in result.output
-
-
-def test_guide_unusable_cache_dir_exits_1(guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path) -> None:
-    (tmp_path / "cache").write_text("not a directory", encoding="utf-8")
-    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path / "out"), "--config", str(config_path)]
-    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
-    assert result.exit_code == 1
-    assert result.exception is None or isinstance(result.exception, SystemExit)
-    assert "Error: Cannot create the work directory" in result.output
-    assert guide_setup.prompts == []
-
-
-def test_guide_warns_when_the_raw_reply_is_not_saved(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
-) -> None:
-    (tmp_path / "cache" / "3i2C3IB3PaA" / "guide.md").mkdir(parents=True)
-    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path / "out"), "--config", str(config_path)]
-    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
-    assert result.exit_code == 0, result.output
-    assert "Warning: the raw reply was not kept in the cache: Cannot write the cache file" in result.output
-    assert guide_body(tmp_path / "out" / "Watching Guide - 20261008 - A video.md") == GUIDE_REPLY
-
-
-def test_guide_error_shows_square_brackets_in_the_title(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def bracket_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
-        return VideoInfo(id=video_id, title="[/x] [bold]Live[/bold]", duration=60, upload_date="20261008")
-
-    monkeypatch.setattr(pipeline, "load_video_info", bracket_info)
-    (tmp_path / "Watching Guide - 20261008 - [ x] [bold]Live[ bold].md").write_text("mine", encoding="utf-8")
-    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)]
-    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
-    assert result.exit_code == 1
-    assert "[ x] [bold]Live[ bold].md already exists" in result.output
-
-
-def test_guide_error_keeps_the_ytdlp_extractor_tag(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def failing_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
-        raise YtDlpError(f"ERROR: [youtube] {video_id}: Join this channel to get access to members-only content")
-
-    monkeypatch.setattr(pipeline, "load_video_info", failing_info)
-    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)]
-    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
-    assert result.exit_code == 1
-    assert "ERROR: [youtube] 3i2C3IB3PaA: Join this channel" in result.output
-
-
-def test_guide_without_upload_date_leaves_the_date_out_of_the_file_name(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    def undated_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
-        return VideoInfo(id=video_id, title="A video", duration=60)
-
-    monkeypatch.setattr(pipeline, "load_video_info", undated_info)
-    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)]
-    result = RUNNER.invoke(APP, args)
-    assert result.exit_code == 0, result.output
-    assert guide_body(tmp_path / "Watching Guide - A video.md") == GUIDE_REPLY
-
-
 OLD_LINKS = "# Old guide\n\n[0:05](https://www.youtube.com/watch?v=3i2C3IB3PaA&t=5s)\n"
 OLD_GUIDE = "---\nvideo_id: 3i2C3IB3PaA\n---\n\n" + OLD_LINKS
-
-
-def test_guide_refuses_a_guide_for_the_video_under_another_name(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path
-) -> None:
-    old = tmp_path / "Watching Guide - 20261007 - A video.md"
-    old.write_text(OLD_GUIDE, encoding="utf-8")
-    (tmp_path / "unreadable.md").write_bytes(b"\xff\xfe")
-    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)]
-    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
-    assert result.exit_code == 1
-    assert f"Video 3i2C3IB3PaA already has a guide: {old}. Use --force to replace it." in result.output
-    assert f"Warning: Cannot read {tmp_path / 'unreadable.md'}" in result.output
-    assert guide_setup.prompts == []
-
-    result = RUNNER.invoke(APP, [*args, "--force"], env={"COLUMNS": "1000"})
-    assert result.exit_code == 0, result.output
-    assert f"Removed the older guide {old}" in result.output
-    assert not old.exists()
-    assert guide_body(tmp_path / "Watching Guide - 20261008 - A video.md") == GUIDE_REPLY
 
 
 def test_browse_asks_before_replacing_a_guide_under_another_name(
@@ -904,23 +625,3 @@ def test_browse_asks_before_replacing_a_guide_under_another_name(
     assert result.exit_code == 0, result.output
     assert not old.exists()
     assert guide_body(tmp_path / "Watching Guide - 20261008 - A video.md") == GUIDE_REPLY
-
-
-def test_guide_never_replaces_a_file_found_only_by_its_links(
-    guide_setup: FakeGuideGenerator, config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    notes = tmp_path / "My notes.md"
-    notes.write_text(OLD_LINKS, encoding="utf-8")
-    fetched: list[str] = []
-
-    def no_transcript(video: VideoInfo, provider: object, work_dir: Path, refresh: bool = False) -> Transcript:
-        fetched.append(video.id)
-        raise AssertionError("the transcript must not be fetched")
-
-    monkeypatch.setattr(pipeline, "load_transcript", no_transcript)
-    args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--force", "--config", str(config_path)]
-    result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
-    assert result.exit_code == 1
-    assert f"{notes} links to this video, but its front matter does not name it" in result.output
-    assert fetched == []
-    assert notes.read_text(encoding="utf-8") == OLD_LINKS

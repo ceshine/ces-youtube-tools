@@ -13,42 +13,38 @@ import typer
 from rich.table import Table
 from rich.markup import escape
 
-from .menu import QuitMenu, parse_choice
 from .common import fail, STDERR, CONSOLE, print_error, ConfigPathOption, load_config_or_exit
 from .pickers import pick_one, pick_many, require_terminal, NotATerminalError
 from .list_cmd import list_videos
 from .site_cmd import build_site
+from .guide_cmd import make_guide
+from .config_cmd import (
+    config_init,
+    config_show,
+    config_check,
+    config_options,
+    config_profile,
+    config_template,
+    config_add_channel,
+    config_remove_channel,
+)
 from .backfill_cmd import backfill_guides
+from .guide_report import report_guide, print_scan_warnings, make_guide_tools_with_notice
 from .transcript_cmd import show_transcript
-from ..guide import GuideError, default_template
-from ..video import parse_video_id
+from ..guide import GuideError
 from ..ytdlp import YtDlpError
 from ..config import ChannelConfig
-from ..config import (
-    AppConfig,
-    dump_config,
-    save_config,
-    describe_options,
-    DEFAULT_CONFIG_PATH,
-)
-from ..firefox import (
-    is_signed_in,
-    FirefoxProfile,
-    discover_all_profiles,
-)
-from ..youtube import VideoPager, VideoSummary, verify_login, resolve_channel
+from ..config import DEFAULT_CONFIG_PATH
+from ..youtube import VideoPager, VideoSummary
 from ..pipeline import (
     GuideTools,
     make_ytdlp,
-    GuideResult,
     GUIDE_ERRORS,
     PreparedGuide,
     prepare_guide,
     generate_guide,
-    make_guide_tools,
 )
-from ..formatting import format_duration, video_choice_label
-from ..generators import GUIDE_GENERATORS
+from ..formatting import video_choice_label
 from ..existing_guides import guides_to_replace
 
 APP = typer.Typer(no_args_is_help=True, help="Browse YouTube channels and generate watching guides.")
@@ -108,288 +104,14 @@ def main() -> None:
     """
 
 
-def _choose(prompt: str, count: int, default: int | None = None) -> int:
-    """Ask for a menu item number until the answer is valid.
-
-    Args:
-        prompt (str): The question.
-        count (int): Number of items in the menu.
-        default (int | None): Item chosen by an empty answer, or None if an answer is required.
-
-    Returns:
-        int: The chosen item number, from 1 to `count`.
-
-    Raises:
-        typer.Exit: With status 0 if the user quits with `q`.
-    """
-    while True:
-        answer = typer.prompt(
-            prompt, default=str(default) if default is not None else "", show_default=default is not None
-        )
-        try:
-            return parse_choice(answer, count, default)
-        except QuitMenu:
-            CONSOLE.print("Bye.")
-            raise typer.Exit() from None
-        except ValueError as exc:
-            CONSOLE.print(str(exc))
-
-
-def _pick_profile() -> FirefoxProfile:
-    """Show the Firefox profiles and ask the user to pick one.
-
-    Returns:
-        FirefoxProfile: The chosen profile.
-
-    Raises:
-        typer.Exit: If no Firefox profiles are found.
-    """
-    profiles = discover_all_profiles(Path.home())
-    if not profiles:
-        raise fail("No Firefox profiles found. Create one in Firefox (about:profiles) first.")
-
-    signed_in = [is_signed_in(profile.path) for profile in profiles]
-    table = Table(title="Firefox profiles")
-    table.add_column("#", justify="right")
-    table.add_column("Name")
-    table.add_column("Folder")
-    table.add_column("YouTube")
-    for index, (profile, ok) in enumerate(zip(profiles, signed_in, strict=True), start=1):
-        status = "[green]signed in[/green]" if ok else "[dim]not signed in[/dim]"
-        table.add_row(str(index), profile.name, str(profile.path), status)
-    CONSOLE.print(table)
-
-    default = next((index for index, ok in enumerate(signed_in, start=1) if ok), 1)
-    choice = _choose("Profile to use for YouTube cookies", len(profiles), default=default)
-    profile = profiles[choice - 1]
-    if not signed_in[choice - 1]:
-        CONSOLE.print(
-            f"[yellow]Warning:[/yellow] {profile.name} is not signed in to YouTube. "
-            "Sign in with that profile, then run `ces-youtube-tools config check`."
-        )
-    return profile
-
-
-@command(CONFIG_APP, "init")
-def config_init(
-    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
-    force: Annotated[bool, typer.Option("--force", help="Overwrite an existing configuration file.")] = False,
-) -> None:
-    """Create the configuration file, starting with the Firefox profile to take cookies from.
-
-    Args:
-        config_path (Path): Path of the configuration file.
-        force (bool): Overwrite an existing configuration file.
-
-    Returns:
-        None
-
-    Raises:
-        typer.Exit: If the file exists and `force` is not set.
-    """
-    if config_path.exists() and not force:
-        raise fail(f"{config_path} already exists. Use --force to overwrite it, or `config profile` to change it.")
-    profile = _pick_profile()
-    config = AppConfig()
-    config.auth.firefox_profile = profile.path
-    config.guide.prompt_template = config_path.parent / "guide_prompt.md"
-    save_config(config, config_path)
-    CONSOLE.print(f"Saved {config_path}.")
-    if _write_default_template(config.guide.prompt_template, force=False):
-        CONSOLE.print(
-            f"Wrote the guide prompt template to {config.guide.prompt_template}. Edit it to change the guides."
-        )
-    CONSOLE.print("Next, add channels with `ces-youtube-tools config add-channel @handle`.")
-
-
-def _write_default_template(path: Path, force: bool) -> bool:
-    """Write the built-in prompt template to a file.
-
-    Args:
-        path (Path): Where to write it.
-        force (bool): Overwrite an existing file.
-
-    Returns:
-        bool: True if the file was written, False if it already existed.
-    """
-    if path.exists() and not force:
-        return False
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(default_template(), encoding="utf-8")
-    return True
-
-
-@command(CONFIG_APP, "template")
-def config_template(
-    force: Annotated[bool, typer.Option("--force", help="Overwrite an edited template.")] = False,
-    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
-) -> None:
-    """Write the built-in guide prompt template to the configured `prompt_template` path, for editing.
-
-    Args:
-        force (bool): Overwrite an existing template file.
-        config_path (Path): Path of the configuration file.
-
-    Returns:
-        None
-
-    Raises:
-        typer.Exit: If the template file exists and `force` is not set.
-    """
-    path = load_config_or_exit(config_path).guide.prompt_template
-    if not _write_default_template(path, force):
-        raise fail(f"{path} already exists. Use --force to replace it with the built-in template.")
-    CONSOLE.print(f"Wrote the guide prompt template to {path}.")
-
-
-@command(CONFIG_APP, "profile")
-def config_profile(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
-    """Choose a different Firefox profile for YouTube cookies.
-
-    Args:
-        config_path (Path): Path of the configuration file.
-
-    Returns:
-        None
-    """
-    config = load_config_or_exit(config_path)
-    profile = _pick_profile()
-    config.auth.firefox_profile = profile.path
-    save_config(config, config_path)
-    CONSOLE.print(f"Using profile {profile.name} ({profile.path}).")
-
-
-@command(CONFIG_APP, "add-channel")
-def config_add_channel(
-    channel: Annotated[str, typer.Argument(help="Channel handle (@name) or URL.")],
-    members: Annotated[bool, typer.Option("--members", help="Also list members-only videos.")] = False,
-    yes: Annotated[bool, typer.Option("--yes", "-y", help="Add without asking for confirmation.")] = False,
-    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
-) -> None:
-    """Look up a channel and add it to the frequently used channels.
-
-    Args:
-        channel (str): Channel handle or URL.
-        members (bool): Also list members-only videos for this channel.
-        yes (bool): Add without asking for confirmation.
-        config_path (Path): Path of the configuration file.
-
-    Returns:
-        None
-
-    Raises:
-        typer.Exit: If the channel cannot be resolved or is already in the configuration.
-    """
-    config = load_config_or_exit(config_path)
-    try:
-        resolved = resolve_channel(channel, make_ytdlp(config, with_cookies=False))
-    except (ValueError, YtDlpError) as exc:
-        raise fail(str(exc)) from exc
-    resolved.members = members
-
-    existing = config.find_channel(resolved.channel_id)
-    if existing is not None:
-        raise fail(f"{existing.name} ({existing.channel_id}) is already in the configuration.")
-
-    CONSOLE.print(f"Found [bold]{resolved.name}[/bold] ({resolved.channel_id}) at {resolved.url}", highlight=False)
-    if not yes and not typer.confirm("Add this channel?", default=True):
-        raise typer.Exit()
-    config.channels.append(resolved)
-    save_config(config, config_path)
-    CONSOLE.print(f"Added {resolved.name}.")
-
-
-@command(CONFIG_APP, "remove-channel")
-def config_remove_channel(
-    channel: Annotated[str, typer.Argument(help="Channel name or channel ID.")],
-    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
-) -> None:
-    """Remove a channel from the frequently used channels.
-
-    Args:
-        channel (str): Channel name (case-insensitive) or channel ID.
-        config_path (Path): Path of the configuration file.
-
-    Returns:
-        None
-
-    Raises:
-        typer.Exit: If the channel is not in the configuration.
-    """
-    config = load_config_or_exit(config_path)
-    found = config.find_channel(channel)
-    if found is None:
-        raise fail(f"No channel named {channel!r} in the configuration.")
-    config.channels.remove(found)
-    save_config(config, config_path)
-    CONSOLE.print(f"Removed {found.name}.")
-
-
-@command(CONFIG_APP, "show")
-def config_show(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
-    """Print the configuration and whether the Firefox profile has YouTube sign-in cookies.
-
-    Args:
-        config_path (Path): Path of the configuration file.
-
-    Returns:
-        None
-    """
-    config = load_config_or_exit(config_path)
-    CONSOLE.print(f"[bold]{config_path}[/bold]")
-    CONSOLE.print(dump_config(config), markup=False, highlight=False)
-    profile = config.auth.firefox_profile
-    if profile is None:
-        CONSOLE.print("No Firefox profile configured. Run `ces-youtube-tools config profile`.")
-    elif not profile.is_dir():
-        CONSOLE.print(f"[red]Firefox profile folder not found:[/red] {profile}")
-    else:
-        state = "has" if is_signed_in(profile) else "does not have"
-        CONSOLE.print(f"The Firefox profile {state} YouTube sign-in cookies.")
-
-
-@command(CONFIG_APP, "options")
-def config_options() -> None:
-    """List every configuration option with its type, default value and meaning.
-
-    Returns:
-        None
-    """
-    rows = describe_options(AppConfig)
-    for name, spec in GUIDE_GENERATORS.items():
-        rows += describe_options(spec.options_model, f"guide.options.{name}.")
-    table = Table(title="Configuration options")
-    table.add_column("Option", no_wrap=True)
-    table.add_column("Type")
-    table.add_column("Default", overflow="fold")
-    table.add_column("Description")
-    for row in rows:
-        table.add_row(escape(row.key), escape(row.type_name), escape(row.default), escape(row.description))
-    CONSOLE.print(table)
-
-
-@command(CONFIG_APP, "check")
-def config_check(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
-    """Check with YouTube that the configured profile is signed in.
-
-    Args:
-        config_path (Path): Path of the configuration file.
-
-    Returns:
-        None
-
-    Raises:
-        typer.Exit: If no profile is configured or YouTube rejects the cookies.
-    """
-    config = load_config_or_exit(config_path)
-    if config.auth.firefox_profile is None:
-        raise fail("No Firefox profile configured. Run `ces-youtube-tools config profile`.")
-    if not verify_login(make_ytdlp(config, with_cookies=True)):
-        raise fail(
-            "YouTube did not accept the cookies. Sign in with the Firefox profile "
-            f"{config.auth.firefox_profile}, or choose another with `ces-youtube-tools config profile`."
-        )
-    CONSOLE.print("[green]Signed in:[/green] YouTube accepted the profile's cookies.")
+_ = command(CONFIG_APP, "init")(config_init)
+_ = command(CONFIG_APP, "template")(config_template)
+_ = command(CONFIG_APP, "profile")(config_profile)
+_ = command(CONFIG_APP, "add-channel")(config_add_channel)
+_ = command(CONFIG_APP, "remove-channel")(config_remove_channel)
+_ = command(CONFIG_APP, "show")(config_show)
+_ = command(CONFIG_APP, "options")(config_options)
+_ = command(CONFIG_APP, "check")(config_check)
 
 
 _ = command(APP, "list")(list_videos)
@@ -398,136 +120,11 @@ _ = command(APP, "list")(list_videos)
 _ = command(APP, "transcript")(show_transcript)
 
 
-@command(APP, "guide")
-def make_guide(
-    video: Annotated[str, typer.Argument(help="Video URL or ID.")],
-    output_dir: Annotated[
-        Path | None, typer.Option("--output-dir", "-o", help="Where to write the guide. Overrides the config.")
-    ] = None,
-    force: Annotated[
-        bool, typer.Option("--force", help="Replace an existing guide for the video, whatever its name.")
-    ] = False,
-    refresh: Annotated[bool, typer.Option("--refresh", help="Ignore cached metadata and transcript.")] = False,
-    config_path: ConfigPathOption = DEFAULT_CONFIG_PATH,
-) -> None:
-    """Generate a watching guide for a video and write it as Markdown.
-
-    The guide goes to `--output-dir`, else the configured `guide.output_dir`, else the current directory. A guide for
-    the same video already in that folder, under any name, is refused unless `--force` is given; it is then replaced.
-
-    Args:
-        video (str): Video URL or ID.
-        output_dir (Path | None): Directory for the guide file.
-        force (bool): Replace an existing guide for the video, and overwrite a file with the guide's name.
-        refresh (bool): Ignore cached metadata and transcript.
-        config_path (Path): Path of the configuration file.
-
-    Returns:
-        None
-
-    Raises:
-        typer.Exit: If any step fails.
-    """
-    config = load_config_or_exit(config_path)
-    try:
-        video_id = parse_video_id(video)
-    except ValueError as exc:
-        raise fail(str(exc)) from exc
-    _run_guide(config, video_id, output_dir or config.guide.output_dir or Path.cwd(), force=force, refresh=refresh)
+_ = command(APP, "guide")(make_guide)
 
 
 _ = command(APP, "backfill")(backfill_guides)
 _ = command(APP, "site")(build_site)
-
-
-def _report_guide(result: GuideResult) -> None:
-    """Print where a guide was written, the older guides it replaced, and what the link check found.
-
-    Args:
-        result (GuideResult): The written guide.
-
-    Returns:
-        None
-    """
-    links = result.links
-    CONSOLE.print(f"Wrote {result.path}", markup=False, highlight=False)
-    for old in result.removed:
-        CONSOLE.print(f"Removed the older guide {old}", markup=False, highlight=False)
-    CONSOLE.print(f"{links.links} timestamp links, {links.relabeled} labels corrected.")
-    if links.out_of_range:
-        times = ", ".join(format_duration(seconds) for seconds in links.out_of_range)
-        STDERR.print(f"[yellow]Warning:[/yellow] links past the end of the video: {times}. Check those parts.")
-    if links.links == 0:
-        STDERR.print("[yellow]Warning:[/yellow] the guide has no timestamp links. Check the prompt template.")
-    if result.raw_reply_error is not None:
-        STDERR.print(
-            f"[yellow]Warning:[/yellow] the raw reply was not kept in the cache: {escape(result.raw_reply_error)}",
-            highlight=False,
-            soft_wrap=True,
-        )
-
-
-def _print_scan_warnings(prepared: PreparedGuide) -> None:
-    """Print a warning for each file in the guide's folder that could not be read or whose front matter is invalid.
-
-    Args:
-        prepared (PreparedGuide): The video, from `prepare_guide`.
-
-    Returns:
-        None
-    """
-    for warning in prepared.scan.warnings:
-        STDERR.print(f"[yellow]Warning:[/yellow] {escape(warning)}", highlight=False, soft_wrap=True)
-
-
-def _make_guide_tools(config: AppConfig) -> GuideTools:
-    """Make the tools for writing guides, and print a notice when the built-in prompt template is used.
-
-    Args:
-        config (AppConfig): The configuration.
-
-    Returns:
-        GuideTools: The tools.
-
-    Raises:
-        ValueError: If the configured transcript provider or guide generator is unknown, or the generator's settings
-            are invalid.
-    """
-    tools = make_guide_tools(config)
-    if tools.template_is_default:
-        STDERR.print(
-            f"Using the built-in prompt template ({config.guide.prompt_template} does not exist). "
-            "Run `ces-youtube-tools config template` for an editable copy.",
-            markup=False,
-            highlight=False,
-        )
-    return tools
-
-
-def _run_guide(config: AppConfig, video_id: str, target_dir: Path, *, force: bool, refresh: bool) -> None:
-    """Fetch a video's transcript, generate its guide, write it and report the result.
-
-    Args:
-        config (AppConfig): The configuration.
-        video_id (str): YouTube video ID.
-        target_dir (Path): Directory for the guide file.
-        force (bool): Replace an existing guide for the video, and overwrite a file with the guide's name.
-        refresh (bool): Ignore cached metadata and transcript.
-
-    Returns:
-        None
-
-    Raises:
-        typer.Exit: If any step fails.
-    """
-    try:
-        tools = _make_guide_tools(config)
-        prepared = prepare_guide(tools, video_id, target_dir, refresh=refresh, status=STDERR.status)
-        _print_scan_warnings(prepared)
-        result = generate_guide(tools, prepared, force=force, refresh=refresh, status=STDERR.status)
-    except GUIDE_ERRORS as exc:
-        raise fail(str(exc)) from exc
-    _report_guide(result)
 
 
 # The cells questionary's checkbox draws before each item's label: " » " (or three spaces) and "○ " or "● ". See
@@ -747,7 +344,7 @@ def _plan_guides(
     outcome and is left out.
 
     Args:
-        tools (GuideTools): The tools from `_make_guide_tools`.
+        tools (GuideTools): The tools from `make_guide_tools_with_notice`.
         videos (list[VideoSummary]): The selected videos, in menu order.
         target_dir (Path): Directory for the guide files.
         refresh (bool): Ignore cached metadata.
@@ -764,7 +361,7 @@ def _plan_guides(
         except GUIDE_ERRORS as exc:
             outcomes[video.id] = _plan_failure(video, str(exc))
             continue
-        _print_scan_warnings(guide)
+        print_scan_warnings(guide)
         prepared.append((video, guide))
 
     # Each video's scan is taken now, before any guide is written, so a video's write must not touch a file an
@@ -803,7 +400,7 @@ def _write_guides(tools: GuideTools, pending: list[_PendingGuide], *, refresh: b
     One at a time, not in parallel, to keep the automated traffic tied to the account low.
 
     Args:
-        tools (GuideTools): The tools from `_make_guide_tools`.
+        tools (GuideTools): The tools from `make_guide_tools_with_notice`.
         pending (list[_PendingGuide]): The guides to write, from `_plan_guides`.
         refresh (bool): Ignore the cached transcript.
 
@@ -820,7 +417,7 @@ def _write_guides(tools: GuideTools, pending: list[_PendingGuide], *, refresh: b
             print_error(str(exc))
             outcomes[video.id] = _Outcome("failed", str(exc))
             continue
-        _report_guide(result)
+        report_guide(result)
         outcomes[video.id] = _Outcome("written", str(result.path))
     return outcomes
 
@@ -918,7 +515,7 @@ def browse(
         return
 
     try:
-        tools = _make_guide_tools(config)
+        tools = make_guide_tools_with_notice(config)
     except GUIDE_ERRORS as exc:
         raise fail(str(exc)) from exc
     target_dir = output_dir or config.guide.output_dir or Path.cwd()

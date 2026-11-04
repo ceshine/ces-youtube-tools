@@ -49,7 +49,8 @@ src/ces_youtube_tools/
     __main__.py        APP()
     app.py             APP, CONFIG_APP, main() callback, help_text, command(); registers every command
     common.py          CONSOLE, STDERR, ConfigPathOption, print_error, fail, load_config_or_exit
-    guide_report.py    report_guide, shared by `guide` and `browse`
+    guide_report.py    report_guide, print_scan_warnings, make_guide_tools_with_notice (was _make_guide_tools),
+                       shared by `guide` and `browse`
     menu.py            moved from the top level; only the CLI uses it
     pickers.py         moved from the top level; only the CLI uses it
     video_menu.py      the paged video multi-select over a VideoPager
