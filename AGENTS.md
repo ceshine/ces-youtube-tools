@@ -26,7 +26,7 @@ When multiple valid approaches exist, choose based on:
 4. **Simplicity** - Is this the simplest solution that works?
 5. **Reversibility** - How hard to change later?
 
-## General Technical Standards
+## Technical Standards
 
 ### Architecture Principles
 
@@ -46,24 +46,21 @@ When multiple valid approaches exist, choose based on:
 
 - **Comprehensive Typing:** Use type hints for all function signatures and class members. Use modern Python 3.10+ typing syntax (e.g., `list[str]` instead of `List[str]`, `str | None` instead of `Optional[str]`).
 - **Data Validation:** For complex data structures or API models, prefer Pydantic for validation and serialization.
-- **Strictness:** Aim for code that passes `pyright` with minimal ignores.
+- **Strictness:** Aim for code that passes `basedpyright` with minimal ignores.
+- **Unused call results:** basedpyright's `reportUnusedCallResult` applies everywhere, tests included. When a call
+  that returns a value is made only for its side effect, assign the result to `_` (e.g. `_ = path.rename(dest)`,
+  `_ = create_user(db, name="alice")`) rather than disabling the rule.
+
+### Data Handling (Polars)
+
+- **Schema Enforcement:** Always specify schemas when creating DataFrames from lists of dicts or loading from raw files to ensure type consistency.
+- **IPC/Arrow:** Prefer `write_ipc` and `read_ipc` (Arrow format) for persisting intermediate DataFrames to disk for performance and type preservation.
+- **Lazy Evaluation:** Use `lazy()` and `collect()` for complex transformations to allow Polars to optimize the execution plan.
 
 ### Logging Standards
 
-- **Standard Logger:** Initialize loggers using `LOGGER = logging.getLogger(__name__)` at the module level.
+- **Standard Logger:** Initialize loggers as `LOGGER = logging.getLogger(__name__)` at module level (see module-level naming under Code Style Guidelines).
 - **Contextual Info:** Use the logger to provide context during long-running operations or errors, but avoid excessive debug logging in production paths.
-
-### Testing Strategy
-
-- **Pytest:** Use `pytest` for all testing. Organize tests in a `tests/` directory mirroring the `src/ces_youtube_tools/` structure.
-- **Fixtures:** Use pytest fixtures for setup/teardown of data, models, or temporary directories.
-- **Mocking:** Mock external services (yt-dlp subprocess calls, YouTube network requests) and local browser data (Firefox profile and cookie files) when writing unit tests to keep them fast and reliable.
-
-### Project Documentation
-
-- **Design:** `docs/design.md` records what we decided to build and why. Read it before starting a feature, and update it when a design decision changes.
-- **Implementation notes:** Record observed behavior of YouTube, yt-dlp, Firefox and the `claude` CLI in `docs/implementation_notes.md`, with the date it was checked and a command to recheck it. Mark unconfirmed findings as "not yet verified". When a note turns out to be wrong or outdated, correct it rather than adding a contradicting entry.
-- **Fixtures:** Never commit real subtitles or transcripts of members-only videos as test fixtures. Use short synthetic files with the same structure.
 
 ### CLI & User Interface
 
@@ -71,50 +68,46 @@ When multiple valid approaches exist, choose based on:
 - **Rich:** Use `rich` for formatting terminal output (tables, progress bars, colors) to provide a better user experience.
 - **Progress Bars:** Use `tqdm` or `rich.progress` for long-running loops.
 
+### Testing Strategy
+
+- **Pytest:** Use `pytest` for all testing. Organize tests in a `tests/` directory mirroring the structure of the Python package(s).
+- **Fixtures:** Use pytest fixtures for setup/teardown of data, models, or temporary directories.
+- **Mocking:** Mock external services, databases (like Qdrant), or heavy models (Torch) when writing unit tests to keep them fast and reliable.
+
 ### Code Style Guidelines
 
 When writing or modifying Python code, you **MUST** adhere to the PEP-8 style guide. Pay particular attention to:
 
-- Naming conventions, and whitespace.
+- Naming conventions and whitespace (see the module-level override below).
+- **Module-level names (project convention, overrides PEP-8 defaults):**
+  - Use `UPPER_SNAKE_CASE` for every module-level singleton instance, not only constants:
+    e.g. `LOGGER = logging.getLogger(__name__)`, `APP = typer.Typer(...)`, `CONSOLE = Console()`.
+    This is deliberate; do not rename them to lowercase.
+  - Reference them by that name everywhere, including decorators (`@APP.command()`) and tests
+    (`CliRunner().invoke(APP, ...)`).
+  - Type aliases stay `CapWords` (e.g. `ConfigOption = Annotated[...]`, `PageLoader = Callable[...]`).
 - **Pathlib:** Always use `pathlib.Path` for file and directory operations instead of `os.path` or string manipulations.
 - **Import Grouping:** Imports should be grouped in the following order, with a blank line separating each group:
     1.  Standard library imports (e.g., `os`, `sys`, `json`)
     2.  Third-party imports (e.g., `fastapi`, `pydantic`, `uvicorn`)
     3.  Local application/monorepo-specific imports
+
+    Within each group, the order is set by `lort`, which the pre-commit hook runs (`uvx prek run --files <files>`
+    applies it before committing). Don't sort imports by hand or with ruff: ruff's I001 rule orders imports
+    differently from lort, so if `pyproject.toml` doesn't already disable I001 (e.g. via `ignore = ["I001"]`
+    under `[tool.ruff.lint]`), disable it.
 - **Docstrings:** Follow Google's Python style guide for docstrings strictly. Even when the function signature contains type annotations, include the parameter and return type information in the docstring.
 
-Example imports:
-```python
-import os
-import abc
-import csv
-import datetime
-from xml.sax.handler import ContentHandler
-from xml.parsers.expat import ExpatError
-from a.b import c
-from a.b.c import d
-from a.b.add import f
-from a.bc.a import k
-from collections import defaultdict
-from collections.abc import Mapping
-from typing import Any, Dict, List, Optional
-
-import typer
-
-from . import runner
-```
-
-### Python Environment (UV)
+## Python Environment (UV)
 
 This project uses `uv` for Python setup and dependency management.
 
 - **Sync Environment:** `uv sync --frozen` (creates/updates virtualenv from lockfile).
-- **Run Scripts/Tools:** Always prefix runtime commands with `uv run` (e.g., `uv run python main.py`, `uv run pytest`).
+- **Run Scripts/Tools:** Always prefix with `uv run` (e.g., `uv run python main.py`, `uv run pytest`).
 - **Add Dependencies:** Use `uv add <package>` or `uv add --dev <package>`.
 - **Linting & Formatting:**
   - `uvx ruff check .` (Linting)
   - `uvx ruff format --line-length 120` (Formatting)
-- Do not use `pip`, `poetry`, or `venv` directly in commands or instructions.
 
 Pre-Submission Check:
 
