@@ -4,7 +4,7 @@ import pytest
 from rich.cells import cell_len
 from typer.testing import CliRunner
 
-from ces_youtube_tools import cli
+from ces_youtube_tools import cli, pipeline
 from ces_youtube_tools.cli import APP
 from ces_youtube_tools.video import VideoInfo
 from ces_youtube_tools.ytdlp import YtDlp, YtDlpError
@@ -272,9 +272,9 @@ def guide_setup(config_path: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPat
         segments = [TranscriptSegment(start=5, end=6, text="Hello.")]
         return Transcript(video_id=video.id, source="yt-dlp-subs: human-made en", language="en", segments=segments)
 
-    monkeypatch.setattr(cli, "load_video_info", fake_info)
-    monkeypatch.setattr(cli, "load_transcript", fake_transcript)
-    monkeypatch.setattr(cli, "make_guide_generator", lambda config: generator)
+    monkeypatch.setattr(pipeline, "load_video_info", fake_info)
+    monkeypatch.setattr(pipeline, "load_transcript", fake_transcript)
+    monkeypatch.setattr(pipeline, "make_guide_generator", lambda config: generator)
     return generator
 
 
@@ -489,7 +489,7 @@ def titled(browse_setup: list[str], monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
         return VideoInfo(id=video_id, title=LISTED_TITLES[video_id], duration=900, upload_date="20261008")
 
-    monkeypatch.setattr(cli, "load_video_info", fake_info)
+    monkeypatch.setattr(pipeline, "load_video_info", fake_info)
 
 
 def summary_results(output: str) -> dict[str, str]:
@@ -799,7 +799,7 @@ def test_browse_carries_on_after_a_failure(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    load_transcript = cli.load_transcript  # the fake from `guide_setup`
+    load_transcript = pipeline.load_transcript  # the fake from `guide_setup`
 
     def failing_transcript(
         video: VideoInfo, provider: TranscriptProvider, work_dir: Path, refresh: bool = False
@@ -808,7 +808,7 @@ def test_browse_carries_on_after_a_failure(
             raise TranscriptError("No subtitles for aaaaaaaaaaa.")
         return load_transcript(video, provider, work_dir, refresh=refresh)
 
-    monkeypatch.setattr(cli, "load_transcript", failing_transcript)
+    monkeypatch.setattr(pipeline, "load_transcript", failing_transcript)
     pickers.videos = [[1, 2]]
     args = ["browse", "3blue1brown", "-o", str(tmp_path), "--config", str(config_path)]
     result = RUNNER.invoke(APP, args, env={"COLUMNS": "200"})
@@ -829,14 +829,14 @@ def test_browse_carries_on_when_a_video_cannot_be_loaded(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    load_video_info = cli.load_video_info  # the fake from `titled`
+    load_video_info = pipeline.load_video_info  # the fake from `titled`
 
     def members_only(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
         if video_id == "3i2C3IB3PaA":
             raise YtDlpError(f"ERROR: [youtube] {video_id}: Join this channel to get access to members-only content")
         return load_video_info(video_id, ytdlp, work_dir, refresh=refresh)
 
-    monkeypatch.setattr(cli, "load_video_info", members_only)
+    monkeypatch.setattr(pipeline, "load_video_info", members_only)
     pickers.videos = [[1, 2]]
     args = ["browse", "3blue1brown", "-o", str(tmp_path), "--config", str(config_path)]
     result = RUNNER.invoke(APP, args, env={"COLUMNS": "200"})
@@ -923,7 +923,7 @@ def test_guide_error_shows_square_brackets_in_the_title(
     def bracket_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
         return VideoInfo(id=video_id, title="[/x] [bold]Live[/bold]", duration=60, upload_date="20261008")
 
-    monkeypatch.setattr(cli, "load_video_info", bracket_info)
+    monkeypatch.setattr(pipeline, "load_video_info", bracket_info)
     (tmp_path / "Watching Guide - 20261008 - [ x] [bold]Live[ bold].md").write_text("mine", encoding="utf-8")
     args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)]
     result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
@@ -937,7 +937,7 @@ def test_guide_error_keeps_the_ytdlp_extractor_tag(
     def failing_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
         raise YtDlpError(f"ERROR: [youtube] {video_id}: Join this channel to get access to members-only content")
 
-    monkeypatch.setattr(cli, "load_video_info", failing_info)
+    monkeypatch.setattr(pipeline, "load_video_info", failing_info)
     args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)]
     result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
     assert result.exit_code == 1
@@ -950,7 +950,7 @@ def test_guide_without_upload_date_leaves_the_date_out_of_the_file_name(
     def undated_info(video_id: str, ytdlp: YtDlp, work_dir: Path, refresh: bool = False) -> VideoInfo:
         return VideoInfo(id=video_id, title="A video", duration=60)
 
-    monkeypatch.setattr(cli, "load_video_info", undated_info)
+    monkeypatch.setattr(pipeline, "load_video_info", undated_info)
     args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--config", str(config_path)]
     result = RUNNER.invoke(APP, args)
     assert result.exit_code == 0, result.output
@@ -1012,7 +1012,7 @@ def test_guide_never_replaces_a_file_found_only_by_its_links(
         fetched.append(video.id)
         raise AssertionError("the transcript must not be fetched")
 
-    monkeypatch.setattr(cli, "load_transcript", no_transcript)
+    monkeypatch.setattr(pipeline, "load_transcript", no_transcript)
     args = ["guide", "3i2C3IB3PaA", "-o", str(tmp_path), "--force", "--config", str(config_path)]
     result = RUNNER.invoke(APP, args, env={"COLUMNS": "1000"})
     assert result.exit_code == 1

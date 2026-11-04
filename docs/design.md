@@ -124,6 +124,12 @@ class GuideGenerator(Protocol):
   name, the Pydantic model of its `[guide.options.<name>]` table, and a function that builds it from validated
   options. `make_guide_generator` validates the table with the spec, and `config options` lists every spec's options,
   so a new generator needs only its module and its spec.
+- The guide steps shared by `guide` and `browse` are in `pipeline.py`: `make_guide_tools` (once per run),
+  `prepare_guide` (metadata, target path, existing guides) and `generate_guide` (transcript, generation, write). They
+  never print. `prepare_guide` and `generate_guide` take a `status` argument for their spinners (the CLI passes
+  `Console.status`), and the notices are returned as data for the CLI to print: `GuideTools.template_is_default` and
+  `PreparedGuide.scan.warnings`.
+  `GUIDE_ERRORS` lists the errors they raise for the CLI to report without a traceback.
 
 ### claude-cli generator
 

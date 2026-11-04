@@ -1,16 +1,26 @@
 import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from contextlib import nullcontext, AbstractContextManager
 
 import pytest
 
-from ces_youtube_tools.cache import CacheError
+from ces_youtube_tools.cache import CacheError, work_dir_for
 from ces_youtube_tools.guide import GuideError
 from ces_youtube_tools.video import VideoInfo
 from ces_youtube_tools.ytdlp import YtDlp
 from ces_youtube_tools.config import AppConfig
-from ces_youtube_tools.pipeline import write_guide, load_prompt_template, make_transcript_provider
+from ces_youtube_tools.pipeline import (
+    GuideTools,
+    write_guide,
+    prepare_guide,
+    generate_guide,
+    make_guide_tools,
+    load_prompt_template,
+    make_transcript_provider,
+)
 from ces_youtube_tools.subtitles import YtDlpSubtitleProvider
+from ces_youtube_tools.generators.claude_cli import ClaudeCliGenerator
 from ces_youtube_tools.transcript import Transcript, TranscriptSegment
 from ces_youtube_tools.front_matter import split_front_matter, metadata_from_video, render_front_matter
 from ces_youtube_tools.existing_guides import find_guides_for_video
@@ -252,3 +262,100 @@ def test_load_prompt_template(tmp_path: Path) -> None:
     custom = tmp_path / "custom.md"
     custom.write_text("Mine: $title", encoding="utf-8")
     assert load_prompt_template(custom) == ("Mine: $title", False)
+
+
+def test_make_guide_tools(tmp_path: Path) -> None:
+    config = AppConfig()
+    config.cache_dir = tmp_path / "cache"
+    config.guide.prompt_template = tmp_path / "missing.md"
+    tools = make_guide_tools(config)
+    assert isinstance(tools.provider, YtDlpSubtitleProvider)
+    assert isinstance(tools.generator, ClaudeCliGenerator)
+    assert tools.generator_name == "claude-cli"
+    assert tools.template_is_default
+    assert tools.cache_dir == tmp_path / "cache"
+
+    _ = config.guide.prompt_template.write_text("Mine: $title", encoding="utf-8")
+    tools = make_guide_tools(config)
+    assert (tools.template, tools.template_is_default) == ("Mine: $title", False)
+
+
+class FakeProvider:
+    def __init__(self) -> None:
+        self.fetched: list[str] = []
+
+    def fetch(self, video: VideoInfo, work_dir: Path) -> Transcript:
+        self.fetched.append(video.id)
+        return GUIDE_TRANSCRIPT
+
+
+class StatusRecorder:
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def __call__(self, message: str) -> AbstractContextManager[object]:
+        self.messages.append(message)
+        return nullcontext()
+
+
+def guide_tools(tmp_path: Path, provider: FakeProvider, generator: FakeGenerator) -> GuideTools:
+    """Tools whose cache already holds `GUIDE_VIDEO`'s metadata, so yt-dlp is never run."""
+    cache_dir = tmp_path / "cache"
+    work_dir = work_dir_for(cache_dir, GUIDE_VIDEO.id)
+    _ = (work_dir / "video.json").write_text(GUIDE_VIDEO.model_dump_json(), encoding="utf-8")
+    return GuideTools(
+        ytdlp=YtDlp(["yt-dlp-must-not-run"], None),
+        provider=provider,
+        generator=generator,
+        generator_name="fake",
+        template="Guide for $title",
+        template_is_default=False,
+        timezone=None,
+        cache_dir=cache_dir,
+    )
+
+
+def test_prepare_guide(tmp_path: Path) -> None:
+    tools = guide_tools(tmp_path, FakeProvider(), FakeGenerator(REPLY))
+    out = tmp_path / "out"
+    out.mkdir()
+    old = old_guide(out / "Watching Guide - 20261007 - Old name.md")
+    prepared = prepare_guide(tools, GUIDE_VIDEO.id, out, refresh=False)
+    assert prepared.info == GUIDE_VIDEO
+    assert prepared.work_dir == work_dir_for(tools.cache_dir, GUIDE_VIDEO.id)
+    assert prepared.target == out / "Watching Guide - 20261008 - A video part 1.md"
+    assert prepared.scan.video_id == GUIDE_VIDEO.id
+    assert prepared.scan.paths == [old]
+
+
+def test_generate_guide(tmp_path: Path) -> None:
+    provider, generator, status = FakeProvider(), FakeGenerator(REPLY), StatusRecorder()
+    tools = guide_tools(tmp_path, provider, generator)
+    prepared = prepare_guide(tools, GUIDE_VIDEO.id, tmp_path / "out", refresh=False, status=status)
+    result = generate_guide(tools, prepared, force=False, refresh=False, status=status)
+    assert result.path == prepared.target
+    assert guide_body(result.path).startswith("# Guide")
+    assert generator.prompts == ["Guide for A video: part 1"]
+    assert provider.fetched == [GUIDE_VIDEO.id]
+    assert (prepared.work_dir / "transcript.json").exists()
+    assert status.messages == [
+        "Fetching video metadata...",
+        "Fetching transcript...",
+        "Writing the guide with fake (this can take a few minutes)...",
+    ]
+
+
+def test_generate_guide_refuses_an_existing_guide_before_fetching_the_transcript(tmp_path: Path) -> None:
+    provider, generator = FakeProvider(), FakeGenerator(REPLY)
+    tools = guide_tools(tmp_path, provider, generator)
+    out = tmp_path / "out"
+    out.mkdir()
+    _ = old_guide(out / "Watching Guide - 20261007 - Old name.md")
+    prepared = prepare_guide(tools, GUIDE_VIDEO.id, out, refresh=False)
+    with pytest.raises(GuideError, match="already has a guide"):
+        _ = generate_guide(tools, prepared, force=False, refresh=False)
+    assert provider.fetched == []
+    assert generator.prompts == []
+
+    result = generate_guide(tools, prepared, force=True, refresh=False)
+    assert result.removed == prepared.scan.paths

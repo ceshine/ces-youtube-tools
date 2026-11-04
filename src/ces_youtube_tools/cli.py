@@ -4,9 +4,7 @@ import re
 import time
 import shutil
 import inspect
-import datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 from dataclasses import dataclass
 from typing import Any, Literal, TypeVar, Annotated
 from collections.abc import Callable
@@ -18,9 +16,9 @@ from rich.console import Console
 
 from .menu import QuitMenu, parse_choice
 from .cache import CacheError, work_dir_for, load_transcript, load_video_info
-from .guide import GuideError, guide_filename, default_template
+from .guide import GuideError, default_template
 from .video import VideoInfo, parse_video_id
-from .ytdlp import YtDlp, YtDlpError
+from .ytdlp import YtDlpError
 from .config import ChannelConfig
 from .config import (
     AppConfig,
@@ -35,19 +33,27 @@ from .firefox import (
     is_signed_in,
     FirefoxProfile,
     discover_all_profiles,
-    cookies_from_browser_spec,
 )
 from .pickers import pick_one, pick_many, require_terminal, NotATerminalError
 from .youtube import VideoPager, VideoSummary, verify_login, resolve_channel, list_latest_videos
 from .backfill import rename_guide, BackfillError, plan_backfill, write_content, describe_changes
-from .pipeline import GuideResult, write_guide, load_prompt_template, make_transcript_provider
+from .pipeline import (
+    GuideTools,
+    make_ytdlp,
+    GuideResult,
+    GUIDE_ERRORS,
+    PreparedGuide,
+    prepare_guide,
+    generate_guide,
+    make_guide_tools,
+    make_transcript_provider,
+)
 from .formatting import format_age, format_duration, video_choice_label
-from .generators import GUIDE_GENERATORS, make_guide_generator
-from .generators.base import GuideGenerator
+from .generators import GUIDE_GENERATORS
 from .guide_html import expand_paths, GuideHtmlError
-from .transcript import TranscriptError, TranscriptProvider
+from .transcript import TranscriptError
 from .static_site import SiteError, write_site, collect_pages
-from .existing_guides import GuideScan, guides_to_replace, check_existing_guides, find_guides_for_video
+from .existing_guides import guides_to_replace
 
 APP = typer.Typer(no_args_is_help=True, help="Browse YouTube channels and generate watching guides.")
 CONFIG_APP = typer.Typer(no_args_is_help=True, help="Create and edit the configuration file.")
@@ -153,24 +159,6 @@ def _load(config_path: Path) -> AppConfig:
         return load_config(config_path)
     except ConfigError as exc:
         raise _fail(str(exc)) from exc
-
-
-def _make_ytdlp(config: AppConfig, *, with_cookies: bool) -> YtDlp:
-    """Build a yt-dlp runner, optionally using the configured Firefox profile's cookies.
-
-    Cookies are only needed to download members-only content. Leave them out otherwise, to keep automated traffic
-    tied to the account low.
-
-    Args:
-        config (AppConfig): The configuration.
-        with_cookies (bool): Pass the profile's cookies to yt-dlp.
-
-    Returns:
-        YtDlp: The runner. It runs without cookies when no profile is configured.
-    """
-    profile = config.auth.firefox_profile
-    cookies_spec = cookies_from_browser_spec(profile) if with_cookies and profile else None
-    return YtDlp(config.ytdlp_command, cookies_spec)
 
 
 def _choose(prompt: str, count: int, default: int | None = None) -> int:
@@ -347,7 +335,7 @@ def config_add_channel(
     """
     config = _load(config_path)
     try:
-        resolved = resolve_channel(channel, _make_ytdlp(config, with_cookies=False))
+        resolved = resolve_channel(channel, make_ytdlp(config, with_cookies=False))
     except (ValueError, YtDlpError) as exc:
         raise _fail(str(exc)) from exc
     resolved.members = members
@@ -449,7 +437,7 @@ def config_check(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     config = _load(config_path)
     if config.auth.firefox_profile is None:
         raise _fail("No Firefox profile configured. Run `ces-youtube-tools config profile`.")
-    if not verify_login(_make_ytdlp(config, with_cookies=True)):
+    if not verify_login(make_ytdlp(config, with_cookies=True)):
         raise _fail(
             "YouTube did not accept the cookies. Sign in with the Firefox profile "
             f"{config.auth.firefox_profile}, or choose another with `ces-youtube-tools config profile`."
@@ -518,7 +506,7 @@ def list_videos(
         raise _fail(f"No channel named {channel!r} in the configuration. Configured channels: {names}.")
     try:
         with CONSOLE.status(f"Fetching the latest videos of {found.name}..."):
-            videos = list_latest_videos(found, _make_ytdlp(config, with_cookies=False), limit)
+            videos = list_latest_videos(found, make_ytdlp(config, with_cookies=False), limit)
     except YtDlpError as exc:
         raise _fail(str(exc)) from exc
     if not videos:
@@ -553,7 +541,7 @@ def show_transcript(
     config = _load(config_path)
     try:
         video_id = parse_video_id(video)
-        ytdlp = _make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
+        ytdlp = make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
         provider = make_transcript_provider(config, ytdlp)
         work_dir = work_dir_for(config.cache_dir, video_id)
         with STDERR.status("Fetching video metadata..."):
@@ -647,7 +635,7 @@ def backfill_guides(
         files = expand_paths(paths, Path.cwd())
     except GuideHtmlError as exc:
         raise _fail(str(exc)) from exc
-    ytdlp = _make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
+    ytdlp = make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
 
     def load_video(video_id: str) -> VideoInfo:
         return load_video_info(video_id, ytdlp, work_dir_for(config.cache_dir, video_id), refresh=refresh)
@@ -767,148 +755,6 @@ def build_site(
     CONSOLE.print(f"Deploy with: npx wrangler pages deploy {out_dir}", markup=False, highlight=False, soft_wrap=True)
 
 
-# The errors of a guide run that are reported as a message, without a traceback.
-_GUIDE_ERRORS = (ValueError, YtDlpError, TranscriptError, GuideError, CacheError)
-
-
-@dataclass(frozen=True)
-class _GuideTools:
-    """What writing guides needs, made once per command run.
-
-    Attributes:
-        ytdlp (YtDlp): The yt-dlp runner, with cookies because members-only videos need them.
-        provider (TranscriptProvider): The configured transcript provider.
-        generator (GuideGenerator): The configured guide generator.
-        template (str): The prompt template.
-        timezone (ZoneInfo | None): The time zone for the date in guide file names, or None for the system's.
-    """
-
-    ytdlp: YtDlp
-    provider: TranscriptProvider
-    generator: GuideGenerator
-    template: str
-    timezone: ZoneInfo | None
-
-
-@dataclass(frozen=True)
-class _PreparedGuide:
-    """A video whose metadata is loaded, with where its guide goes and the files already about it.
-
-    Attributes:
-        info (VideoInfo): The video's metadata.
-        work_dir (Path): The video's cache directory.
-        scan (GuideScan): The files already about the video in the guide's folder.
-        target (Path): Where the guide goes: always `target_dir / guide_filename(info, timezone)`, a bare file name
-            in the guide's folder, so `target.parent` is that folder.
-    """
-
-    info: VideoInfo
-    work_dir: Path
-    scan: GuideScan
-    target: Path
-
-
-def _make_guide_tools(config: AppConfig) -> _GuideTools:
-    """Make the yt-dlp runner, transcript provider, generator and prompt template for writing guides.
-
-    Prints a notice when the built-in prompt template is used because the configured file does not exist.
-
-    Args:
-        config (AppConfig): The configuration.
-
-    Returns:
-        _GuideTools: The tools.
-
-    Raises:
-        ValueError: If the configured transcript provider or guide generator is unknown, or the generator's settings
-            are invalid.
-    """
-    ytdlp = _make_ytdlp(config, with_cookies=True)  # members-only videos need cookies
-    provider = make_transcript_provider(config, ytdlp)
-    generator = make_guide_generator(config)
-    template, is_default = load_prompt_template(config.guide.prompt_template)
-    if is_default:
-        STDERR.print(
-            f"Using the built-in prompt template ({config.guide.prompt_template} does not exist). "
-            "Run `ces-youtube-tools config template` for an editable copy.",
-            markup=False,
-            highlight=False,
-        )
-    return _GuideTools(ytdlp, provider, generator, template, config.guide.file_name_zone())
-
-
-def _prepare_guide(
-    config: AppConfig, tools: _GuideTools, video_id: str, target_dir: Path, *, refresh: bool
-) -> _PreparedGuide:
-    """Load a video's metadata, work out where its guide goes, and find the files already about the video.
-
-    Prints a warning for each file in `target_dir` that could not be read or whose front matter is invalid.
-
-    Args:
-        config (AppConfig): The configuration.
-        tools (_GuideTools): The tools from `_make_guide_tools`.
-        video_id (str): YouTube video ID.
-        target_dir (Path): Directory for the guide file.
-        refresh (bool): Ignore cached metadata.
-
-    Returns:
-        _PreparedGuide: The video and its guide's path.
-
-    Raises:
-        CacheError: If the video's cache directory cannot be created, or its metadata cannot be saved there.
-        YtDlpError: If yt-dlp fails, e.g. for a members-only video without a membership.
-    """
-    work_dir = work_dir_for(config.cache_dir, video_id)
-    with STDERR.status("Fetching video metadata..."):
-        info = load_video_info(video_id, tools.ytdlp, work_dir, refresh=refresh)
-    scan = find_guides_for_video(target_dir, info.id)
-    for warning in scan.warnings:
-        STDERR.print(f"[yellow]Warning:[/yellow] {escape(warning)}", highlight=False, soft_wrap=True)
-    return _PreparedGuide(info, work_dir, scan, target_dir / guide_filename(info, tools.timezone))
-
-
-def _generate_guide(
-    config: AppConfig, tools: _GuideTools, prepared: _PreparedGuide, *, force: bool, refresh: bool
-) -> GuideResult:
-    """Fetch a prepared video's transcript, generate its guide and write it.
-
-    Args:
-        config (AppConfig): The configuration.
-        tools (_GuideTools): The tools from `_make_guide_tools`.
-        prepared (_PreparedGuide): The video, from `_prepare_guide`.
-        force (bool): Replace an existing guide for the video, and overwrite a file with the guide's name.
-        refresh (bool): Ignore the cached transcript.
-
-    Returns:
-        GuideResult: The written guide.
-
-    Raises:
-        GuideError: If an existing guide is in the way and `force` is not set, a file is about the video only by its
-            links, or generating or writing the guide fails.
-        TranscriptError: If the provider cannot produce a transcript.
-        YtDlpError: If yt-dlp fails while fetching the transcript.
-        CacheError: If the transcript or the prompt cannot be saved in the cache.
-        ValueError: If the prepared scan is for another video.
-    """
-    # Refuse before fetching the transcript; `write_guide` checks again.
-    _ = check_existing_guides(prepared.target, prepared.scan, force)
-    with STDERR.status("Fetching transcript..."):
-        transcript = load_transcript(prepared.info, tools.provider, prepared.work_dir, refresh=refresh)
-    with STDERR.status(f"Writing the guide with {config.guide.generator} (this can take a few minutes)..."):
-        return write_guide(
-            prepared.info,
-            transcript,
-            tools.template,
-            tools.generator,
-            prepared.work_dir,
-            prepared.target.parent,
-            datetime.datetime.now().astimezone(),
-            timezone=tools.timezone,
-            existing=prepared.scan,
-            force=force,
-        )
-
-
 def _report_guide(result: GuideResult) -> None:
     """Print where a guide was written, the older guides it replaced, and what the link check found.
 
@@ -936,6 +782,43 @@ def _report_guide(result: GuideResult) -> None:
         )
 
 
+def _print_scan_warnings(prepared: PreparedGuide) -> None:
+    """Print a warning for each file in the guide's folder that could not be read or whose front matter is invalid.
+
+    Args:
+        prepared (PreparedGuide): The video, from `prepare_guide`.
+
+    Returns:
+        None
+    """
+    for warning in prepared.scan.warnings:
+        STDERR.print(f"[yellow]Warning:[/yellow] {escape(warning)}", highlight=False, soft_wrap=True)
+
+
+def _make_guide_tools(config: AppConfig) -> GuideTools:
+    """Make the tools for writing guides, and print a notice when the built-in prompt template is used.
+
+    Args:
+        config (AppConfig): The configuration.
+
+    Returns:
+        GuideTools: The tools.
+
+    Raises:
+        ValueError: If the configured transcript provider or guide generator is unknown, or the generator's settings
+            are invalid.
+    """
+    tools = make_guide_tools(config)
+    if tools.template_is_default:
+        STDERR.print(
+            f"Using the built-in prompt template ({config.guide.prompt_template} does not exist). "
+            "Run `ces-youtube-tools config template` for an editable copy.",
+            markup=False,
+            highlight=False,
+        )
+    return tools
+
+
 def _run_guide(config: AppConfig, video_id: str, target_dir: Path, *, force: bool, refresh: bool) -> None:
     """Fetch a video's transcript, generate its guide, write it and report the result.
 
@@ -954,9 +837,10 @@ def _run_guide(config: AppConfig, video_id: str, target_dir: Path, *, force: boo
     """
     try:
         tools = _make_guide_tools(config)
-        prepared = _prepare_guide(config, tools, video_id, target_dir, refresh=refresh)
-        result = _generate_guide(config, tools, prepared, force=force, refresh=refresh)
-    except _GUIDE_ERRORS as exc:
+        prepared = prepare_guide(tools, video_id, target_dir, refresh=refresh, status=STDERR.status)
+        _print_scan_warnings(prepared)
+        result = generate_guide(tools, prepared, force=force, refresh=refresh, status=STDERR.status)
+    except GUIDE_ERRORS as exc:
         raise _fail(str(exc)) from exc
     _report_guide(result)
 
@@ -973,12 +857,12 @@ class _PendingGuide:
 
     Attributes:
         video (VideoSummary): The video, as listed.
-        prepared (_PreparedGuide): Its metadata and target, from `_prepare_guide`.
+        prepared (PreparedGuide): Its metadata and target, from `prepare_guide`.
         force (bool): The user agreed to replace the files already in the guide's place.
     """
 
     video: VideoSummary
-    prepared: _PreparedGuide
+    prepared: PreparedGuide
     force: bool
 
 
@@ -1166,8 +1050,7 @@ def _plan_failure(video: VideoSummary, message: str) -> _Outcome:
 
 
 def _plan_guides(
-    config: AppConfig,
-    tools: _GuideTools,
+    tools: GuideTools,
     videos: list[VideoSummary],
     target_dir: Path,
     *,
@@ -1179,8 +1062,7 @@ def _plan_guides(
     outcome and is left out.
 
     Args:
-        config (AppConfig): The configuration.
-        tools (_GuideTools): The tools from `_make_guide_tools`.
+        tools (GuideTools): The tools from `_make_guide_tools`.
         videos (list[VideoSummary]): The selected videos, in menu order.
         target_dir (Path): Directory for the guide files.
         refresh (bool): Ignore cached metadata.
@@ -1190,12 +1072,15 @@ def _plan_guides(
             ID of the videos left out.
     """
     outcomes: dict[str, _Outcome] = {}
-    prepared: list[tuple[VideoSummary, _PreparedGuide]] = []
+    prepared: list[tuple[VideoSummary, PreparedGuide]] = []
     for video in videos:
         try:
-            prepared.append((video, _prepare_guide(config, tools, video.id, target_dir, refresh=refresh)))
-        except _GUIDE_ERRORS as exc:
+            guide = prepare_guide(tools, video.id, target_dir, refresh=refresh, status=STDERR.status)
+        except GUIDE_ERRORS as exc:
             outcomes[video.id] = _plan_failure(video, str(exc))
+            continue
+        _print_scan_warnings(guide)
+        prepared.append((video, guide))
 
     # Each video's scan is taken now, before any guide is written, so a video's write must not touch a file an
     # earlier video's write touches. Two videos with the same upload day and cleaned title get the same file name,
@@ -1227,16 +1112,13 @@ def _plan_guides(
     return pending, outcomes
 
 
-def _write_guides(
-    config: AppConfig, tools: _GuideTools, pending: list[_PendingGuide], *, refresh: bool
-) -> dict[str, _Outcome]:
+def _write_guides(tools: GuideTools, pending: list[_PendingGuide], *, refresh: bool) -> dict[str, _Outcome]:
     """Write the planned guides one at a time, carrying on after a failure.
 
     One at a time, not in parallel, to keep the automated traffic tied to the account low.
 
     Args:
-        config (AppConfig): The configuration.
-        tools (_GuideTools): The tools from `_make_guide_tools`.
+        tools (GuideTools): The tools from `_make_guide_tools`.
         pending (list[_PendingGuide]): The guides to write, from `_plan_guides`.
         refresh (bool): Ignore the cached transcript.
 
@@ -1248,8 +1130,8 @@ def _write_guides(
         video = guide.video
         CONSOLE.print(f"[{number}/{len(pending)}] {video.title} ({video.url})", markup=False, highlight=False)
         try:
-            result = _generate_guide(config, tools, guide.prepared, force=guide.force, refresh=refresh)
-        except _GUIDE_ERRORS as exc:
+            result = generate_guide(tools, guide.prepared, force=guide.force, refresh=refresh, status=STDERR.status)
+        except GUIDE_ERRORS as exc:
             _print_error(str(exc))
             outcomes[video.id] = _Outcome("failed", str(exc))
             continue
@@ -1333,7 +1215,7 @@ def browse(
                 return
             found = config.channels[choice - 1]
 
-    pager = VideoPager(found, _make_ytdlp(config, with_cookies=False), limit)
+    pager = VideoPager(found, make_ytdlp(config, with_cookies=False), limit)
     try:
         with CONSOLE.status(f"Fetching the latest videos of {found.name}..."):
             first_page = pager.page(1)
@@ -1352,11 +1234,11 @@ def browse(
 
     try:
         tools = _make_guide_tools(config)
-    except _GUIDE_ERRORS as exc:
+    except GUIDE_ERRORS as exc:
         raise _fail(str(exc)) from exc
     target_dir = output_dir or config.guide.output_dir or Path.cwd()
-    pending, planned = _plan_guides(config, tools, selected, target_dir, refresh=refresh)
-    outcomes = {**planned, **_write_guides(config, tools, pending, refresh=refresh)}
+    pending, planned = _plan_guides(tools, selected, target_dir, refresh=refresh)
+    outcomes = {**planned, **_write_guides(tools, pending, refresh=refresh)}
     if len(selected) > 1:
         CONSOLE.print(_outcomes_table(selected, outcomes))
     failed = sum(1 for outcome in outcomes.values() if outcome.status == "failed")
