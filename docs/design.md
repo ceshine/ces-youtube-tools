@@ -101,8 +101,8 @@ output_dir = "~/guides-site"   # where `site` writes the site, cleared on each b
   machine set to another zone; setting it is recommended.
 - `config options` lists every option with its type, default and meaning. It reads the Pydantic models (field
   descriptions), including `[guide.options.claude-cli]`, so it works without a config file and cannot drift from the
-  code. A new option needs a `Field(description=...)`, or its description column is blank. A new generator's options
-  must be added to the command by hand, because `guide.options` is a free-form dict.
+  code. A new option needs a `Field(description=...)`, or its description column is blank. Each generator's options
+  are listed from its `GeneratorSpec` (see "Pipeline interfaces").
 
 ## Pipeline interfaces
 
@@ -120,6 +120,10 @@ class GuideGenerator(Protocol):
 - Prompt building is shared (`guide.render_prompt`): the template plus `VideoInfo` and `Transcript` produce the
   prompt. Generators only send the prompt and return the reply.
 - Implementations are chosen by name from a plain dict registry keyed by the config values.
+- Each guide generator is registered as a `GeneratorSpec` in `generators/__init__.py` (`GUIDE_GENERATORS`): its
+  name, the Pydantic model of its `[guide.options.<name>]` table, and a function that builds it from validated
+  options. `make_guide_generator` validates the table with the spec, and `config options` lists every spec's options,
+  so a new generator needs only its module and its spec.
 
 ### claude-cli generator
 

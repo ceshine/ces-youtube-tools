@@ -18,7 +18,7 @@ from rich.console import Console
 
 from .menu import QuitMenu, parse_choice
 from .cache import CacheError, work_dir_for, load_transcript, load_video_info
-from .guide import GuideError, GuideGenerator, guide_filename, default_template
+from .guide import GuideError, guide_filename, default_template
 from .video import VideoInfo, parse_video_id
 from .ytdlp import YtDlp, YtDlpError
 from .config import ChannelConfig
@@ -40,9 +40,10 @@ from .firefox import (
 from .pickers import pick_one, pick_many, require_terminal, NotATerminalError
 from .youtube import VideoPager, VideoSummary, verify_login, resolve_channel, list_latest_videos
 from .backfill import rename_guide, BackfillError, plan_backfill, write_content, describe_changes
-from .pipeline import GuideResult, write_guide, load_prompt_template, make_guide_generator, make_transcript_provider
-from .claude_cli import GENERATOR_NAME, ClaudeCliOptions
+from .pipeline import GuideResult, write_guide, load_prompt_template, make_transcript_provider
 from .formatting import format_age, format_duration, video_choice_label
+from .generators import GUIDE_GENERATORS, make_guide_generator
+from .generators.base import GuideGenerator
 from .guide_html import expand_paths, GuideHtmlError
 from .transcript import TranscriptError, TranscriptProvider
 from .static_site import SiteError, write_site, collect_pages
@@ -420,7 +421,8 @@ def config_options() -> None:
         None
     """
     rows = describe_options(AppConfig)
-    rows += describe_options(ClaudeCliOptions, f"guide.options.{GENERATOR_NAME}.")
+    for name, spec in GUIDE_GENERATORS.items():
+        rows += describe_options(spec.options_model, f"guide.options.{name}.")
     table = Table(title="Configuration options")
     table.add_column("Option", no_wrap=True)
     table.add_column("Type")

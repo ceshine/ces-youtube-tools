@@ -3,10 +3,8 @@
 import re
 import string
 import datetime
-from pathlib import Path
 from importlib import resources
 from dataclasses import dataclass
-from typing import Protocol
 
 from .video import VideoInfo
 from .formatting import format_duration
@@ -38,26 +36,6 @@ _MAX_TITLE_BYTES = 200
 
 class GuideError(Exception):
     """Raised when a guide cannot be generated, or the prompt template is invalid."""
-
-
-class GuideGenerator(Protocol):
-    """Writes a Markdown guide from a prompt, e.g. with the `claude` CLI or an LLM API."""
-
-    def generate(self, prompt: str, video: VideoInfo, work_dir: Path) -> str:
-        """Generate the guide.
-
-        Args:
-            prompt (str): The full prompt, including the transcript.
-            video (VideoInfo): The video the guide is for.
-            work_dir (Path): The video's work directory.
-
-        Returns:
-            str: The generated Markdown.
-
-        Raises:
-            GuideError: If generation fails.
-        """
-        ...
 
 
 def default_template() -> str:

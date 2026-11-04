@@ -8,8 +8,8 @@ from collections.abc import Callable
 
 from pydantic import Field, BaseModel, ConfigDict, field_validator
 
-from .guide import GuideError
-from .video import VideoInfo
+from ..guide import GuideError
+from ..video import VideoInfo
 
 LOGGER = logging.getLogger(__name__)
 

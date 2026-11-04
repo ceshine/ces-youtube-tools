@@ -11,7 +11,7 @@ from ces_youtube_tools.config import (
     describe_options,
     DEFAULT_YTDLP_COMMAND,
 )
-from ces_youtube_tools.claude_cli import GENERATOR_NAME, ClaudeCliOptions
+from ces_youtube_tools.generators.claude_cli import GENERATOR_NAME, ClaudeCliOptions
 
 
 def test_defaults() -> None:

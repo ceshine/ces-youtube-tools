@@ -1,4 +1,4 @@
-"""Run the pipeline steps for one video: build the transcript provider and the guide generator, and write the guide.
+"""Run the pipeline steps for one video: build the transcript provider, and write the guide.
 
 Each step's result is cached in the video's work directory (see `cache`).
 """
@@ -8,15 +8,12 @@ from pathlib import Path
 from dataclasses import dataclass
 from collections.abc import Callable
 
-from pydantic import ValidationError
-
 from .cache import CacheError, write_cache_text
 from .guide import (
     LinkCheck,
     GuideError,
     clean_output,
     render_prompt,
-    GuideGenerator,
     guide_filename,
     default_template,
     check_timestamp_links,
@@ -25,7 +22,7 @@ from .video import VideoInfo
 from .ytdlp import YtDlp
 from .config import AppConfig
 from .subtitles import PROVIDER_NAME as SUBTITLES_PROVIDER, YtDlpSubtitleProvider
-from .claude_cli import GENERATOR_NAME as CLAUDE_CLI_GENERATOR, ClaudeCliOptions, ClaudeCliGenerator
+from .generators.base import GuideGenerator
 from .transcript import Transcript, TranscriptProvider
 from .front_matter import metadata_from_video, render_front_matter
 from .existing_guides import GuideScan, is_same_file, check_existing_guides
@@ -55,46 +52,6 @@ def make_transcript_provider(config: AppConfig, ytdlp: YtDlp) -> TranscriptProvi
     if factory is None:
         raise ValueError(f"Unknown transcript provider {name!r}. Available: {', '.join(sorted(TRANSCRIPT_PROVIDERS))}.")
     return factory(config, ytdlp)
-
-
-GuideGeneratorFactory = Callable[[AppConfig], GuideGenerator]
-
-
-def _make_claude_cli(config: AppConfig) -> GuideGenerator:
-    """Build the `claude` CLI generator from its settings table.
-
-    Args:
-        config (AppConfig): The configuration.
-
-    Returns:
-        GuideGenerator: The generator.
-    """
-    return ClaudeCliGenerator(ClaudeCliOptions.model_validate(config.guide.options.get(CLAUDE_CLI_GENERATOR, {})))
-
-
-GUIDE_GENERATORS: dict[str, GuideGeneratorFactory] = {CLAUDE_CLI_GENERATOR: _make_claude_cli}
-
-
-def make_guide_generator(config: AppConfig) -> GuideGenerator:
-    """Build the guide generator named in the configuration.
-
-    Args:
-        config (AppConfig): The configuration.
-
-    Returns:
-        GuideGenerator: The generator.
-
-    Raises:
-        ValueError: If the generator name is unknown or its `[guide.options.<name>]` settings are invalid.
-    """
-    name = config.guide.generator
-    factory = GUIDE_GENERATORS.get(name)
-    if factory is None:
-        raise ValueError(f"Unknown guide generator {name!r}. Available: {', '.join(sorted(GUIDE_GENERATORS))}.")
-    try:
-        return factory(config)
-    except ValidationError as exc:
-        raise ValueError(f"Invalid settings in [guide.options.{name}]:\n{exc}") from exc
 
 
 def load_prompt_template(path: Path) -> tuple[str, bool]:

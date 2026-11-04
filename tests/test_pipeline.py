@@ -9,9 +9,8 @@ from ces_youtube_tools.guide import GuideError
 from ces_youtube_tools.video import VideoInfo
 from ces_youtube_tools.ytdlp import YtDlp
 from ces_youtube_tools.config import AppConfig
-from ces_youtube_tools.pipeline import write_guide, load_prompt_template, make_guide_generator, make_transcript_provider
+from ces_youtube_tools.pipeline import write_guide, load_prompt_template, make_transcript_provider
 from ces_youtube_tools.subtitles import YtDlpSubtitleProvider
-from ces_youtube_tools.claude_cli import ClaudeCliGenerator
 from ces_youtube_tools.transcript import Transcript, TranscriptSegment
 from ces_youtube_tools.front_matter import split_front_matter, metadata_from_video, render_front_matter
 from ces_youtube_tools.existing_guides import find_guides_for_video
@@ -253,22 +252,3 @@ def test_load_prompt_template(tmp_path: Path) -> None:
     custom = tmp_path / "custom.md"
     custom.write_text("Mine: $title", encoding="utf-8")
     assert load_prompt_template(custom) == ("Mine: $title", False)
-
-
-def test_make_guide_generator() -> None:
-    config = AppConfig()
-    config.guide.options["claude-cli"] = {"model": "opus"}
-    generator = make_guide_generator(config)
-    assert isinstance(generator, ClaudeCliGenerator)
-    assert generator.options.model == "opus"
-
-
-def test_make_guide_generator_errors() -> None:
-    config = AppConfig()
-    config.guide.generator = "openai"
-    with pytest.raises(ValueError, match="Unknown guide generator 'openai'. Available: claude-cli"):
-        _ = make_guide_generator(config)
-    config = AppConfig()
-    config.guide.options["claude-cli"] = {"modle": "opus"}
-    with pytest.raises(ValueError, match=r"Invalid settings in \[guide.options.claude-cli\]"):
-        _ = make_guide_generator(config)
