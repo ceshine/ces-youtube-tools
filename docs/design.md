@@ -423,6 +423,9 @@ commands that `site` has since replaced. What was built:
 11. Done marks on the site: a "Done" toggle on each guide page and index row, kept in `localStorage`, and a
     "Show: All | To do" setting in the index. (Done, 2026-10-22.) See "Done marks" below, and
     [the plan](20261022_done_marks_implementation.md).
+12. Module refactor and a second guide generator: split `pipeline.py`, move the guide steps out of the CLI, a
+    `generators/` package with a spec registry, a `cli/` package with one module per command, then an `agy-cli`
+    generator that runs Antigravity CLI. (Planned, 2026-11-04.) See [the plan](20261104_refactor_plan.md).
 
 ## Guide metadata and a private site
 
