@@ -286,7 +286,7 @@ Details and recheck commands are in [implementation_notes.md](implementation_not
 3. **Videos**: a checkbox menu of the channel's videos, `-n` (20) per page, the same listing as `list` (no cookies),
    one line per video (`video_choice_label`: age, length, type, title cut to the terminal's width). Space selects,
    Enter confirms, and an empty selection is refused with a hint. Ctrl+C in any menu, or while a page of videos
-   loads, prints "Bye." and exits with status 0. Paging (`_pick_videos`, decided on 2026-10-21):
+   loads, prints "Bye." and exits with status 0. Paging (`video_menu.pick_videos`, decided on 2026-10-21):
    - After the videos, `◂ Previous page (videos 1–20)` on pages after the first, and `▸ Next page (older videos)` while
      there may be older videos. They are menu entries, ticked with Space and acted on with Enter, so picking from the
      first page takes the same keys as before. No separator line: the pickers number every item.

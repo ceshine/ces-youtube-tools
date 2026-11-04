@@ -17,8 +17,7 @@ def config_path(tmp_path: Path) -> Path:
     return tmp_path / "config" / "config.toml"
 
 
-# The guide samples for tests/cli/test_guide_cmd.py. The browse tests in tests/test_cli.py keep their own copies
-# until they move here.
+# The guide samples, shared by tests/cli/test_guide_cmd.py and tests/cli/test_browse_cmd.py.
 
 
 def guide_body(path: Path) -> str:

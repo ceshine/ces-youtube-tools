@@ -170,10 +170,11 @@ work: plan, ask about replacing guides, write, and summarise.
 - Tests mirror the package (see "Testing Strategy" in `AGENTS.md`): `tests/test_cache.py`,
   `tests/test_existing_guides.py`, `tests/generators/test_registry.py` and `tests/generators/test_claude_cli.py`.
   `tests/test_cli.py` becomes `tests/cli/`, with one file per command module, plus `test_app.py` (`test_help_runs`,
-  `test_help_text_stops_at_docstring_sections`), `test_video_menu.py`, `test_menu.py` and `test_pickers.py`. The tests
-  in `tests/test_backfill.py` that invoke `APP` move to `tests/cli/test_backfill_cmd.py`, and the tests of
-  `backfill.py` stay. Shared fixtures (`config_path`, `guide_setup`, `FakeGuideGenerator`) go in
-  `tests/cli/conftest.py`. Each new test folder gets an `__init__.py`, as `tests/` has.
+  `test_help_text_stops_at_docstring_sections`, `test_commands_need_a_config`), `test_menu.py` and `test_pickers.py`.
+  The paging tests drive `video_menu` through `browse`, so they go in `test_browse_cmd.py`. The tests in
+  `tests/test_backfill.py` that invoke `APP` move to `tests/cli/test_backfill_cmd.py`, and the tests of `backfill.py`
+  stay. Shared fixtures (`config_path`, `guide_setup`, `FakeGuideGenerator`) go in `tests/cli/conftest.py`. Each new
+  test folder gets an `__init__.py`, as `tests/` has.
 - A moved name must be patched in the module that looks it up. `monkeypatch.setattr(cli, "pick_many", ...)` changes
   the package attribute and nothing else, so `video_menu` would still call the real `pick_many` and the patch would
   silently do nothing. The same function can need different targets: `transcript` and `backfill` call
