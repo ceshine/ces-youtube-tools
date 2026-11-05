@@ -1,10 +1,11 @@
 # The `agy` generator: implementation plan
 
 Written on 2026-11-04. A second guide generator, `agy-cli`, writes guides with Antigravity CLI (`agy`) in print
-mode, as `claude-cli` does with Claude Code. This is item 13 of "Build order" in [design.md](design.md). It builds
+mode, as `claude-cli` does with Claude Code. This is item 14 of "Build order" in [design.md](design.md). It builds
 on the module refactor ([20261104_refactor_plan.md](20261104_refactor_plan.md), item 12, done): Step 2 there added
 the `GeneratorSpec` registry this generator registers in, and Step 5 added the shared `run_prompt_command` it runs
-`agy` with.
+`agy` with. Do [20261105_guide_provenance_plan.md](20261105_guide_provenance_plan.md) first: it adds the `harness`,
+`model` and `effort` properties to `GuideGenerator`, and makes every generator pass a model.
 
 ## Decisions
 
@@ -40,6 +41,13 @@ Settled on 2026-11-04 by running `agy` 1.4.12. The test runs are described under
   with `--add-dir`. The generator writes the agent into a `tempfile.TemporaryDirectory()` for each run and passes it
   with `--add-dir`, so the video's work directory gets no `.agents/` folder and the file always matches
   `SYSTEM_PROMPT`. The agent has no tools, so adding that directory to the workspace exposes nothing.
+- **The model passed is the model used.** Checked on 2026-11-05 with the custom agent below: with `--model
+  claude-sonnet-4-6`, `agy`'s log (`~/.gemini/antigravity-cli/log/`) has `Propagating selected model override to
+  backend: label="Claude Sonnet 4.6 (Thinking)"`, and the reply took 919 input tokens instead of 445. An unknown ID
+  (`--model not-a-model`) is refused before any turn: exit 1, `status: ERROR` with "invalid model selection" and the
+  available models in `error`, and `finished_reason: "error"`. So the `model` recorded in the front matter is the one
+  that wrote the guide. The model IDs name an effort level (`gemini-3.8-flash-medium`), and the error message shows
+  `--effort` as part of the model selection, so `agy-cli` has no `effort` option: the model ID says it all.
 - **Session logs cannot be turned off.** Every run, stream-json included, stores the conversation with the full
   prompt in `~/.gemini/antigravity-cli/conversations/<conversation_id>.db`, and adds a `brain/<conversation_id>/`
   folder, entries in `annotations/` and `implicit/`, and a log under `log/`. No flag or setting stops this:
@@ -52,7 +60,7 @@ Settled on 2026-11-04 by running `agy` 1.4.12. The test runs are described under
 ```
 agy --add-dir <temporary directory> --agent ces-guide-writer \
     --input-format stream-json --output-format stream-json --disable-slash-commands \
-    [--model <model>] [--effort <effort>] [<extra_args>...]
+    --model <model> [<extra_args>...]
 ```
 
 The prompt is one stream-json line on stdin: `json.dumps({"event": "user", "message": {"content": prompt}}) + "\n"`.
@@ -79,7 +87,6 @@ which "waits until the turn completes", and the changelog says the default chang
 
 Not yet tried:
 
-- `--model` and `--effort` together with `--agent`.
 - `--disable-slash-commands` with stream-json input.
 - Whether `mainAgent: true` is required; the runs above always set it.
 - Which agent wins when another `ces-guide-writer` is found too, e.g. in a parent of the work directory.
@@ -94,12 +101,15 @@ between releases.
   import it from there in both generators, so neither generator module imports the other.
 - `AgyCliOptions`, the `[guide.options.agy-cli]` table, with `extra="forbid"` and a `Field(description=...)` on every
   option, so `config options` lists them. Modelled on `ClaudeCliOptions`: `command` (default `["agy"]`), `model`,
-  `effort`, `timeout_seconds` and `extra_args`. `effort` is `str | None` and passed through unchecked, as in
-  `ClaudeCliOptions`; `agy` accepts `low`, `medium`, `high`, `xhigh` and `max`.
+  `timeout_seconds` and `extra_args`, and no `effort` (see "The model passed is the model used"). `model` is a `str`
+  defaulting to `gemini-3.8-flash-medium`, the saved default of `agy` 1.4.12, with `min_length=1`, and is always
+  passed. As in `ClaudeCliOptions`, `extra_args` that contain `--model` or `--effort`, alone or as `--model=...`,
+  are refused, so the front matter records what ran, and the `extra_args` description says so.
 - `AGENT_NAME = "ces-guide-writer"` and a function that returns the agent file's text from `SYSTEM_PROMPT`.
 - `run_agy`, the runner, as `run_claude` is for `claude`: `subprocess.run` with the prompt on stdin and `extra_env`
   added to the current environment. `agy` needs no variable of its own, so `generate` passes `{}`.
 - `AgyCliGenerator`:
+  - `harness` returns `HARNESS = "Antigravity CLI"`, `model` returns `options.model`, and `effort` returns `None`.
   - Builds the command line above.
   - In `generate`, writes the agent file into a temporary directory, encodes the prompt as the stream-json line, and
     calls `run_prompt_command` with `display_name="agy"`, an install hint and `options_table="guide.options.agy-cli"`.
@@ -114,9 +124,9 @@ between releases.
 - Register it in `generators/__init__.py`: its spec in `GUIDE_GENERATORS`, and its spec type in `AnyGeneratorSpec`
   (`GeneratorSpec[ClaudeCliOptions] | GeneratorSpec[AgyCliOptions]`).
 - `tests/generators/test_agy_cli.py`, with a fake runner:
-  - The built command line, with and without `model`, `effort` and `extra_args`.
+  - The built command line, with the default and a configured `model`, and with and without `extra_args`.
   - The stdin line, and the agent file the run writes, read by the fake runner while the temporary directory exists.
-  - Options validation.
+  - Options validation, including an empty `model` and each refused `extra_args` form.
   - Each parsing error path above.
   - Output with `init` and `step_update` events before the `result` event, of which only `result.response` is
     returned.
@@ -128,6 +138,7 @@ between releases.
 ## Step 2: docs
 
 - `docs/design.md`: an "agy-cli generator" section next to "claude-cli generator", with the command line, the agent
-  file and why it is used, and item 13 of "Build order" marked done.
+  file and why it is used, that `extra_args` cannot hold `--model` or `--effort`, and item 14 of "Build order"
+  marked done.
 - `README.md`: how to choose the generator (`guide.generator = "agy-cli"`), its options, and that `agy` keeps every
   conversation, prompt included, under `~/.gemini/antigravity-cli/`.
