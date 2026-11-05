@@ -13,6 +13,8 @@ from ces_youtube_tools.generators.agy_cli import (
     AGENT_NAME,
     parse_reply,
     AgyCliOptions,
+    DEFAULT_MODEL,
+    MODEL_PATTERN,
     AgyCliGenerator,
     agent_file_text,
     stream_json_message,
@@ -49,8 +51,8 @@ class FakeAgy:
 
 
 def test_generator_reports_harness_model_and_effort() -> None:
-    generator = AgyCliGenerator(AgyCliOptions(model="claude-sonnet-4-6"))
-    assert (generator.harness, generator.model, generator.effort) == ("Antigravity CLI", "claude-sonnet-4-6", None)
+    generator = AgyCliGenerator(AgyCliOptions(model="gemini-3.8-flash-high"))
+    assert (generator.harness, generator.model, generator.effort) == ("Antigravity CLI", "gemini-3.8-flash-high", None)
 
 
 def test_build_args_defaults(tmp_path: Path) -> None:
@@ -71,10 +73,10 @@ def test_build_args_defaults(tmp_path: Path) -> None:
 
 
 def test_build_args_with_options(tmp_path: Path) -> None:
-    options = AgyCliOptions(command=["npx", "agy"], model="claude-sonnet-4-6", extra_args=["--sandbox"])
+    options = AgyCliOptions(command=["npx", "agy"], model="gemini-3.8-flash-high", extra_args=["--sandbox"])
     args = AgyCliGenerator(options).build_args(tmp_path)
     assert args[:2] == ["npx", "agy"]
-    assert args[-3:] == ["--model", "claude-sonnet-4-6", "--sandbox"]
+    assert args[-3:] == ["--model", "gemini-3.8-flash-high", "--sandbox"]
 
 
 def test_options_reject_unknown_keys() -> None:
@@ -82,9 +84,31 @@ def test_options_reject_unknown_keys() -> None:
         _ = AgyCliOptions.model_validate({"effort": "high"})
 
 
-def test_options_reject_an_empty_model() -> None:
-    with pytest.raises(ValidationError):
-        _ = AgyCliOptions(model="")
+def test_the_default_model_is_accepted() -> None:
+    assert MODEL_PATTERN.fullmatch(DEFAULT_MODEL)
+
+
+@pytest.mark.parametrize("model", ["gemini-3.8-flash-low", "gemini-3.8-flash-high", "gemini-4-pro-xhigh"])
+def test_options_accept_gemini_models_with_an_effort_level(model: str) -> None:
+    assert AgyCliOptions(model=model).model == model
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "",
+        "gemini-3.8-flash",
+        "gemini---high",
+        "gemini-3.8-flash-medium ",
+        "Gemini-3.8-Flash-High",
+        "claude-sonnet-4-6",
+        "claude-opus-4-6-thinking",
+        "gpt-oss-120b-medium",
+    ],
+)
+def test_options_reject_other_models(model: str) -> None:
+    with pytest.raises(ValidationError, match="must be a Gemini model ID that ends in its effort level"):
+        _ = AgyCliOptions(model=model)
 
 
 @pytest.mark.parametrize("arg", ["--model", "--model=gemini", "--effort", "--effort=high"])

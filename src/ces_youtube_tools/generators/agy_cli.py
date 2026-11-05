@@ -1,6 +1,7 @@
 """Guide generator that runs the `agy` CLI (Antigravity CLI) in print mode, with stream-json input and output."""
 
 import os
+import re
 import json
 import tempfile
 import subprocess
@@ -17,6 +18,10 @@ GENERATOR_NAME = "agy-cli"
 HARNESS = "Antigravity CLI"
 AGENT_NAME = "ces-guide-writer"
 DEFAULT_MODEL = "gemini-3.8-flash-medium"
+# A Gemini model ID that ends in its effort level, one of the levels `agy --help` lists for `--effort`. A family name
+# such as `gemini-3.8-flash` also works in `agy`, but picks a level (High in 1.5.1) that the front matter would not
+# record. Claude models refuse `--effort`, and other model families were not checked.
+MODEL_PATTERN = re.compile(r"gemini(?:-[a-z0-9.]+)+?-(?:low|medium|high|xhigh|max)")
 EXTRA_ARGS_HINTS = {
     "--model": "set the model option instead",
     "--effort": "choose a model ID that names the effort level, e.g. gemini-3.8-flash-high",
@@ -152,8 +157,8 @@ class AgyCliOptions(BaseModel):
 
     Attributes:
         command (list[str]): Command that runs Antigravity CLI.
-        model (str): Model ID, always passed as `--model`. The ID names the effort level too, e.g.
-            `gemini-3.8-flash-medium`, so there is no `effort` option.
+        model (str): Gemini model ID that ends in its effort level, such as `gemini-3.8-flash-medium` (`agy models`
+            lists them), always passed as `--model`. The ID names the level, so there is no `effort` option.
         timeout_seconds (float): How long one generation may take.
         extra_args (list[str]): More arguments, added last. They cannot hold `--model` or `--effort`: the front matter
             records the `model` option.
@@ -164,13 +169,32 @@ class AgyCliOptions(BaseModel):
     command: list[str] = Field(default=["agy"], description="Command that runs Antigravity CLI.")
     model: str = Field(
         default=DEFAULT_MODEL,
-        min_length=1,
-        description="Model ID, always passed as --model. It names the effort level too (e.g. ...-medium).",
+        description="Gemini model ID ending in its effort level (see agy models), always passed as --model.",
     )
     timeout_seconds: float = Field(default=1800, description="How long one generation may take.")
     extra_args: list[str] = Field(
         default=[], description="More arguments for agy, added last; not --model or --effort."
     )
+
+    @field_validator("model")
+    @classmethod
+    def check_model(cls, value: str) -> str:
+        """Accept only a Gemini model ID that ends in its effort level, such as `gemini-3.8-flash-high`.
+
+        Args:
+            value (str): The configured model.
+
+        Returns:
+            str: The model, unchanged.
+
+        Raises:
+            ValueError: If the model is not a Gemini model ID that ends in `-low`, `-medium`, `-high`, `-xhigh` or
+                `-max`.
+        """
+        if not MODEL_PATTERN.fullmatch(value):
+            hint = f"such as {DEFAULT_MODEL} (agy models lists them), not {value!r}"
+            raise ValueError(f"model must be a Gemini model ID that ends in its effort level, {hint}")
+        return value
 
     @field_validator("extra_args")
     @classmethod

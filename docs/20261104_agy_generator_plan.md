@@ -48,6 +48,20 @@ Settled on 2026-11-04 by running `agy` 1.4.12. The test runs are described under
   available models in `error`, and `finished_reason: "error"`. So the `model` recorded in the front matter is the one
   that wrote the guide. The model IDs name an effort level (`gemini-3.8-flash-medium`), and the error message shows
   `--effort` as part of the model selection, so `agy-cli` has no `effort` option: the model ID says it all.
+- **Only Gemini model IDs that end in their effort level.** Settled on 2026-11-05 with `agy` 1.5.1, which has a
+  separate `--effort` flag and lists IDs both with and without a level (`gemini-3.8-flash-medium`,
+  `claude-sonnet-4-6`). Runs with the custom agent below and `--effort` added showed:
+  - An ID that names a level refuses another level: `--model gemini-3.8-flash-medium --effort high` exits 1 with
+    `status: ERROR` and "conflicts with --effort=high", before any turn. `--effort medium` with it is accepted.
+  - Claude models refuse `--effort` outright: "--effort is not supported for model "claude-sonnet-4-6"".
+  - A family name works without a level, and picks one the front matter would not record: `gemini-3.8-flash`
+    alone ran as "Gemini 3.8 Flash (High)" in the log, not the saved default (Medium). On the same prompt it took
+    824 thinking tokens, against 458 for `gemini-3.8-flash-medium`; `gemini-3.8-flash --effort high` ran as High too.
+
+  So `AgyCliOptions.model` accepts only `gemini-...-<level>`, with the levels `agy --help` lists for `--effort`
+  (`low`, `medium`, `high`, `xhigh`, `max`), and the recorded model always names the level; `effort` stays `null`.
+  A family name, a Claude model or any other non-Gemini model, such as `gpt-oss-120b-medium`, fails when the
+  configuration is loaded.
 - **Session logs cannot be turned off.** Every run, stream-json included, stores the conversation with the full
   prompt in `~/.gemini/antigravity-cli/conversations/<conversation_id>.db`, and adds a `brain/<conversation_id>/`
   folder, entries in `annotations/` and `implicit/`, and a log under `log/`. No flag or setting stops this:
@@ -102,8 +116,9 @@ between releases.
 - `AgyCliOptions`, the `[guide.options.agy-cli]` table, with `extra="forbid"` and a `Field(description=...)` on every
   option, so `config options` lists them. Modelled on `ClaudeCliOptions`: `command` (default `["agy"]`), `model`,
   `timeout_seconds` and `extra_args`, and no `effort` (see "The model passed is the model used"). `model` is a `str`
-  defaulting to `gemini-3.8-flash-medium`, the saved default of `agy` 1.4.12, with `min_length=1`, and is always
-  passed. As in `ClaudeCliOptions`, `extra_args` that contain `--model` or `--effort`, alone or as `--model=...`,
+  defaulting to `gemini-3.8-flash-medium`, the saved default of `agy` 1.4.12, and is always passed. A validator
+  accepts only Gemini model IDs that end in their effort level (see "Only Gemini model IDs that end in their effort
+  level"). As in `ClaudeCliOptions`, `extra_args` that contain `--model` or `--effort`, alone or as `--model=...`,
   are refused, so the front matter records what ran, and the `extra_args` description says so.
 - `AGENT_NAME = "ces-guide-writer"` and a function that returns the agent file's text from `SYSTEM_PROMPT`.
 - `run_agy`, the runner, as `run_claude` is for `claude`: `subprocess.run` with the prompt on stdin and `extra_env`
@@ -126,7 +141,8 @@ between releases.
 - `tests/generators/test_agy_cli.py`, with a fake runner:
   - The built command line, with the default and a configured `model`, and with and without `extra_args`.
   - The stdin line, and the agent file the run writes, read by the fake runner while the temporary directory exists.
-  - Options validation, including an empty `model` and each refused `extra_args` form.
+  - Options validation, including refused models (empty, a family name, Claude) and each refused `extra_args`
+    form.
   - Each parsing error path above.
   - Output with `init` and `step_update` events before the `result` event, of which only `result.response` is
     returned.

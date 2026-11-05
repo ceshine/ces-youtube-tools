@@ -17,10 +17,10 @@ def test_make_guide_generator() -> None:
 def test_make_guide_generator_agy_cli() -> None:
     config = AppConfig()
     config.guide.generator = "agy-cli"
-    config.guide.options["agy-cli"] = {"model": "claude-sonnet-4-6"}
+    config.guide.options["agy-cli"] = {"model": "gemini-3.8-flash-high"}
     generator = make_guide_generator(config)
     assert isinstance(generator, AgyCliGenerator)
-    assert generator.options.model == "claude-sonnet-4-6"
+    assert generator.options.model == "gemini-3.8-flash-high"
 
 
 def test_make_guide_generator_errors() -> None:
