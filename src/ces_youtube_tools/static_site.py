@@ -118,7 +118,16 @@ def collect_pages(paths: list[Path], include_members_only: bool) -> SiteBuild:
             problems.append(f"{path}: no YouTube video link found, so the video is unknown")
             continue
         try:
-            html = render_guide_page(markdown, video_id, path.stem, metadata.members_only is True, link_to_index=True)
+            html = render_guide_page(
+                markdown,
+                video_id,
+                path.stem,
+                metadata.members_only is True,
+                link_to_index=True,
+                harness=metadata.harness,
+                model=metadata.model,
+                effort=metadata.effort,
+            )
         except GuideHtmlError as exc:
             problems.append(f"{path}: {exc}")
             continue

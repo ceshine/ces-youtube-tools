@@ -141,3 +141,51 @@ def test_render_guide_page_done_toggles_only_with_the_index_link(guide: str) -> 
     assert body.rindex(toggles[0]) > body.index("<h2>Opening</h2>")
     assert '<script type="module">import { browserStorage, initGuidePage } from "./site_done.mjs";' in body
     assert "$done_end" not in page
+
+
+@pytest.mark.parametrize(
+    ("harness", "model", "effort", "line"),
+    [
+        ("Claude Code", "claude-sonnet-5-5", "high", "Written by Claude Code with claude-sonnet-5-5 (high effort)."),
+        (
+            "Antigravity CLI",
+            "gemini-3.8-flash-medium",
+            None,
+            "Written by Antigravity CLI with gemini-3.8-flash-medium.",
+        ),
+        ("Claude Code", None, None, "Written by Claude Code."),
+        ("Claude Code", None, "max", "Written by Claude Code (max effort)."),
+        ("Claude Code", "", "", "Written by Claude Code."),
+    ],
+)
+def test_render_guide_page_says_what_wrote_the_guide(
+    guide: str, harness: str, model: str | None, effort: str | None, line: str
+) -> None:
+    page = render_guide_page(guide, "abcdefghijk", "fallback", harness=harness, model=model, effort=effort)
+    body = page.split("<body>")[1]
+    assert f'<p class="written-by">{line}</p>' in body
+    # After the guide's text.
+    assert body.index("<h2>Opening</h2>") < body.index('<p class="written-by">')
+    assert "$written_by" not in page
+
+
+@pytest.mark.parametrize(
+    ("harness", "model", "effort"), [(None, None, None), (None, "opus", "high"), ("", "opus", None)]
+)
+def test_render_guide_page_has_no_written_by_line_without_a_harness(
+    guide: str, harness: str | None, model: str | None, effort: str | None
+) -> None:
+    page = render_guide_page(guide, "abcdefghijk", "fallback", harness=harness, model=model, effort=effort)
+    assert 'class="written-by"' not in page.split("<body>")[1]
+    assert "$written_by" not in page
+
+
+def test_render_guide_page_escapes_the_written_by_line(guide: str) -> None:
+    page = render_guide_page(guide, "abcdefghijk", "fallback", harness="<b>", model="a & b", effort='"x"')
+    assert '<p class="written-by">Written by &lt;b&gt; with a &amp; b (&quot;x&quot; effort).</p>' in page
+
+
+def test_render_guide_page_written_by_line_comes_before_the_done_toggle(guide: str) -> None:
+    page = render_guide_page(guide, "abcdefghijk", "fallback", link_to_index=True, harness="Claude Code")
+    body = page.split("<body>")[1]
+    assert body.index('<p class="written-by">') < body.index('<p class="done-end">')

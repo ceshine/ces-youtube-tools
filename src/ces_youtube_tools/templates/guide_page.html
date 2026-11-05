@@ -278,6 +278,17 @@ tbody tr:nth-child(even) td { background: var(--zebra); }
 
 hr { border: 0; border-top: 1px solid var(--border); margin: 2em 0; }
 
+/* What wrote the guide, after its text. It stays in print. */
+.written-by {
+  margin: 2.4em 0 0;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+/* The toggle that follows sits closer. */
+.written-by + .done-end { margin-top: 1em; }
+
 @media (prefers-reduced-motion: reduce) {
   a.flash { animation: none; outline: 2px solid var(--flash); }
   a[href*="?t="], a[href*="&t="], li.stamped { transition: none; }
@@ -309,7 +320,7 @@ $index_link  <div class="player-frame">
 $members_hint</div>
 <main>
 $body
-$done_end</main>
+$written_by$done_end</main>
 <script>
 (function () {
   "use strict";

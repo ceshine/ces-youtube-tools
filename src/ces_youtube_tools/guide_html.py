@@ -116,7 +116,14 @@ def guide_title(markdown: str, fallback: str) -> str:
 
 
 def render_guide_page(
-    markdown: str, video_id: str, fallback_title: str, members_only: bool = False, link_to_index: bool = False
+    markdown: str,
+    video_id: str,
+    fallback_title: str,
+    members_only: bool = False,
+    link_to_index: bool = False,
+    harness: str | None = None,
+    model: str | None = None,
+    effort: str | None = None,
 ) -> str:
     """Build the full HTML page for a guide, with the video's player embedded.
 
@@ -128,6 +135,10 @@ def render_guide_page(
         members_only (bool): Add a hint under the player about letting the browser send the YouTube sign-in.
         link_to_index (bool): For pages of the site: add a link to the index (`./`) above the player, and a "Done"
             toggle next to it and after the guide's text, run by the site's `site_done.mjs`.
+        harness (str | None): The tool that wrote the guide, from its front matter. With it, a "Written by" line
+            follows the guide's text; without it, there is no line.
+        model (str | None): The model that wrote the guide, named in the "Written by" line when set.
+        effort (str | None): The effort level, named in the "Written by" line when set.
 
     Returns:
         str: The complete page.
@@ -144,8 +155,33 @@ def render_guide_page(
         body=markdown_to_html(markdown),
         members_hint=_MEMBERS_HINT if members_only else "",
         index_link=_index_link(video_id) if link_to_index else "",
+        written_by=_written_by(harness, model, effort),
         done_end=_done_end(video_id) if link_to_index else "",
     )
+
+
+def _written_by(harness: str | None, model: str | None, effort: str | None) -> str:
+    """Build the line that says what wrote the guide, such as "Written by Claude Code with opus (high effort)."
+
+    The values come from the front matter, which a person can edit, so they are escaped, and an empty one counts as
+    unset.
+
+    Args:
+        harness (str | None): The tool. Without it there is no line.
+        model (str | None): The model; "with ..." is left out without it.
+        effort (str | None): The effort level; "(... effort)" is left out without it.
+
+    Returns:
+        str: The paragraph, for `$written_by`, or an empty string.
+    """
+    if not harness:
+        return ""
+    text = f"Written by {escape(harness)}"
+    if model:
+        text += f" with {escape(model)}"
+    if effort:
+        text += f" ({escape(effort)} effort)"
+    return f'<p class="written-by">{text}.</p>\n'
 
 
 def _index_link(video_id: str) -> str:

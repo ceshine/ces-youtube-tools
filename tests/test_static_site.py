@@ -58,6 +58,26 @@ def test_collect_pages_leaves_out_members_only_and_unknown(guides: Path) -> None
     assert "video_id:" not in page.html
 
 
+def test_collect_pages_says_what_wrote_each_guide(guides: Path) -> None:
+    _ = write_guide(
+        guides,
+        "old.md",
+        "aaaaaaaaaaa",
+        title="Old",
+        upload_date="2026-10-01",
+        members_only=False,
+        harness="Claude Code",
+        model="claude-sonnet-5-5",
+        effort="high",
+    )
+    build = collect_pages(guide_paths(guides), include_members_only=False)
+    pages = {page.video_id: page.html for page in build.pages}
+    line = '<p class="written-by">Written by Claude Code with claude-sonnet-5-5 (high effort).</p>'
+    assert line in pages["aaaaaaaaaaa"]
+    # A guide written before the tool recorded it has no line.
+    assert 'class="written-by"' not in pages["bbbbbbbbbbb"].split("<body>")[1]
+
+
 def test_collect_pages_includes_members_only_when_asked(guides: Path) -> None:
     build = collect_pages(guide_paths(guides), include_members_only=True)
     # Newest upload first; guides without a date last, in title order (the heading stands in for a missing title).
