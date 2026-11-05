@@ -3,9 +3,15 @@
 import os
 import re
 import json
+import time
+import logging
 import tempfile
+import threading
+import contextlib
 import subprocess
 from pathlib import Path
+from typing import IO
+from collections.abc import Callable
 
 from pydantic import Field, BaseModel, ConfigDict, ValidationError, field_validator
 
@@ -13,6 +19,8 @@ from .base import SYSTEM_PROMPT, refuse_recorded_flags
 from ._subprocess import PromptRunner, run_prompt_command
 from ..guide import GuideError
 from ..video import VideoInfo
+
+LOGGER = logging.getLogger(__name__)
 
 GENERATOR_NAME = "agy-cli"
 HARNESS = "Antigravity CLI"
@@ -26,30 +34,157 @@ EXTRA_ARGS_HINTS = {
     "--model": "set the model option instead",
     "--effort": "choose a model ID that names the effort level, e.g. gemini-3.8-flash-high",
 }
+# `agy` 1.5.1 sometimes finishes its turn, prints the `result` event and then hangs while shutting down, ignoring
+# SIGTERM too. After the `result` event it gets this long to exit, then SIGTERM, then SIGKILL after the second wait.
+EXIT_GRACE_SECONDS = 15.0
+# Long enough for a slow but real shutdown, such as a migration of agy's own storage, to finish before SIGKILL.
+KILL_GRACE_SECONDS = 30.0
 
 
 def run_agy(
-    args: list[str], prompt: str, cwd: Path, timeout: float, extra_env: dict[str, str]
+    args: list[str],
+    prompt: str,
+    cwd: Path,
+    timeout: float,
+    extra_env: dict[str, str],
+    *,
+    exit_grace: float = EXIT_GRACE_SECONDS,
+    kill_grace: float = KILL_GRACE_SECONDS,
 ) -> subprocess.CompletedProcess[str]:
-    """Run the `agy` CLI with the prompt on stdin.
+    """Run the `agy` CLI with the prompt on stdin, and stop it if it does not exit after printing its result.
+
+    Standard output is read line by line. Once a `result` event arrives, `agy` has `exit_grace` seconds to exit by
+    itself. If it does not, it is sent SIGTERM, then SIGKILL after `kill_grace` more seconds, and the run counts as
+    finished: the return code is 0, since the reply is complete. The pipes use UTF-8, and bytes that are not UTF-8
+    become U+FFFD.
 
     Args:
         args (list[str]): The command and its arguments.
         prompt (str): Text sent to stdin.
         cwd (Path): Working directory for the process.
-        timeout (float): Seconds to wait before giving up.
+        timeout (float): Seconds to wait for the `result` event, or for the process to exit without one.
         extra_env (dict[str, str]): Environment variables added on top of the current environment.
+        exit_grace (float): Seconds `agy` has to exit by itself after the `result` event.
+        kill_grace (float): Seconds between SIGTERM and SIGKILL.
 
     Returns:
-        subprocess.CompletedProcess[str]: The finished process.
+        subprocess.CompletedProcess[str]: The finished process, with everything it printed.
 
     Raises:
-        subprocess.TimeoutExpired: If the process runs longer than `timeout`.
+        subprocess.TimeoutExpired: If neither a `result` event nor the process's exit comes within `timeout`. The
+            process is killed first.
+        Exception: Whatever a thread that writes the prompt or reads the output raised, at once. The process is killed
+            first.
     """
+    deadline = time.monotonic() + timeout
     env = {**os.environ, **extra_env}
-    return subprocess.run(
-        args, input=prompt, capture_output=True, text=True, cwd=cwd, timeout=timeout, env=env, check=False
+    process = subprocess.Popen(
+        args,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        encoding="utf-8",
+        errors="replace",
+        cwd=cwd,
+        env=env,
     )
+    # typeshed types the pipes of a text-mode process as IO[Any].
+    stdin: IO[str] | None = process.stdin
+    stdout: IO[str] | None = process.stdout
+    stderr: IO[str] | None = process.stderr
+    if stdin is None or stdout is None or stderr is None:
+        process.kill()
+        raise RuntimeError("Popen did not open the stdin, stdout and stderr pipes it was given.")
+    stdout_lines: list[str] = []
+    stderr_parts: list[str] = []
+    thread_errors: list[Exception] = []
+    result_seen = threading.Event()
+    stop_waiting = threading.Event()  # Set on the result event, when stdout closes, or when a thread fails.
+
+    def write_prompt() -> None:
+        # As in `Popen.communicate`: if agy exits before reading the prompt, its exit status and stderr say why.
+        with contextlib.suppress(BrokenPipeError):
+            _ = stdin.write(prompt)
+        with contextlib.suppress(BrokenPipeError):
+            stdin.close()
+
+    def read_stdout() -> None:
+        try:
+            for line in stdout:
+                stdout_lines.append(line)
+                if is_result_event(line):
+                    result_seen.set()
+                    stop_waiting.set()
+        finally:
+            stop_waiting.set()
+
+    def read_stderr() -> None:
+        stderr_parts.append(stderr.read())
+
+    def run_guarded(target: Callable[[], None]) -> None:
+        # An exception in a thread never reaches the caller by itself, so any exception is kept and raised below.
+        try:
+            target()
+        except Exception as exc:  # noqa: BLE001 - re-raised in the calling thread.
+            thread_errors.append(exc)
+            stop_waiting.set()
+
+    threads = [
+        threading.Thread(target=run_guarded, args=(target,), daemon=True)
+        for target in (write_prompt, read_stdout, read_stderr)
+    ]
+    for thread in threads:
+        thread.start()
+    try:
+        if not stop_waiting.wait(timeout):
+            raise subprocess.TimeoutExpired(args, timeout)
+        if thread_errors:
+            raise thread_errors[0]
+        if result_seen.is_set():
+            returncode = stop_after_result(process, exit_grace, kill_grace)
+        else:
+            # stdout closed without a result: agy has exited, or is about to.
+            returncode = process.wait(max(0.0, deadline - time.monotonic()))
+    finally:
+        if process.poll() is None:
+            process.kill()
+            _ = process.wait()
+        for thread, pipe in zip(threads, (stdin, stdout, stderr), strict=True):
+            # The pipes close when agy dies. The limit only matters if a process agy started still holds them; a
+            # pipe whose thread is still reading stays open.
+            thread.join(kill_grace)
+            if not thread.is_alive():
+                with contextlib.suppress(OSError):
+                    pipe.close()
+    if thread_errors:
+        raise thread_errors[0]
+    return subprocess.CompletedProcess(args, returncode, "".join(stdout_lines), "".join(stderr_parts))
+
+
+def stop_after_result(process: subprocess.Popen[str], exit_grace: float, kill_grace: float) -> int:
+    """Wait for `agy` to exit after its `result` event, and stop it if it does not.
+
+    Args:
+        process (subprocess.Popen[str]): The running `agy`.
+        exit_grace (float): Seconds it has to exit by itself.
+        kill_grace (float): Seconds between SIGTERM and SIGKILL.
+
+    Returns:
+        int: Its exit status if it exited by itself, otherwise 0: the reply is complete.
+    """
+    try:
+        return process.wait(exit_grace)
+    except subprocess.TimeoutExpired:
+        pass
+    LOGGER.warning("agy did not exit within %g seconds after printing its result; stopping it.", exit_grace)
+    process.terminate()
+    try:
+        _ = process.wait(kill_grace)
+    except subprocess.TimeoutExpired:
+        LOGGER.warning("agy ignored SIGTERM for %g seconds; killing it.", kill_grace)
+        process.kill()
+        _ = process.wait()
+    return 0
 
 
 def agent_file_text() -> str:
@@ -111,6 +246,21 @@ class AgyEvent(BaseModel):
 
     event: str | None = None
     result: object = None
+
+
+def is_result_event(line: str) -> bool:
+    """Tell whether a line of `agy`'s output is a `result` event, so the run can stop waiting.
+
+    Args:
+        line (str): One line of standard output.
+
+    Returns:
+        bool: True if the line is a JSON object whose `event` is `result`. `parse_reply` checks the event itself.
+    """
+    try:
+        return AgyEvent.model_validate_json(line).event == "result"
+    except ValidationError:
+        return False
 
 
 def parse_reply(output: str) -> str:
@@ -218,7 +368,8 @@ class AgyCliGenerator:
 
     Each run writes the agent file into a temporary directory and adds that directory with `--add-dir`, so the video's
     work directory gets no `.agents/` folder. The process runs in the work directory. `agy` keeps every conversation,
-    prompt included, under `~/.gemini/antigravity-cli/`; no option turns that off.
+    prompt included, under `~/.gemini/antigravity-cli/`; no option turns that off. `run_agy` stops `agy` if it hangs
+    after printing its result.
 
     Args:
         options (AgyCliOptions): Settings.

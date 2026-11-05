@@ -1,4 +1,7 @@
+import sys
 import json
+import time
+import logging
 import subprocess
 from pathlib import Path
 
@@ -7,6 +10,7 @@ from pydantic import ValidationError
 
 from ces_youtube_tools.guide import GuideError
 from ces_youtube_tools.video import VideoInfo
+from ces_youtube_tools.generators import agy_cli
 from ces_youtube_tools.generators.base import SYSTEM_PROMPT
 from ces_youtube_tools.generators.agy_cli import (
     run_agy,
@@ -17,6 +21,7 @@ from ces_youtube_tools.generators.agy_cli import (
     MODEL_PATTERN,
     AgyCliGenerator,
     agent_file_text,
+    is_result_event,
     stream_json_message,
 )
 
@@ -215,17 +220,106 @@ def test_generate_errors(tmp_path: Path, fake: FakeAgy, message: str) -> None:
         _ = AgyCliGenerator(AgyCliOptions(), fake).generate("PROMPT", VIDEO, tmp_path)
 
 
-def test_run_agy_adds_extra_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    captured: dict[str, object] = {}
+def fake_agy_command(body: str) -> list[str]:
+    """Return a command that runs `body` as a Python script, with `RESULT` holding a successful result line."""
+    return [sys.executable, "-c", f"import os, sys, time, signal\nRESULT = {result_line()!r}\n{body}"]
 
-    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        captured.update(kwargs)
-        return subprocess.CompletedProcess(args, 0, "ok", "")
 
-    monkeypatch.setattr(subprocess, "run", fake_run)
-    _ = run_agy(["agy"], "PROMPT", tmp_path, 5, {"EXTRA": "x"})
-    env = captured["env"]
-    assert isinstance(env, dict)
-    assert env["EXTRA"] == "x"
-    assert "PATH" in env
-    assert (captured["input"], captured["cwd"], captured["timeout"]) == ("PROMPT", tmp_path, 5)
+def run_fake_agy(body: str, cwd: Path, timeout: float = 30, prompt: str = "PROMPT") -> subprocess.CompletedProcess[str]:
+    return run_agy(fake_agy_command(body), prompt, cwd, timeout, {}, exit_grace=0.3, kill_grace=0.3)
+
+
+def test_run_agy_sends_the_prompt_from_cwd_with_extra_env(tmp_path: Path) -> None:
+    body = "print(sys.stdin.read(), os.getcwd(), os.environ['EXTRA'], 'PATH' in os.environ, sep='|')"
+    completed = run_agy(fake_agy_command(body), "PROMPT", tmp_path, 30, {"EXTRA": "x"})
+    assert completed.returncode == 0
+    assert completed.stdout == f"PROMPT|{tmp_path}|x|True\n"
+
+
+def test_run_agy_returns_when_agy_exits_by_itself(tmp_path: Path) -> None:
+    body = "sys.stdin.read(); print('{\"event\": \"init\"}'); print(RESULT); print('err', file=sys.stderr)"
+    completed = run_fake_agy(body, tmp_path)
+    assert completed.returncode == 0
+    assert completed.stdout == '{"event": "init"}\n' + result_line() + "\n"
+    assert completed.stderr == "err\n"
+
+
+def test_run_agy_handles_a_prompt_larger_than_the_pipe_buffer(tmp_path: Path) -> None:
+    completed = run_fake_agy("print(len(sys.stdin.read()))", tmp_path, prompt="x" * 1_000_000)
+    assert completed.stdout == "1000000\n"
+
+
+@pytest.mark.parametrize(
+    "ignore_sigterm",
+    [pytest.param(False, id="exits-on-sigterm"), pytest.param(True, id="needs-sigkill")],
+)
+def test_run_agy_stops_agy_when_it_hangs_after_the_result(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, ignore_sigterm: bool
+) -> None:
+    ignore = "signal.signal(signal.SIGTERM, signal.SIG_IGN)\n" if ignore_sigterm else ""
+    body = f"{ignore}sys.stdin.read(); print(RESULT, flush=True); time.sleep(60)"
+    start = time.monotonic()
+    with caplog.at_level(logging.WARNING, logger=agy_cli.__name__):
+        completed = run_fake_agy(body, tmp_path)
+    assert time.monotonic() - start < 10
+    assert completed.returncode == 0
+    assert parse_reply(completed.stdout) == "# Guide\n"
+    messages = [record.getMessage() for record in caplog.records]
+    assert messages[0] == "agy did not exit within 0.3 seconds after printing its result; stopping it."
+    assert messages[1:] == (["agy ignored SIGTERM for 0.3 seconds; killing it."] if ignore_sigterm else [])
+
+
+def test_run_agy_replaces_bytes_that_are_not_utf8(tmp_path: Path) -> None:
+    body = "sys.stdout.buffer.write(b'\\xff caf\\xc3\\xa9\\n'); sys.exit(1)"
+    start = time.monotonic()
+    completed = run_fake_agy(body, tmp_path)
+    assert time.monotonic() - start < 10
+    assert (completed.returncode, completed.stdout) == (1, "� café\n")
+
+
+def test_run_agy_raises_a_reader_error_at_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def broken(line: str) -> bool:
+        raise RuntimeError(f"cannot read {line.strip()}")
+
+    monkeypatch.setattr(agy_cli, "is_result_event", broken)
+    start = time.monotonic()
+    with pytest.raises(RuntimeError, match="cannot read line"):
+        _ = run_fake_agy("print('line', flush=True); time.sleep(60)", tmp_path)
+    assert time.monotonic() - start < 10
+
+
+def test_run_agy_keeps_the_exit_status_when_agy_exits_after_the_result(tmp_path: Path) -> None:
+    completed = run_fake_agy("print(RESULT, flush=True); sys.exit(2)", tmp_path)
+    assert completed.returncode == 2
+
+
+def test_run_agy_returns_a_failure_without_a_result(tmp_path: Path) -> None:
+    completed = run_fake_agy("print('error: quota', file=sys.stderr); sys.exit(3)", tmp_path)
+    assert (completed.returncode, completed.stdout, completed.stderr) == (3, "", "error: quota\n")
+
+
+def test_run_agy_times_out_without_a_result(tmp_path: Path) -> None:
+    start = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        _ = run_fake_agy('print(\'{"event": "init"}\', flush=True); time.sleep(60)', tmp_path, timeout=0.5)
+    assert time.monotonic() - start < 10
+
+
+def test_run_agy_reports_a_missing_command(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        _ = run_agy(["no-such-agy-command"], "PROMPT", tmp_path, 5, {})
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        (result_line(), True),
+        (json.dumps({"event": "result"}), True),
+        (json.dumps({"event": "init"}), False),
+        ("not json", False),
+        (json.dumps(["a", "list"]), False),
+        ("", False),
+    ],
+)
+def test_is_result_event(line: str, expected: bool) -> None:
+    assert is_result_event(line) is expected

@@ -17,8 +17,21 @@ Settled on 2026-11-04 by running `agy` 1.4.12. The test runs are described under
   `--input-format stream-json --output-format stream-json` and no `-p`, `agy` reads one JSON message per line from
   stdin, and the same 141 KiB prompt worked. The message is `{"event":"user","message":{"content":"<prompt>"}}`. The
   help does not give this shape; it comes from the error messages for wrong shapes. This is still print mode (the
-  changelog adds `--input-format stream-json` "to print mode"): every stream-json run answered the one message and
-  exited by itself once stdin closed.
+  changelog adds `--input-format stream-json` "to print mode"): every stream-json run in these tests answered the
+  one message and exited by itself once stdin closed. A later run did not exit; see the next decision.
+- **`agy` is stopped if it hangs after its result.** On 2026-11-05 a real guide run with `agy` 1.5.1 (a long
+  transcript, `gemini-3.8-flash-high`) finished its turn in 3 minutes: both steps were saved with no error, and the
+  log had "stream input closed after 1 turn(s)" and "sending completion signal". Then it hung in a `futex` wait with
+  its stdout pipe open, so `subprocess.run` kept waiting. In the runs that exited, "Language server shutting down"
+  came about 10 ms after that line; here it never did. SIGTERM started the shutdown, which stopped at "Waiting for
+  migrations to complete to prevent partial migration state...", and only SIGKILL ended it. So `run_agy` reads
+  stdout line by line. Once a `result` event arrives, `agy` has 15 seconds to exit by itself, then gets SIGTERM,
+  then SIGKILL 30 seconds later, and the run counts as finished with exit status 0, since the reply is complete.
+  The 30 seconds leave time for a slow but real migration. `timeout_seconds` limits the wait for the `result`
+  event. Signalling `agy`'s own PID is enough: the hung process had no children, its log gave its own PID as the
+  language server's, and only it held the pipes. The pipes use UTF-8, with bytes that are not UTF-8 replaced, so
+  a bad byte cannot stop the reader thread, and an error in a reader thread is raised at once rather than
+  turning into a timeout. Whether the hang happens on every long run is not known.
 - **The reply is read from the `result` event.** The output is NDJSON: an `init` event, `step_update` events, and a
   final `result` event, e.g.
   `{"event":"result","result":{"status":"SUCCESS","response":"<reply>",...}}`. On failure, `status` is `ERROR` and
@@ -97,7 +110,7 @@ excludeDefaultComponents: true
 `mainAgent: true` lets `--agent` select the agent as the main agent of the run, as opposed to a subagent. The
 process runs in the video's work directory. `--print-timeout` is not passed: `agy --help` gives its default as 0s,
 which "waits until the turn completes", and the changelog says the default changed from 5 minutes to unlimited. So
-`timeout_seconds`, enforced by the subprocess timeout as for `claude-cli`, is the only time limit.
+`timeout_seconds`, enforced by `run_agy`, is the only time limit.
 
 Not yet tried:
 
@@ -121,8 +134,11 @@ between releases.
   level"). As in `ClaudeCliOptions`, `extra_args` that contain `--model` or `--effort`, alone or as `--model=...`,
   are refused, so the front matter records what ran, and the `extra_args` description says so.
 - `AGENT_NAME = "ces-guide-writer"` and a function that returns the agent file's text from `SYSTEM_PROMPT`.
-- `run_agy`, the runner, as `run_claude` is for `claude`: `subprocess.run` with the prompt on stdin and `extra_env`
-  added to the current environment. `agy` needs no variable of its own, so `generate` passes `{}`.
+- `run_agy`, the runner, as `run_claude` is for `claude`: the prompt on stdin and `extra_env` added to the current
+  environment. `agy` needs no variable of its own, so `generate` passes `{}`. It started as `subprocess.run`, and
+  now uses `Popen` to stop `agy` when it hangs after its result (see "`agy` is stopped if it hangs after its
+  result"). Its tests run a Python script in place of `agy`: one that exits by itself, one that hangs after its
+  result (with and without ignoring SIGTERM), one that fails, and one that never prints a result.
 - `AgyCliGenerator`:
   - `harness` returns `HARNESS = "Antigravity CLI"`, `model` returns `options.model`, and `effort` returns `None`.
   - Builds the command line above.
