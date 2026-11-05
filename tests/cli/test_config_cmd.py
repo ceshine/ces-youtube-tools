@@ -141,6 +141,7 @@ def test_options_needs_no_config() -> None:
     assert result.exit_code == 0, result.output
     assert "guide.output_dir" in result.output
     assert "guide.options.claude-cli.model" in result.output
+    assert "guide.options.agy-cli.model" in result.output
 
 
 @pytest.mark.parametrize(("accepted", "exit_code"), [(True, 0), (False, 1)])

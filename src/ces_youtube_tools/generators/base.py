@@ -9,6 +9,35 @@ from pydantic import BaseModel
 
 from ..video import VideoInfo
 
+SYSTEM_PROMPT = (
+    "You write watching guides for videos from their transcripts, following the user's format instructions exactly. "
+    "Reply with the Markdown guide only."
+)
+
+
+def refuse_recorded_flags(extra_args: list[str], hints: Mapping[str, str]) -> list[str]:
+    """Refuse flags in a generator's `extra_args` that would change what the front matter records.
+
+    `extra_args` come last on the command line, so a `--model` there would override the `model` option without the
+    front matter knowing.
+
+    Args:
+        extra_args (list[str]): The configured arguments.
+        hints (Mapping[str, str]): The refused flags, such as `--model`, each with what to do instead, such as "set
+            the model option instead". A flag is refused alone or as `--model=...`.
+
+    Returns:
+        list[str]: The arguments, unchanged.
+
+    Raises:
+        ValueError: If an argument is one of the refused flags, with or without `=...`.
+    """
+    for arg in extra_args:
+        flag = arg.split("=", 1)[0]
+        if flag in hints:
+            raise ValueError(f"extra_args cannot hold {flag}: {hints[flag]}")
+    return extra_args
+
 
 class GuideGenerator(Protocol):
     """Writes a Markdown guide from a prompt, e.g. with the `claude` CLI or an LLM API.

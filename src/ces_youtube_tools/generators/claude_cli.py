@@ -7,16 +7,13 @@ from typing import Literal
 
 from pydantic import Field, BaseModel, ConfigDict, field_validator
 
+from .base import SYSTEM_PROMPT, refuse_recorded_flags
 from ._subprocess import PromptRunner, run_prompt_command
 from ..guide import GuideError
 from ..video import VideoInfo
 
 GENERATOR_NAME = "claude-cli"
 HARNESS = "Claude Code"
-SYSTEM_PROMPT = (
-    "You write watching guides for videos from their transcripts, following the user's format instructions exactly. "
-    "Reply with the Markdown guide only."
-)
 
 DISABLE_CLAUDE_MDS_ENV = "CLAUDE_CODE_DISABLE_CLAUDE_MDS"
 DISABLE_PROMPT_CACHING_ENV = "DISABLE_PROMPT_CACHING"
@@ -25,7 +22,7 @@ EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
 
 DEFAULT_MODEL = "claude-sonnet-5-5"
 DEFAULT_EFFORT: EffortLevel = "high"
-RECORDED_FLAGS = ("--model", "--effort")
+EXTRA_ARGS_HINTS = {"--model": "set the model option instead", "--effort": "set the effort option instead"}
 
 
 def run_claude(
@@ -109,7 +106,7 @@ class ClaudeCliOptions(BaseModel):
 
     @field_validator("extra_args")
     @classmethod
-    def refuse_recorded_flags(cls, value: list[str]) -> list[str]:
+    def check_extra_args(cls, value: list[str]) -> list[str]:
         """Refuse `--model` and `--effort` in `extra_args`, alone or as `--model=...`.
 
         Args:
@@ -121,12 +118,7 @@ class ClaudeCliOptions(BaseModel):
         Raises:
             ValueError: If an argument is `--model` or `--effort`, with or without `=...`.
         """
-        for arg in value:
-            flag = arg.split("=", 1)[0]
-            if flag in RECORDED_FLAGS:
-                option = flag.removeprefix("--")
-                raise ValueError(f"extra_args cannot hold {flag}: set the {option} option instead")
-        return value
+        return refuse_recorded_flags(value, EXTRA_ARGS_HINTS)
 
 
 class ClaudeCliGenerator:

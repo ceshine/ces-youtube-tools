@@ -7,17 +7,19 @@ import this package's registry, so the imports only go one way.
 from pydantic import ValidationError
 
 from .base import GeneratorSpec, GuideGenerator
+from .agy_cli import AgyCliOptions, GENERATOR_NAME as AGY_CLI_GENERATOR, AgyCliGenerator
 from .claude_cli import GENERATOR_NAME as CLAUDE_CLI_GENERATOR, ClaudeCliOptions, ClaudeCliGenerator
 from ..config import AppConfig
 
 # A union of the registered spec types, one per generator (`GeneratorSpec[A] | GeneratorSpec[B]`). A spec is
 # invariant in its options type, so `GeneratorSpec[BaseModel]` would not accept them.
-AnyGeneratorSpec = GeneratorSpec[ClaudeCliOptions]
+AnyGeneratorSpec = GeneratorSpec[ClaudeCliOptions] | GeneratorSpec[AgyCliOptions]
 
 GUIDE_GENERATORS: dict[str, AnyGeneratorSpec] = {
     spec.name: spec
     for spec in (
         GeneratorSpec(CLAUDE_CLI_GENERATOR, ClaudeCliOptions, ClaudeCliGenerator),
+        GeneratorSpec(AGY_CLI_GENERATOR, AgyCliOptions, AgyCliGenerator),
         # A new generator adds its spec here.
     )
 }

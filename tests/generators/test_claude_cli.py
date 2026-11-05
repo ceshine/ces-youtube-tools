@@ -6,9 +6,9 @@ from pydantic import ValidationError
 
 from ces_youtube_tools.guide import GuideError
 from ces_youtube_tools.video import VideoInfo
+from ces_youtube_tools.generators.base import SYSTEM_PROMPT
 from ces_youtube_tools.generators.claude_cli import (
     run_claude,
-    SYSTEM_PROMPT,
     ClaudeCliOptions,
     ClaudeCliGenerator,
     DISABLE_CLAUDE_MDS_ENV,
