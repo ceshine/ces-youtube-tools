@@ -132,7 +132,8 @@ def _build_update(guide: _ReadGuide, video: VideoInfo, timezone: datetime.tzinfo
     """Work out a guide's new front matter and name.
 
     Keys that come from the video are rewritten from its metadata. `generated` is kept when set, and otherwise is the
-    publish time (unknown if that is too). Keys `GuideMetadata` does not know are kept, after its keys.
+    publish time (unknown if that is too). `harness`, `model` and `effort` are kept as they are: the video does not
+    know them, so they stay unknown when not set. Keys `GuideMetadata` does not know are kept, after its keys.
 
     Args:
         guide (_ReadGuide): The guide as read.
@@ -146,7 +147,9 @@ def _build_update(guide: _ReadGuide, video: VideoInfo, timezone: datetime.tzinfo
     old = guide.front_matter.metadata
     data = guide.front_matter.data or {}
     generated = old.generated if old.generated is not None else video.published
-    metadata = metadata_from_video(video, None).model_copy(update={"generated": generated})
+    metadata = metadata_from_video(video, None).model_copy(
+        update={"generated": generated, "harness": old.harness, "model": old.model, "effort": old.effort}
+    )
     # The front matter's own blank line replaces blank lines at the top of the Markdown, so a second run matches.
     markdown = guide.front_matter.markdown.lstrip("\r\n")
     content = (render_front_matter(metadata, data) + markdown).encode("utf-8")

@@ -11,7 +11,31 @@ from ..video import VideoInfo
 
 
 class GuideGenerator(Protocol):
-    """Writes a Markdown guide from a prompt, e.g. with the `claude` CLI or an LLM API."""
+    """Writes a Markdown guide from a prompt, e.g. with the `claude` CLI or an LLM API.
+
+    `harness`, `model` and `effort` are known before the run, from the generator and its options, and are recorded in
+    the guide's front matter.
+
+    Attributes:
+        harness (str): The tool the generator runs, such as `Claude Code`.
+        model (str): The model passed to it, as configured (an alias such as `opus` stays an alias).
+        effort (str | None): The effort level passed to it, or None if the generator has no effort setting.
+    """
+
+    @property
+    def harness(self) -> str:
+        """str: The tool the generator runs, such as `Claude Code`."""
+        ...
+
+    @property
+    def model(self) -> str:
+        """str: The model passed to the tool, as configured."""
+        ...
+
+    @property
+    def effort(self) -> str | None:
+        """str | None: The effort level passed to the tool, or None if the generator has no effort setting."""
+        ...
 
     def generate(self, prompt: str, video: VideoInfo, work_dir: Path) -> str:
         """Generate the guide.

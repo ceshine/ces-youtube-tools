@@ -137,7 +137,7 @@ def write_guide(
     existing: GuideScan | None = None,
     force: bool = False,
 ) -> GuideResult:
-    """Generate a guide and write it to `output_dir`, with the video's metadata as front matter.
+    """Generate a guide and write it to `output_dir`, with front matter: the video's metadata and how it was written.
 
     The output path and the older guides are checked before generating, so an existing guide does not cost a
     generation. The prompt and the raw reply are kept in the work directory. A raw reply that cannot be saved does not
@@ -192,7 +192,10 @@ def write_guide(
     except CacheError as exc:
         raw_reply_error = str(exc)
     links = check_timestamp_links(clean_output(reply), video)
-    front_matter = render_front_matter(metadata_from_video(video, now))
+    metadata = metadata_from_video(video, now).model_copy(
+        update={"harness": generator.harness, "model": generator.model, "effort": generator.effort}
+    )
+    front_matter = render_front_matter(metadata)
     try:
         path.write_text(front_matter + links.markdown, encoding="utf-8")
     except OSError as exc:

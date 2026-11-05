@@ -38,6 +38,11 @@ class FakeClaude:
         return subprocess.CompletedProcess(args, returncode, stdout, stderr)
 
 
+def test_generator_reports_harness_model_and_effort() -> None:
+    generator = ClaudeCliGenerator(ClaudeCliOptions(model="opus", effort="max"))
+    assert (generator.harness, generator.model, generator.effort) == ("Claude Code", "opus", "max")
+
+
 def test_build_args_defaults() -> None:
     assert ClaudeCliGenerator(ClaudeCliOptions()).build_args() == [
         "claude",

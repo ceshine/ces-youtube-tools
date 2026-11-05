@@ -72,8 +72,26 @@ def test_render_front_matter() -> None:
         "duration: 600\n"
         "members_only: false\n"
         "generated: '2026-10-09T02:30:15Z'\n"
+        "harness: null\n"
+        "model: null\n"
+        "effort: null\n"
         "---\n\n"
     )
+
+
+@pytest.mark.parametrize(
+    ("harness", "model", "effort"), [("Claude Code", "claude-sonnet-5-5", "high"), ("Antigravity CLI", "x", None)]
+)
+def test_front_matter_round_trips_how_the_guide_was_written(harness: str, model: str, effort: str | None) -> None:
+    metadata = metadata_from_video(VIDEO, NOW).model_copy(update={"harness": harness, "model": model, "effort": effort})
+    text = render_front_matter(metadata)
+    assert f"harness: {harness}\nmodel: {model}\neffort: {effort or 'null'}\n" in text
+    assert split_front_matter(text)[0] == metadata
+
+
+def test_split_front_matter_reads_a_guide_without_how_it_was_written() -> None:
+    metadata, _ = split_front_matter("---\nvideo_id: abcdefghijk\ngenerated: 2026-10-09\n---\n# Guide\n")
+    assert (metadata.harness, metadata.model, metadata.effort) == (None, None, None)
 
 
 @pytest.mark.parametrize(
@@ -172,7 +190,7 @@ def test_render_front_matter_writes_unknown_keys_last() -> None:
     extra = {"tags": ["ai"], "video_id": "ignored", 2026: "x"}
     text = render_front_matter(GuideMetadata(video_id="abcdefghijk"), extra)
     assert text.startswith("---\nvideo_id: abcdefghijk\n")
-    assert text.endswith("generated: null\ntags:\n- ai\n2026: x\n---\n\n")
+    assert text.endswith("effort: null\ntags:\n- ai\n2026: x\n---\n\n")
     assert read_front_matter(text).data == {
         **GuideMetadata(video_id="abcdefghijk").model_dump(),
         **extra,

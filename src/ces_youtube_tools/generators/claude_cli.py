@@ -12,6 +12,7 @@ from ..guide import GuideError
 from ..video import VideoInfo
 
 GENERATOR_NAME = "claude-cli"
+HARNESS = "Claude Code"
 SYSTEM_PROMPT = (
     "You write watching guides for videos from their transcripts, following the user's format instructions exactly. "
     "Reply with the Markdown guide only."
@@ -143,6 +144,21 @@ class ClaudeCliGenerator:
     def __init__(self, options: ClaudeCliOptions, runner: PromptRunner = run_claude) -> None:
         self.options: ClaudeCliOptions = options
         self.runner: PromptRunner = runner
+
+    @property
+    def harness(self) -> str:
+        """str: `Claude Code`."""
+        return HARNESS
+
+    @property
+    def model(self) -> str:
+        """str: The `model` option, passed as `--model`."""
+        return self.options.model
+
+    @property
+    def effort(self) -> str:
+        """str: The `effort` option, passed as `--effort`."""
+        return self.options.effort
 
     def build_args(self, video_id: str | None = None) -> list[str]:
         """Build the command line.

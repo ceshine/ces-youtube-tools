@@ -45,6 +45,9 @@ class FakeGenerator:
     def __init__(self, reply: str) -> None:
         self.reply = reply
         self.prompts: list[str] = []
+        self.harness: str = "Fake harness"
+        self.model: str = "fake-model"
+        self.effort: str | None = "high"
 
     def generate(self, prompt: str, video: VideoInfo, work_dir: Path) -> str:
         self.prompts.append(prompt)
@@ -87,6 +90,9 @@ def test_write_guide(tmp_path: Path) -> None:
         "duration: 600\n"
         "members_only: null\n"
         "generated: '2026-10-09T02:30:15Z'\n"
+        "harness: Fake harness\n"
+        "model: fake-model\n"
+        "effort: high\n"
         "---\n"
         "\n"
         "# Guide\n\n[1:07](https://www.youtube.com/watch?v=abcdefghijk&t=67s)\n"

@@ -72,7 +72,7 @@ def test_front_matter_is_rewritten_keeping_generated_and_unknown_keys(guides: Pa
     )
     [update] = plan_backfill([path], FakeLoader(), TAIPEI).updates
     assert update.new_path == path
-    # `members_only` is added as null: a key missing from the block counts as changed.
+    # `members_only`, `harness`, `model` and `effort` are added as null: a key missing from the block counts as changed.
     assert update.changed_keys == [
         "title",
         "channel",
@@ -81,16 +81,42 @@ def test_front_matter_is_rewritten_keeping_generated_and_unknown_keys(guides: Pa
         "published",
         "duration",
         "members_only",
+        "harness",
+        "model",
+        "effort",
     ]
-    assert describe_changes(update) == "title, channel, channel_id, upload_date, published, duration, members_only"
+    assert describe_changes(update) == (
+        "title, channel, channel_id, upload_date, published, duration, members_only, harness, model, effort"
+    )
     write_content(update)
     rename_guide(update)
     text = path.read_text(encoding="utf-8")
-    assert text.endswith("generated: 2026-10-10\ntags:\n- ai\n---\n\n# Guide\n")
+    assert text.endswith(
+        "generated: 2026-10-10\nharness: null\nmodel: null\neffort: null\ntags:\n- ai\n---\n\n# Guide\n"
+    )
     data = front_matter(path)
     assert data is not None
-    assert list(data)[-2:] == ["generated", "tags"]
+    assert list(data)[-2:] == ["effort", "tags"]
     assert data["title"] == "A talk"
+
+
+def test_how_the_guide_was_written_is_kept(guides: Path) -> None:
+    path = guides / "new.md"
+    write_all([path])
+    new_path = guides / BACKFILL_NEW_NAME
+    text = new_path.read_text(encoding="utf-8")
+    text = text.replace(
+        "harness: null\nmodel: null\neffort: null\n", "harness: Claude Code\nmodel: opus\neffort: max\n"
+    )
+    # An old title, so the front matter is rewritten.
+    _ = new_path.write_text(text.replace("title: A talk\n", "title: Old title\n"), encoding="utf-8")
+    [update] = plan_backfill([new_path], FakeLoader(), TAIPEI).updates
+    assert update.changed_keys == ["title"]
+    write_content(update)
+    assert new_path.read_text(encoding="utf-8") == text
+    data = front_matter(new_path)
+    assert data is not None
+    assert (data["harness"], data["model"], data["effort"]) == ("Claude Code", "opus", "max")
 
 
 def test_generated_stays_unknown_without_a_publish_time(guides: Path) -> None:

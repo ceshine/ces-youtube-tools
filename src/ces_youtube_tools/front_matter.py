@@ -1,4 +1,7 @@
-"""Read and write the YAML front matter at the top of a guide: video metadata written by the tool, not the model."""
+"""Read and write the YAML front matter at the top of a guide: the video's metadata and how the guide was written.
+
+The tool writes it, not the model.
+"""
 
 import datetime
 from dataclasses import dataclass
@@ -20,7 +23,7 @@ class FrontMatterError(Exception):
 
 
 class GuideMetadata(BaseModel):
-    """The video metadata kept in a guide's front matter.
+    """The metadata kept in a guide's front matter: the video's, and when and how the guide was written.
 
     Every field is optional when reading, because a guide may be hand-written or hand-edited. Keys this model does not
     know (for example, tags added in a notes app) are ignored here; `FrontMatter.data` keeps them.
@@ -36,6 +39,12 @@ class GuideMetadata(BaseModel):
         members_only (bool | None): Whether only channel members can watch the video. None if unknown.
         generated (datetime.datetime | datetime.date | None): When the guide was written. A date in guides written
             before the tool recorded the time.
+        harness (str | None): The tool that wrote the guide, such as `Claude Code`. None in guides written before
+            the tool recorded it.
+        model (str | None): The model passed to that tool, as configured. None in guides written before the tool
+            recorded it.
+        effort (str | None): The effort level passed to that tool. None if the generator has no effort setting, or in
+            guides written before the tool recorded it.
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -49,6 +58,9 @@ class GuideMetadata(BaseModel):
     duration: int | None = None
     members_only: bool | None = None
     generated: AwareDatetime | datetime.date | None = None
+    harness: str | None = None
+    model: str | None = None
+    effort: str | None = None
 
     @field_serializer("published", "generated")
     def _utc_string(self, value: datetime.date | None) -> datetime.date | str | None:

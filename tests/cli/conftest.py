@@ -34,6 +34,9 @@ class FakeGuideGenerator:
     def __init__(self, reply: str = GUIDE_REPLY) -> None:
         self.reply = reply
         self.prompts: list[str] = []
+        self.harness: str = "Fake harness"
+        self.model: str = "fake-model"
+        self.effort: str | None = None
 
     def generate(self, prompt: str, video: VideoInfo, work_dir: Path) -> str:
         self.prompts.append(prompt)
