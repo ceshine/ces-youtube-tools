@@ -78,8 +78,8 @@ prompt_template = "~/.config/ces-youtube-tools/guide_prompt.md"
 file_name_timezone = "Asia/Taipei"   # optional; unset = the system's time zone
 
 [guide.options.claude-cli]   # per-generator settings, keyed by generator name
-model = "opus"            # optional; default: Claude Code's default model
-effort = "high"           # optional
+model = "opus"            # optional; default: claude-sonnet-5-5, always passed
+effort = "high"           # optional; default: high, always passed (low, medium, high, xhigh, max)
 session_dir = "~/.cache/ces-youtube-tools/claude-sessions"   # optional; unset = no session log is kept
 # command = ["claude"], bare = false, prompt_caching = false, timeout_seconds = 1800, extra_args = []
 
@@ -139,12 +139,12 @@ class GuideGenerator(Protocol):
 ```
 # session_dir not set (default): no session log
 cd <work dir> && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude --print --tools "" --no-session-persistence \
-  --output-format text --system-prompt "<short guide-writer prompt>" [--model M] [--effort E] [--bare] \
+  --output-format text --system-prompt "<short guide-writer prompt>" --model M --effort E [--bare] \
   [extra_args] < prompt
 
 # session_dir set: the session log is kept, to track usage
 cd <session_dir> && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude --print --tools "" --name <video id> \
-  --output-format text --system-prompt "<short guide-writer prompt>" [--model M] [--effort E] [--bare] \
+  --output-format text --system-prompt "<short guide-writer prompt>" --model M --effort E [--bare] \
   [extra_args] < prompt
 ```
 
@@ -154,6 +154,11 @@ cd <session_dir> && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude --print --tools "" -
   `--system-prompt` replaces Claude Code's coding-agent prompt.
 - `DISABLE_PROMPT_CACHING=1` is set unless `prompt_caching = true`. Each run is one request that is never repeated,
   so a cache write only adds cost. (Checked, see `docs/implementation_notes.md`.)
+- `--model` and `--effort` are always passed, `claude-sonnet-5-5` and `high` unless `model` and `effort` are set, so
+  both are known without asking Claude Code. `--model` overrides Claude Code's own choice (`/model`, `model` in
+  `settings.json`, `ANTHROPIC_MODEL`), so a Bedrock or Vertex setup, which needs its own model IDs, must set `model`.
+  `effort` accepts only the levels `claude --help` lists. `extra_args` cannot hold `--model` or `--effort` (alone or
+  as `--model=...`): they come last and would override the options unseen.
 - `--bare` would also skip hooks, plugins and all CLAUDE.md discovery, but it only works with `ANTHROPIC_API_KEY`
   authentication, so it is opt-in (`bare = true`). User-level settings (`~/.claude`) still apply without it.
 - `session_dir` (optional, `~` is expanded) turns on session logs for usage tracking. Claude Code stores a log in

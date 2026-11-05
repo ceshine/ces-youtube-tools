@@ -49,13 +49,17 @@ def test_build_args_defaults() -> None:
         "--system-prompt",
         SYSTEM_PROMPT,
         "--no-session-persistence",
+        "--model",
+        "claude-sonnet-5-5",
+        "--effort",
+        "high",
     ]
 
 
 def test_build_args_with_session_dir_names_the_session(tmp_path: Path) -> None:
     args = ClaudeCliGenerator(ClaudeCliOptions(session_dir=tmp_path)).build_args("abc123")
     assert "--no-session-persistence" not in args
-    assert args[-2:] == ["--name", "abc123"]
+    assert args[-6:-4] == ["--name", "abc123"]
 
 
 def test_build_args_with_session_dir_and_no_video_id(tmp_path: Path) -> None:
@@ -74,6 +78,27 @@ def test_build_args_with_options() -> None:
 def test_options_reject_unknown_keys() -> None:
     with pytest.raises(ValidationError):
         _ = ClaudeCliOptions.model_validate({"modle": "opus"})
+
+
+def test_options_reject_an_empty_model() -> None:
+    with pytest.raises(ValidationError):
+        _ = ClaudeCliOptions(model="")
+
+
+@pytest.mark.parametrize("effort", ["", "highest", "HIGH"])
+def test_options_reject_an_unknown_effort_level(effort: str) -> None:
+    with pytest.raises(ValidationError):
+        _ = ClaudeCliOptions.model_validate({"effort": effort})
+
+
+@pytest.mark.parametrize("arg", ["--model", "--model=opus", "--effort", "--effort=max"])
+def test_options_reject_model_and_effort_in_extra_args(arg: str) -> None:
+    with pytest.raises(ValidationError, match="extra_args cannot hold"):
+        _ = ClaudeCliOptions(extra_args=["--verbose", arg])
+
+
+def test_options_allow_other_extra_args() -> None:
+    assert ClaudeCliOptions(extra_args=["--models", "--verbose"]).extra_args == ["--models", "--verbose"]
 
 
 def test_generate_sends_prompt_on_stdin_from_the_work_dir(tmp_path: Path) -> None:
@@ -106,7 +131,7 @@ def test_generate_runs_in_session_dir_and_creates_it(tmp_path: Path) -> None:
     args, _, cwd, _ = fake.calls[0]
     assert cwd == session_dir
     assert session_dir.is_dir()
-    assert args[-2:] == ["--name", "abc123"]
+    assert args[-6:-4] == ["--name", "abc123"]
 
 
 def test_generate_without_session_dir_runs_in_the_work_dir(tmp_path: Path) -> None:

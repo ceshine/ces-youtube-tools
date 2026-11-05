@@ -3,6 +3,7 @@
 import os
 import subprocess
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field, BaseModel, ConfigDict, field_validator
 
@@ -18,6 +19,12 @@ SYSTEM_PROMPT = (
 
 DISABLE_CLAUDE_MDS_ENV = "CLAUDE_CODE_DISABLE_CLAUDE_MDS"
 DISABLE_PROMPT_CACHING_ENV = "DISABLE_PROMPT_CACHING"
+
+EffortLevel = Literal["low", "medium", "high", "xhigh", "max"]
+
+DEFAULT_MODEL = "claude-sonnet-5-5"
+DEFAULT_EFFORT: EffortLevel = "high"
+RECORDED_FLAGS = ("--model", "--effort")
 
 
 def run_claude(
@@ -49,8 +56,8 @@ class ClaudeCliOptions(BaseModel):
 
     Attributes:
         command (list[str]): Command that runs Claude Code.
-        model (str | None): Model alias or ID for `--model`. None uses Claude Code's default.
-        effort (str | None): Effort level for `--effort` (`low` to `max`). None uses the default.
+        model (str): Model alias or ID, always passed as `--model`, so it overrides Claude Code's own model setting.
+        effort (EffortLevel): Effort level (`low`, `medium`, `high`, `xhigh` or `max`), always passed as `--effort`.
         bare (bool): Pass `--bare`, which skips hooks, plugins and CLAUDE.md discovery but only works with an
             `ANTHROPIC_API_KEY` (not with a Claude subscription login).
         prompt_caching (bool): Allow Claude Code's prompt caching. Off by default: each run is one request that is
@@ -58,18 +65,19 @@ class ClaudeCliOptions(BaseModel):
         timeout_seconds (float): How long one generation may take.
         session_dir (Path | None): Folder to run `claude` in with session logging on, so every log lands in one
             folder under `~/.claude/projects/`. None passes `--no-session-persistence` and keeps no log.
-        extra_args (list[str]): More arguments, added last.
+        extra_args (list[str]): More arguments, added last. They cannot hold `--model` or `--effort`, which the
+            `model` and `effort` options set.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     command: list[str] = Field(default=["claude"], description="Command that runs Claude Code.")
-    model: str | None = Field(
-        default=None, description="Model alias or ID for --model. Unset uses Claude Code's default."
+    model: str = Field(
+        default=DEFAULT_MODEL,
+        min_length=1,
+        description="Model alias or ID, always passed as --model (overrides Claude Code's own model setting).",
     )
-    effort: str | None = Field(
-        default=None, description="Effort level for --effort (low to max). Unset uses the default."
-    )
+    effort: EffortLevel = Field(default=DEFAULT_EFFORT, description="Effort level, always passed as --effort.")
     bare: bool = Field(
         default=False,
         description="Pass --bare (skips hooks, plugins and CLAUDE.md). Needs an ANTHROPIC_API_KEY, not a subscription.",
@@ -81,7 +89,9 @@ class ClaudeCliOptions(BaseModel):
     session_dir: Path | None = Field(
         default=None, description="Run claude here with session logging on. Unset keeps no session log."
     )
-    extra_args: list[str] = Field(default=[], description="More arguments for claude, added last.")
+    extra_args: list[str] = Field(
+        default=[], description="More arguments for claude, added last; not --model or --effort."
+    )
 
     @field_validator("session_dir")
     @classmethod
@@ -95,6 +105,27 @@ class ClaudeCliOptions(BaseModel):
             Path | None: The expanded folder, or None when it is not set.
         """
         return value.expanduser() if value is not None else None
+
+    @field_validator("extra_args")
+    @classmethod
+    def refuse_recorded_flags(cls, value: list[str]) -> list[str]:
+        """Refuse `--model` and `--effort` in `extra_args`, alone or as `--model=...`.
+
+        Args:
+            value (list[str]): The configured arguments.
+
+        Returns:
+            list[str]: The arguments, unchanged.
+
+        Raises:
+            ValueError: If an argument is `--model` or `--effort`, with or without `=...`.
+        """
+        for arg in value:
+            flag = arg.split("=", 1)[0]
+            if flag in RECORDED_FLAGS:
+                option = flag.removeprefix("--")
+                raise ValueError(f"extra_args cannot hold {flag}: set the {option} option instead")
+        return value
 
 
 class ClaudeCliGenerator:
@@ -136,10 +167,7 @@ class ClaudeCliGenerator:
             args.append("--no-session-persistence")
         elif video_id:
             args += ["--name", video_id]
-        if self.options.model:
-            args += ["--model", self.options.model]
-        if self.options.effort:
-            args += ["--effort", self.options.effort]
+        args += ["--model", self.options.model, "--effort", self.options.effort]
         if self.options.bare:
             args.append("--bare")
         return [*args, *self.options.extra_args]

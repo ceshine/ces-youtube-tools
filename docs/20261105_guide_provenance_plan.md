@@ -24,8 +24,8 @@ Settled on 2026-11-05.
   tool has to report which model it used. That leaves out `claude --output-format json`, whose `modelUsage` names
   the models used, and `agy`, whose stream-json events name no model. An alias such as `opus` is recorded as
   written.
-  - `claude-cli` defaults to `claude-opus-5-5`, the model Claude Code 2.1.318 used on this machine in a run with no
-    `--model`.
+  - `claude-cli` defaults to `claude-sonnet-5-5`. Claude Code 2.1.318 used `claude-opus-5-5` on this machine in a
+    run with no `--model`, so a configuration without `model` now gets a different model than before.
   - `agy-cli` defaults to `gemini-3.8-flash-medium`, the saved default of `agy` 1.4.12 (`agy -p "/config"` shows
     "Gemini 3.8 Flash (Medium)", and `agy models` lists that ID for it).
   - The cost: an always-passed `--model` overrides the tool's own choice. For Claude Code that is `/model`, `model`
@@ -34,9 +34,11 @@ Settled on 2026-11-05.
 - **The recorded values must be the ones used.** `extra_args` come last on the command line, so a `--model` or
   `--effort` there would override the option without the front matter knowing. Both generators' options refuse
   `extra_args` that contain `--model` or `--effort`, alone or as `--model=...`.
-- **The effort level is recorded too.** For `claude-cli` it is the `effort` option, `null` when unset, which means
-  Claude Code's default level. For `agy-cli` it is always `null`: its model IDs name the level
-  (`gemini-3.8-flash-medium`), so `agy-cli` has no `effort` option, and the model says it all.
+- **The effort level is recorded too.** For `claude-cli` it is the `effort` option, which, like `model`, is always
+  passed and defaults to `high`: `claude --help` does not say which level Claude Code uses without `--effort`, so an
+  unset option could not be recorded. It accepts only `low`, `medium`, `high`, `xhigh` and `max`, the levels
+  `claude --help` lists, so a typo fails when the configuration is loaded. For `agy-cli` it is always `null`: its
+  model IDs name the level (`gemini-3.8-flash-medium`), so `agy-cli` has no `effort` option.
 - **The harness is the tool's name:** `Claude Code` for `claude-cli`, `Antigravity CLI` for `agy-cli`. It is a
   constant in each generator's module: no version, and no extra process per guide.
 - **It shows in the front matter and on the guide page**, not in the index: `_PAYLOAD_FIELDS` in `static_site.py`
@@ -54,24 +56,28 @@ Settled on 2026-11-05.
   `generate` keeps returning `str`. All three are known before the run, from the generator's module and its options,
   so the pipeline reads them from the generator when it writes the front matter rather than getting them back from
   `generate`.
-- The guide page shows a line after the guide's text, such as "Written by Claude Code with claude-opus-5-5 (high
-  effort)." It is left out when `harness` is `null`, "with ..." is left out when `model` is `null`, and "(... effort)"
-  when `effort` is `null`. The values come from a file a person can edit, so they are HTML-escaped.
+- The guide page shows a line after the guide's text, such as "Written by Claude Code with claude-sonnet-5-5
+  (high effort)." It is left out when `harness` is `null`, "with ..." is left out when `model` is `null`, and
+  "(... effort)" when `effort` is `null`. The values come from a file a person can edit, so they are HTML-escaped.
 
-## Step 1: the model option
+## Step 1: the model and effort options
 
 - `generators/claude_cli.py`:
-  - `ClaudeCliOptions.model` becomes `str`, with the default `claude-opus-5-5` and `min_length=1`, and a description
-    that names the default. Update its docstring entry, which says "None uses Claude Code's default".
+  - `ClaudeCliOptions.model` becomes `str`, with the default `claude-sonnet-5-5` and `min_length=1`, and a description
+    that says it is always passed and overrides Claude Code's own model setting. `config options` shows the default
+    in its own column, so the description does not repeat it. Update its docstring entry, which says "None uses
+    Claude Code's default".
+  - `ClaudeCliOptions.effort` becomes `Literal["low", "medium", "high", "xhigh", "max"]`, with the default `high`,
+    and a description that says it is always passed. Update its docstring entry, which says "None uses the default".
   - A validator on `extra_args` that refuses `--model`, `--effort`, `--model=...` and `--effort=...`, and an
     `extra_args` description that says so (e.g. "More arguments for claude, added last; not --model or --effort"),
     so `config options` shows the rule.
-  - `build_args` always adds `--model`.
-- Tests (`tests/generators/test_claude_cli.py`): the default command line now has `--model claude-opus-5-5`, an
-  empty `model` is refused, and each refused `extra_args` form.
-- This step changes the command line, so update "claude-cli generator" in `design.md` with it: `--model M` loses
-  its brackets, the configuration example's `model` comment gives the default, and a bullet says that `extra_args`
-  cannot hold `--model` or `--effort`.
+  - `build_args` always adds `--model` and `--effort`.
+- Tests (`tests/generators/test_claude_cli.py`): the default command line now has `--model claude-sonnet-5-5`
+  and `--effort high`, an empty `model` and an unknown `effort` are refused, and each refused `extra_args` form.
+- This step changes the command line, so update "claude-cli generator" in `design.md` with it: `--model M` and
+  `--effort E` lose their brackets, the configuration example's `model` and `effort` comments give the defaults, and
+  a bullet says that both are always passed and that `extra_args` cannot hold `--model` or `--effort`.
 
 ## Step 2: the interface and the front matter
 
