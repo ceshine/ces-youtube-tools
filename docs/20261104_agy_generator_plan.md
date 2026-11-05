@@ -74,7 +74,7 @@ Settled on 2026-11-04 by running `agy` 1.4.12. The test runs are described under
   So `AgyCliOptions.model` accepts only `gemini-...-<level>`, with the levels `agy --help` lists for `--effort`
   (`low`, `medium`, `high`, `xhigh`, `max`), and the recorded model always names the level; `effort` stays `null`.
   A family name, a Claude model or any other non-Gemini model, such as `gpt-oss-120b-medium`, fails when the
-  configuration is loaded.
+  generator is built from `[guide.options.agy-cli]`, before the first guide.
 - **Session logs cannot be turned off.** Every run, stream-json included, stores the conversation with the full
   prompt in `~/.gemini/antigravity-cli/conversations/<conversation_id>.db`, and adds a `brain/<conversation_id>/`
   folder, entries in `annotations/` and `implicit/`, and a log under `log/`. No flag or setting stops this:

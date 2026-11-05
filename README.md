@@ -16,14 +16,16 @@ Members-only videos work too, if you are a member of the channel.
 ces-youtube-tools browse
   1. pick a channel from your config
   2. list its videos, a page at a time (yt-dlp, no cookies)  ─► pick one or more
-  3. for each: fetch subtitles  ─►  build a prompt  ─►  `claude` CLI  ─►  "Watching Guide - <YYYYMMDD> - <title>.md"
+  3. for each: fetch subtitles  ─►  build a prompt  ─►  `claude` CLI (or `agy`)
+               ─►  "Watching Guide - <YYYYMMDD> - <title>.md"
 ```
 
 - **Listing** uses yt-dlp on the channel's upload playlists, without cookies.
 - **Transcripts** come from the video's own subtitles (human-made first, then automatic captions). Cookies are read
   live from a dedicated Firefox profile, which is only needed for members-only videos.
-- **Guides** are written by the [`claude` CLI](https://docs.claude.com/en/docs/claude-code) with all tools disabled,
-  so the model only writes text. The prompt template is a file you can edit.
+- **Guides** are written by the [`claude` CLI](https://docs.claude.com/en/docs/claude-code), or by Antigravity CLI
+  (`agy`) if you choose it. All tools are disabled, so the model only writes text. The prompt template is a file you
+  can edit, `guide_prompt.md`, which `config init` writes next to the config.
 
 ## Requirements
 
@@ -31,7 +33,8 @@ ces-youtube-tools browse
 > profile paths below are Linux paths.
 
 - Python 3.13 or newer and [uv](https://docs.astral.sh/uv/)
-- [Claude Code](https://docs.claude.com/en/docs/claude-code) (the `claude` command), signed in
+- [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`), signed in, for the default generator
+- Antigravity CLI (`agy`), signed in, if you choose the `agy-cli` generator
 - Firefox, with a profile signed in to YouTube (only for members-only videos)
 - yt-dlp is run through `uvx` by default, so you do not need to install it. `ytdlp_command` in the config changes
   this.
@@ -166,6 +169,32 @@ The `model` and `effort` options are always passed to Claude Code, so they overr
 settings (for the model: `/model`, `model` in its `settings.json`, `ANTHROPIC_MODEL`). If you use Claude Code through
 Bedrock or Vertex, set `model` to a model ID that works there.
 
+### Writing guides with Antigravity CLI
+
+To write guides with Antigravity CLI (`agy`) instead of Claude Code, set `generator` in the `[guide]` table and,
+optionally, add an `agy-cli` options table:
+
+```toml
+[guide]
+generator = "agy-cli"   # default: "claude-cli"
+
+[guide.options.agy-cli]
+model = "gemini-3.8-flash-high"   # optional; default gemini-3.8-flash-medium
+# timeout_seconds = 1800          # optional; how long one guide may take
+# command = ["agy"]               # optional; the command that runs Antigravity CLI
+# extra_args = []                 # optional; added last, but not --model or --effort
+```
+
+`model` must be a Gemini model ID that ends in its effort level, such as `gemini-3.8-flash-low`,
+`gemini-3.8-flash-medium` or `gemini-3.8-flash-high` (`agy models` lists them). There is no `effort` option: the model
+ID names the level, so a family name such as `gemini-3.8-flash` and non-Gemini models are refused. `guide` and
+`browse` check the `agy-cli` options before they write the first guide, and stop with "Invalid settings in
+[guide.options.agy-cli]" if one does not fit. The guide's front matter records the harness and model, and its page
+says, for example, "Written by Antigravity CLI with gemini-3.8-flash-high."
+
+Antigravity CLI keeps every conversation, including the full prompt with the transcript, under
+`~/.gemini/antigravity-cli/`, and has no option to turn this off. If you do not want them kept, delete them yourself.
+
 ## Where files go
 
 - **Guides:** `Watching Guide - <YYYYMMDD> - <title>.md`, named by the day the video was published, in
@@ -189,8 +218,8 @@ uvx ruff check .                       # lint
 uvx ruff format --line-length 120      # format
 ```
 
-Tests mock yt-dlp, the network, the `claude` CLI and Firefox profiles. The only subtitle fixture is a short synthetic
-file.
+Tests mock yt-dlp, the network, the `claude` and `agy` CLIs and Firefox profiles. The only subtitle fixture is a
+short synthetic file.
 
 The index script's tests are in `tests/js/` and use Node's test runner. `uv run pytest` runs them when Node 22 or
 later is on `PATH` (twice, in time zones on both sides of UTC) and skips them otherwise. To run them directly:

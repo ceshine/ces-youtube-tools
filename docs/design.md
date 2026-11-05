@@ -24,7 +24,8 @@ provider are surveyed in [asr_options.md](asr_options.md).
  guide pipeline
    VideoInfo ─► TranscriptProvider ─► Transcript ─► GuideGenerator ─► Markdown file
                  · yt-dlp-subs (v1)                  · claude-cli (v1)
-                 · audio transcription (later)       · openai-api, other CLIs (later)
+                 · audio transcription (later)       · agy-cli (Antigravity CLI)
+                                                     · openai-api, other CLIs (later)
 
  ces-youtube-tools site [DIR]          (static site)
    Markdown files ─► guide_html ─► "<video id>.html" (embedded player) + index.html ─► OUT
@@ -83,6 +84,10 @@ effort = "high"           # optional; default: high, always passed (low, medium,
 session_dir = "~/.cache/ces-youtube-tools/claude-sessions"   # optional; unset = no session log is kept
 # command = ["claude"], bare = false, prompt_caching = false, timeout_seconds = 1800, extra_args = []
 
+[guide.options.agy-cli]      # used when generator = "agy-cli"
+model = "gemini-3.8-flash-high"   # optional; default: gemini-3.8-flash-medium. A Gemini ID ending in its effort level
+# command = ["agy"], timeout_seconds = 1800, extra_args = []
+
 [site]
 output_dir = "~/guides-site"   # where `site` writes the site, cleared on each build; unset = pass `-o`
 ```
@@ -100,9 +105,9 @@ output_dir = "~/guides-site"   # where `site` writes the site, cleared on each b
   file names (see "Guide step"). Unset, it means the system's time zone, so the same video gets another name on a
   machine set to another zone; setting it is recommended.
 - `config options` lists every option with its type, default and meaning. It reads the Pydantic models (field
-  descriptions), including `[guide.options.claude-cli]`, so it works without a config file and cannot drift from the
-  code. A new option needs a `Field(description=...)`, or its description column is blank. Each generator's options
-  are listed from its `GeneratorSpec` (see "Pipeline interfaces").
+  descriptions), including every `[guide.options.<generator>]` table, so it works without a config file and cannot
+  drift from the code. A new option needs a `Field(description=...)`, or its description column is blank. Each
+  generator's options are listed from its `GeneratorSpec` (see "Pipeline interfaces").
 
 ## Pipeline interfaces
 
@@ -133,9 +138,10 @@ class GuideGenerator(Protocol):
   name, the Pydantic model of its `[guide.options.<name>]` table, and a function that builds it from validated
   options. `make_guide_generator` validates the table with the spec, and `config options` lists every spec's options,
   so a new generator needs only its module and its spec.
-- Generators that run a command (`claude-cli`) send the prompt with `run_prompt_command` in `generators/_subprocess.py`,
-  which turns a missing command, a timeout, a non-zero exit status and an empty reply into `GuideError`. Each passes its
-  own runner, so it can set its tool's environment variables.
+- Generators that run a command (`claude-cli`, `agy-cli`) send the prompt with `run_prompt_command` in
+  `generators/_subprocess.py`, which turns a missing command, a timeout, a non-zero exit status and an empty reply
+  into `GuideError`. Each passes its own runner, so it can set its tool's environment variables or, for `agy`, stop
+  a process that hangs after replying.
 - The guide steps shared by `guide` and `browse` are in `pipeline.py`: `make_guide_tools` (once per run),
   `prepare_guide` (metadata, target path, existing guides) and `generate_guide` (transcript, generation, write). They
   never print. `prepare_guide` and `generate_guide` take a `status` argument for their spinners (the CLI passes
@@ -178,6 +184,62 @@ cd <session_dir> && CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 claude --print --tools "" -
   when `session_dir` is unset, because nothing is stored.
 - `CLAUDE_CONFIG_DIR` could move the logs elsewhere, but it moves credentials and settings too, which breaks a
   subscription login. That is why the working directory is used instead.
+
+### agy-cli generator
+
+`guide.generator = "agy-cli"` writes guides with Antigravity CLI (`agy`) in print mode. The tests behind each point
+below are in [the plan](20261104_agy_generator_plan.md), run with `agy` 1.4.12 and 1.5.1.
+
+```
+cd <work dir> && agy --add-dir <temporary directory> --agent ces-guide-writer \
+  --input-format stream-json --output-format stream-json --disable-slash-commands \
+  --model M [extra_args] <<< '<stream-json line>'
+```
+
+`<temporary directory>/.agents/agents/ces-guide-writer.md` is written for each run:
+
+```markdown
+---
+name: ces-guide-writer
+description: Writes watching guides from video transcripts.
+mainAgent: true
+tools: []
+excludeDefaultComponents: true
+---
+# Guide writer
+
+<short guide-writer prompt>
+```
+
+- The prompt goes in on stdin as one stream-json message. In text mode `agy` never reads stdin, and a prompt passed
+  as an argument fails once it is over 128 KiB. The message stays on one line, since `json.dumps` escapes the
+  prompt's newlines.
+- The reply is the `response` of the last `result` event in the NDJSON output. A line that is not a JSON object, no
+  `result` event, a `status` other than `SUCCESS`, a `finished_reason` (the turn ended early) or a blank `response`
+  is a `GuideError`. The exit status alone is not enough: a turn ended by a denied tool exited 0 with an empty reply.
+- The custom agent is how tools are turned off. Without it, the agent read and wrote files in its working directory
+  in the default mode, with `--mode plan` and with `--sandbox` alike, and `--settings` deny rules did not block
+  `search_web`. With `tools: []` and `excludeDefaultComponents: true` it made no tool calls, and a short prompt took
+  445 input tokens instead of about 7,400. The agent's body is the same system prompt `claude-cli` uses
+  (`SYSTEM_PROMPT` in `generators/base.py`). The custom agent also ignores an `AGENTS.md` in the working directory.
+- The agent file is in a temporary directory added with `--add-dir`, because `--agent` takes a name, not a path. So
+  the video's work directory gets no `.agents/` folder, and the file always matches `SYSTEM_PROMPT`.
+- `--model` is always passed, `gemini-3.8-flash-medium` unless `model` is set, and `agy`'s log confirms the model it
+  is given is the model used. `model` must be a Gemini model ID that ends in its effort level
+  (`gemini-...-<low|medium|high|xhigh|max>`), checked when the generator is built, before the first guide. A family
+  name such as `gemini-3.8-flash` runs at a level `agy` picks (High in 1.5.1), which the front matter would not
+  record, and Claude models refuse `--effort`. So there is no `effort` option, the generator's `effort` is `None`,
+  and the front matter records `harness: Antigravity CLI` with the model alone. `extra_args` cannot hold `--model`
+  or `--effort` (alone or as `--model=...`), for the same reason as in `claude-cli`.
+- `--print-timeout` is not passed. Its default waits until the turn completes, which leaves `timeout_seconds` as
+  the only time limit.
+- `agy` 1.5.1 sometimes prints its `result` event and then hangs while shutting down, ignoring SIGTERM too. So the
+  runner (`run_agy`) reads stdout line by line, and once the `result` event arrives, gives `agy` 15 seconds to exit,
+  then sends SIGTERM, then SIGKILL 30 seconds later. The reply is complete by then, so the run counts as a success,
+  with a warning in the log. `timeout_seconds` limits the wait for the `result` event.
+- `agy` keeps every conversation, prompt included, in `~/.gemini/antigravity-cli/` (`conversations/`, `brain/`,
+  `log/` and more), and no flag or setting turns this off. Deleting those files would depend on `agy`'s private
+  storage layout, so the generator leaves them. There is no `session_dir` option.
 
 ## Guide step
 
@@ -467,8 +529,8 @@ commands that `site` has since replaced. What was built:
     properties, and a "Written by" line on the guide page; `claude-cli` always passes `--model` and `--effort`.
     (Done, 2026-11-05.) See "Guides stay Markdown, with front matter" below, and
     [the plan](20261105_guide_provenance_plan.md).
-14. A second guide generator, `agy-cli`, which runs Antigravity CLI, after items 12 and 13. (Planned, 2026-11-04.)
-    See [the plan](20261104_agy_generator_plan.md).
+14. A second guide generator, `agy-cli`, which runs Antigravity CLI, after items 12 and 13. (Done, 2026-11-06.)
+    See "agy-cli generator" above, and [the plan](20261104_agy_generator_plan.md).
 
 ## Guide metadata and a private site
 
@@ -531,9 +593,10 @@ effort: high                      # the effort level passed to it; null for a ge
 - `members_only` has three states. The `site` command treats `null` (unknown) as members-only.
 - `harness`, `model` and `effort` say what wrote the guide, so guides written with different generators or models can
   be told apart (see [the plan](20261105_guide_provenance_plan.md)). `harness` is a constant in the generator's module
-  (`Claude Code` for `claude-cli`), with no version. `model` and `effort` are the generator's options, which it always
-  passes to the tool, recorded as configured: an alias such as `opus` stays an alias. Guides written before 2026-11-05
-  cannot know them, so they have `null`. Only the guide page shows them (see "Guide pages").
+  (`Claude Code` for `claude-cli`, `Antigravity CLI` for `agy-cli`), with no version. `model` and `effort` are what
+  the generator always passes to the tool, recorded as configured: an alias such as `opus` stays an alias. `agy-cli`
+  has no effort option, since its model ID names the level, so its `effort` is `null`. Guides written before
+  2026-11-05 cannot know them, so they have `null`. Only the guide page shows them (see "Guide pages").
 
 `ces-youtube-tools backfill PATH... [--dry-run] [--refresh]` (`backfill.py`, done) rewrites the front matter of
 every guide from its video's metadata, and renames the guide to the name `guide` would give it now. It added front
