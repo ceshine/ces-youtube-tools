@@ -112,6 +112,12 @@ class TranscriptProvider(Protocol):
 
 
 class GuideGenerator(Protocol):
+    @property
+    def harness(self) -> str: ...  # the tool it runs, such as "Claude Code"
+    @property
+    def model(self) -> str: ...  # the model passed to that tool, as configured
+    @property
+    def effort(self) -> str | None: ...  # the effort level passed to it; None without an effort setting
     def generate(self, prompt: str, video: VideoInfo, work_dir: Path) -> str: ...  # Markdown
 ```
 
@@ -119,6 +125,9 @@ class GuideGenerator(Protocol):
   duplicate lines from YouTube's auto-generated VTT subtitles. Generators never see raw subtitle files.
 - Prompt building is shared (`guide.render_prompt`): the template plus `VideoInfo` and `Transcript` produce the
   prompt. Generators only send the prompt and return the reply.
+- `harness`, `model` and `effort` are known before the run, from the generator's module and its options, so
+  `write_guide` reads them from the generator for the front matter instead of getting them back from `generate`,
+  which still returns only the Markdown. No tool is asked which model it used: every generator always passes one.
 - Implementations are chosen by name from a plain dict registry keyed by the config values.
 - Each guide generator is registered as a `GeneratorSpec` in `generators/__init__.py` (`GUIDE_GENERATORS`): its
   name, the Pydantic model of its `[guide.options.<name>]` table, and a function that builds it from validated
@@ -358,9 +367,9 @@ commands that `site` has since replaced. What was built:
   `A-Za-z0-9_-`, whichever caller passed it, because the template puts the ID in a URL and a JavaScript string
   without escaping. This check is what keeps the template safe. `site` reports a guide with no video ID as a problem.
 - The page template is `templates/guide_page.html`, filled with `string.Template` (`$title`, `$video_id`, `$body`,
-  `$members_hint`, `$index_link`, `$done_end`; a literal `$` must be written `$$`). CSS and JavaScript are inline, so
-  one file is the whole page. It is not user-editable yet. The title comes from the guide's first level-one heading
-  (without "Watching Guide: "), else the file name.
+  `$members_hint`, `$index_link`, `$written_by`, `$done_end`; a literal `$` must be written `$$`). CSS and
+  JavaScript are inline, so one file is the whole page. It is not user-editable yet. The title comes from the guide's
+  first level-one heading (without "Watching Guide: "), else the file name.
 - The page depends only on timestamp links, not on the guide's structure, because a model's output, an edited prompt
   template or a hand-written guide may not follow the prompt. Style hints (`li.stamped`, `p.range`, `p.labeled`) are
   classes a short script adds by looking at how an element starts; without them the plain element styles apply.
@@ -383,6 +392,10 @@ commands that `site` has since replaced. What was built:
 - Pages of the site (`link_to_index`) also have a "Done" toggle next to the "All guides" link and another after the
   guide's text, both hidden until `site_done.mjs`, loaded by a small module script, finds storage to keep the mark
   in; see "Done marks" below.
+- After the guide's text, before the "Done" toggle, a small muted line says what wrote the guide, from the front
+  matter: "Written by Claude Code with claude-sonnet-5-5 (high effort)." It is left out when `harness` is `null`
+  or empty, "with ..." is left out without a `model`, and "(... effort)" without an `effort`. The values come from a
+  file a person can edit, so they are HTML-escaped. The line stays in print.
 - The only external resources are the YouTube player and its API script (both need a network connection anyway) and
   the fonts.
 - If only the IFrame API script fails to load, the player stays visible (it may still play) and the note says timestamps
@@ -450,8 +463,12 @@ commands that `site` has since replaced. What was built:
 12. Module refactor: split `pipeline.py`, move the guide steps out of the CLI, a `generators/` package with a spec
     registry, and a `cli/` package with one module per command. (Done, 2026-11-04.) See
     [the plan](20261104_refactor_plan.md).
-13. A second guide generator, `agy-cli`, which runs Antigravity CLI, after item 12. (Planned, 2026-11-04.) See
-    [the plan](20261104_agy_generator_plan.md).
+13. What wrote each guide: `harness`, `model` and `effort` in the front matter, from new `GuideGenerator`
+    properties, and a "Written by" line on the guide page; `claude-cli` always passes `--model` and `--effort`.
+    (Done, 2026-11-05.) See "Guides stay Markdown, with front matter" below, and
+    [the plan](20261105_guide_provenance_plan.md).
+14. A second guide generator, `agy-cli`, which runs Antigravity CLI, after items 12 and 13. (Planned, 2026-11-04.)
+    See [the plan](20261104_agy_generator_plan.md).
 
 ## Guide metadata and a private site
 
@@ -472,7 +489,7 @@ The model keeps writing Markdown. Switching its output to JSON was rejected:
   later (a table of contents, a one-paragraph blurb) can be read from markdown-it tokens, as `guide_title` does.
 
 The tool, not the model, writes front matter at the top of each guide (`front_matter.py`, done). `write_guide`
-fills it from `VideoInfo`:
+fills it from `VideoInfo`, except the last three keys, which come from the generator:
 
 ```yaml
 ---
@@ -485,6 +502,9 @@ published: '2026-10-08T16:03:12Z' # release_timestamp, else timestamp; null when
 duration: 600                     # seconds
 members_only: false               # true for availability subscriber_only; null when yt-dlp did not report it
 generated: '2026-10-09T02:30:15Z' # when the guide was written
+harness: Claude Code              # the tool the generator ran
+model: claude-sonnet-5-5          # the model passed to it, as configured
+effort: high                      # the effort level passed to it; null for a generator without one
 ---
 ```
 
@@ -509,8 +529,11 @@ generated: '2026-10-09T02:30:15Z' # when the guide was written
   at midnight in `generated`, which Pydantic reads as that day's date; a number is read as Unix seconds. The tool
   writes neither. `generated` was a date before 2026-10-21; such a guide is still read, as a date.
 - `members_only` has three states. The `site` command treats `null` (unknown) as members-only.
-- The generator and model are not recorded yet: `GuideGenerator` does not report them. Add them if comparing guides
-  across models becomes useful.
+- `harness`, `model` and `effort` say what wrote the guide, so guides written with different generators or models can
+  be told apart (see [the plan](20261105_guide_provenance_plan.md)). `harness` is a constant in the generator's module
+  (`Claude Code` for `claude-cli`), with no version. `model` and `effort` are the generator's options, which it always
+  passes to the tool, recorded as configured: an alias such as `opus` stays an alias. Guides written before 2026-11-05
+  cannot know them, so they have `null`. Only the guide page shows them (see "Guide pages").
 
 `ces-youtube-tools backfill PATH... [--dry-run] [--refresh]` (`backfill.py`, done) rewrites the front matter of
 every guide from its video's metadata, and renames the guide to the name `guide` would give it now. It added front
@@ -521,10 +544,12 @@ names up to date. A path is a Markdown file or a folder (its `.md` files, not it
   that is not 11 characters from `A-Z`, `a-z`, `0-9`, `_` and `-` is a problem of that guide: the ID also names the
   video's cache folder. The metadata comes from the cached `video.json` (unless it is stale, or `--refresh` is given),
   else it is fetched with `load_video_info` (yt-dlp with cookies, because members-only videos need them) and cached.
-- Keys that come from the video are rewritten. `generated` is kept when set; a `null` one is set to the publish time
-  (an approximation, chosen over reading the guides' date line for simplicity), and stays `null` without one. Keys
-  the tool does not know (such as tags added in a notes app) are kept, after its own keys. YAML comments in the
-  block are lost.
+- Keys that come from the video are rewritten. `harness`, `model` and `effort` are kept as they are, set or
+  `null`. A guide written before 2026-11-05 has none of the three, and a missing key counts as a change, so the
+  first run after that rewrites every such guide to add them as `null` (and `--dry-run` lists them for each guide).
+  `generated` is kept when set; a `null` one is set to the publish time (an approximation, chosen over reading the
+  guides' date line for simplicity), and stays `null` without one. Keys the tool does not know (such as tags added in a
+  notes app) are kept, after its own keys. YAML comments in the block are lost.
 - Two passes. The first reads every guide, loads its video's metadata and builds the new file in memory.
   - A guide with a problem of its own (a symbolic link, unreadable, invalid front matter, no video ID, metadata that
     cannot be loaded) is left as it is and listed, and the others are written; the exit status is 1. Every guide is

@@ -95,11 +95,12 @@ confirming.
 
 `site` turns a folder of guides into a static site for Cloudflare Pages: one page per guide, with the video's player
 embedded so that clicking a timestamp moves the player, and an index of all guides that can be sorted by publish or
-generation date, grouped by channel or month, and filtered by title or channel. A guide can be marked "Done" on its
-page or in the index, and "Show: To do" leaves the done guides out of the index. The marks stay in this browser only:
-another browser or device does not see them, and clearing the site's data loses them. The index remembers the last
-sort, grouping and "Show" setting in the browser, and "Reset view" goes back to the default. The index is listed by a
-script, so it needs JavaScript.
+generation date, grouped by channel or month, and filtered by title or channel. A page also says what wrote the guide
+when its front matter records it, such as "Written by Claude Code with claude-sonnet-5-5 (high effort)." A guide can be
+marked "Done" on its page or in the index, and "Show: To do" leaves the done guides out of the index. The marks stay in
+this browser only: another browser or device does not see them, and clearing the site's data loses them. The index
+remembers the last sort, grouping and "Show" setting in the browser, and "Reset view" goes back to the default. The
+index is listed by a script, so it needs JavaScript.
 
 ```bash
 ces-youtube-tools site -o ~/guides-site   # build from guide.output_dir
@@ -148,8 +149,8 @@ prompt_template = "~/.config/ces-youtube-tools/guide_prompt.md"
 file_name_timezone = "Asia/Taipei"   # optional; the day in guide file names. Default: the system's time zone
 
 [guide.options.claude-cli]
-model = "opus"       # optional
-effort = "high"      # optional
+model = "opus"       # optional; default claude-sonnet-5-5
+effort = "high"      # optional; default high (low, medium, high, xhigh or max)
 
 [site]
 output_dir = "~/guides-site"   # where `site` writes the site; cleared on each build
@@ -161,16 +162,20 @@ setting, including the optional ones such as `session_dir`.
 Guide generation turns off Claude Code's prompt caching, because each run is a single request that is never repeated
 and a cache write only adds cost. Set `prompt_caching = true` under `[guide.options.claude-cli]` to turn it back on.
 
+The `model` and `effort` options are always passed to Claude Code, so they override Claude Code's own model and effort
+settings (for the model: `/model`, `model` in its `settings.json`, `ANTHROPIC_MODEL`). If you use Claude Code through
+Bedrock or Vertex, set `model` to a model ID that works there.
+
 ## Where files go
 
 - **Guides:** `Watching Guide - <YYYYMMDD> - <title>.md`, named by the day the video was published, in
   `guide.file_name_timezone` (left out when unknown), in `--output-dir`, else `guide.output_dir`, else the current
   directory. If the folder already has a guide for the video, under any name, `guide` stops unless you pass
   `--force`, which replaces it; `browse` asks, for every selected video before it writes the first guide. Each
-  guide's front matter records when the video was published and when the guide was written, in UTC. `backfill`
-  brings older guides up to date: it rewrites their front matter, keeping keys it does not know and the text below,
-  and renames them. A guide it cannot update is left as it is and listed; two guides for one video, or a new name
-  already taken, stop it before it changes anything.
+  guide's front matter records when the video was published and when the guide was written, in UTC, and the harness
+  (such as Claude Code), model and effort level that wrote it. `backfill` brings older guides up to date: it rewrites
+  their front matter, keeping keys it does not know and the text below, and renames them. A guide it cannot update is
+  left as it is and listed; two guides for one video, or a new name already taken, stop it before it changes anything.
 - **Site:** `<video id>.html` for each guide, plus `index.html`, its script `index.mjs`, `site_done.mjs`, `robots.txt`
   and `_headers`, in `-o OUT`, else `site.output_dir`.
 - **Cache:** `~/.cache/ces-youtube-tools/<video id>/` holds the video metadata, subtitles, transcript, and the prompt
