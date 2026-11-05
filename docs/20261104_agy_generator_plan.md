@@ -2,54 +2,132 @@
 
 Written on 2026-11-04. A second guide generator, `agy-cli`, writes guides with Antigravity CLI (`agy`) in print
 mode, as `claude-cli` does with Claude Code. This is item 13 of "Build order" in [design.md](design.md). It builds
-on the module refactor ([20261104_refactor_plan.md](20261104_refactor_plan.md), item 12): Step 2 there adds the
-`GeneratorSpec` registry this generator registers in, and Step 5 adds the shared `run_prompt_command` it runs `agy`
-with. Start once both are done, and after the open decisions below are settled.
+on the module refactor ([20261104_refactor_plan.md](20261104_refactor_plan.md), item 12, done): Step 2 there added
+the `GeneratorSpec` registry this generator registers in, and Step 5 added the shared `run_prompt_command` it runs
+`agy` with.
 
-## Open decisions
+## Decisions
 
-- **How `agy -p` takes the prompt.** The help does not say whether `--print` reads stdin. If the prompt must be a
-  command-line argument, Linux limits one argument to 128 KiB (`MAX_ARG_STRLEN`), which a transcript of a long
-  livestream can exceed. Try `echo "say hi" | agy -p` first. If stdin is not read, look for another input before
-  passing the prompt as an argument. `--input-format stream-json` reads NDJSON from stdin, but it requires
-  `--output-format stream-json`, so the reply would then have to be parsed out of NDJSON output.
-- **Keeping `agy` from using tools.** Without `--tools ""`, the agent runs in the video's work directory and could
-  read or change files there. Choose between `--mode plan`, `--sandbox`, both, or a `--settings` JSON that turns tools
-  off, after checking what each one allows. Also check what happens when the agent asks for a tool permission in
-  `--print` mode: whether the request is denied or the run waits until `--print-timeout`. The help lists
-  `--dangerously-skip-permissions`, so such requests can happen. That flag is not an option here.
-- **The system prompt.** With no `--system-prompt`, `claude_cli.SYSTEM_PROMPT` has to be put before the prompt text,
-  unless `--settings` or `--agent` offers something better.
-- **Session logs.** Find out where `agy` keeps its conversations and whether they can be turned off, to match
-  `claude-cli`'s default of keeping none. Check `--project`, `--new-project` and `--log-file`.
+Settled on 2026-11-04 by running `agy` 1.4.12. The test runs are described under each decision.
 
-## What `agy` offers
+- **The prompt goes to stdin as stream-json.** In text mode `agy` never reads stdin: `-p` needs a value, an empty
+  one is refused ("empty prompt"), and `-p -` sends "-" as the prompt. A prompt passed as an argument fails at
+  `exec` once it is over 128 KiB (`MAX_ARG_STRLEN`): a 141 KiB prompt failed with "Argument list too long". With
+  `--input-format stream-json --output-format stream-json` and no `-p`, `agy` reads one JSON message per line from
+  stdin, and the same 141 KiB prompt worked. The message is `{"event":"user","message":{"content":"<prompt>"}}`. The
+  help does not give this shape; it comes from the error messages for wrong shapes. This is still print mode (the
+  changelog adds `--input-format stream-json` "to print mode"): every stream-json run answered the one message and
+  exited by itself once stdin closed.
+- **The reply is read from the `result` event.** The output is NDJSON: an `init` event, `step_update` events, and a
+  final `result` event, e.g.
+  `{"event":"result","result":{"status":"SUCCESS","response":"<reply>",...}}`. On failure, `status` is `ERROR` and
+  `error` says why. A turn that ends early (`--print-timeout` expired, interrupted, failed) has a `finished_reason`
+  field, which is absent when the turn finishes normally. The exit status does not show every failure: a run whose
+  turn was ended by a denied tool exited 0 with `status: SUCCESS` and an empty `response`.
+- **Tools are turned off with a custom agent.** Without one, the agent read and wrote files in its working directory
+  in the default mode, with `--mode plan` and with `--sandbox` alike; only shell commands were refused. These runs
+  used stream-json input as above. A tool that needs a permission is refused at once (listed under `denied_actions`
+  in the result), not left waiting. `--settings` deny rules (`command(*)`, `read_file(*)`, `write_file(*)`,
+  `read_url(*)`, `execute_url(*)`, `mcp(*)`) blocked those tools, and won over the user's own allow rules, but not
+  `search_web`. A Markdown custom agent with `tools: []` and `excludeDefaultComponents: true` made no tool calls at
+  all, and a short prompt took 445 input tokens instead of about 7,400. The `init` event lists every tool even then,
+  so it does not show what the agent can use.
+- **The system prompt is the agent's body.** `SYSTEM_PROMPT` goes after the agent file's `# ` heading.
+  The custom agent also leaves out the user's rules: an `AGENTS.md` in the working directory applied to the default
+  agent and not to the custom one.
+- **The agent file lives in a temporary directory.** `--agent` takes a name, not a path ("unknown agent" for a
+  path). `agy` finds agents in `.agents/agents/` of the working directory and its parents, and of directories given
+  with `--add-dir`. The generator writes the agent into a `tempfile.TemporaryDirectory()` for each run and passes it
+  with `--add-dir`, so the video's work directory gets no `.agents/` folder and the file always matches
+  `SYSTEM_PROMPT`. The agent has no tools, so adding that directory to the workspace exposes nothing.
+- **Session logs cannot be turned off.** Every run, stream-json included, stores the conversation with the full
+  prompt in `~/.gemini/antigravity-cli/conversations/<conversation_id>.db`, and adds a `brain/<conversation_id>/`
+  folder, entries in `annotations/` and `implicit/`, and a log under `log/`. No flag or setting stops this:
+  `--log-file` only moves the log, and `--project`/`--new-project` only choose the project the conversation belongs
+  to. Deleting those files after each run would depend on `agy`'s private storage layout, so the generator leaves
+  them, and the README says so. Unlike `claude-cli`, there is no `session_dir` option.
 
-`agy --help`, checked on 2026-11-04. Among its flags:
+## The command line
 
-- It has `--print` (alias `-p`), `--model`, `--effort` (`low`, `medium`, `high`, `xhigh`, `max`),
-  `--output-format text`, `--disable-slash-commands`, `--print-timeout`, `--mode` (`accept-edits`, `auto`, `plan`),
-  `--sandbox` and `--settings`.
-- It has no equivalent of `claude`'s `--tools ""`, `--system-prompt` or `--no-session-persistence`, which
-  `ClaudeCliGenerator` relies on. The open decisions above cover each one.
+```
+agy --add-dir <temporary directory> --agent ces-guide-writer \
+    --input-format stream-json --output-format stream-json --disable-slash-commands \
+    [--model <model>] [--effort <effort>] [<extra_args>...]
+```
 
-Check the help again before Step 1: a CLI's flags can change between releases.
+The prompt is one stream-json line on stdin: `json.dumps({"event": "user", "message": {"content": prompt}}) + "\n"`.
+`json.dumps` escapes the newlines in the prompt, so the message stays on one line.
+`<temporary directory>/.agents/agents/ces-guide-writer.md` is:
+
+```markdown
+---
+name: ces-guide-writer
+description: Writes watching guides from video transcripts.
+mainAgent: true
+tools: []
+excludeDefaultComponents: true
+---
+# Guide writer
+
+<SYSTEM_PROMPT>
+```
+
+`mainAgent: true` lets `--agent` select the agent as the main agent of the run, as opposed to a subagent. The
+process runs in the video's work directory. `--print-timeout` is not passed: `agy --help` gives its default as 0s,
+which "waits until the turn completes", and the changelog says the default changed from 5 minutes to unlimited. So
+`timeout_seconds`, enforced by the subprocess timeout as for `claude-cli`, is the only time limit.
+
+Not yet tried:
+
+- `--model` and `--effort` together with `--agent`.
+- `--disable-slash-commands` with stream-json input.
+- Whether `mainAgent: true` is required; the runs above always set it.
+- Which agent wins when another `ces-guide-writer` is found too, e.g. in a parent of the work directory.
+
+The tests in Step 1 use a fake runner, so check these once by hand, along with `agy --help`, whose flags can change
+between releases.
 
 ## Step 1: `generators/agy_cli.py`
 
 - `GENERATOR_NAME = "agy-cli"`.
+- Move `SYSTEM_PROMPT` from `claude_cli.py` to `generators/base.py`, next to the `GuideGenerator` interface, and
+  import it from there in both generators, so neither generator module imports the other.
 - `AgyCliOptions`, the `[guide.options.agy-cli]` table, with `extra="forbid"` and a `Field(description=...)` on every
-  option, so `config options` lists them. Likely options, after `ClaudeCliOptions`: `command` (default `["agy"]`),
-  `model`, `effort`, `timeout_seconds` and `extra_args`, plus whatever the open decisions settle on.
-- A runner for `agy`, as `run_claude` is for `claude`, setting any environment the open decisions call for.
-- `AgyCliGenerator`: builds the command line and calls `run_prompt_command` with `display_name="agy"`, an install hint
-  and `options_table="guide.options.agy-cli"`.
-- Register its spec in `GUIDE_GENERATORS` (`generators/__init__.py`).
-- `tests/generators/test_agy_cli.py`: the built command line, options validation, and each error path, with a fake
-  runner. `test_options_needs_no_config` (in `tests/cli/` after refactor Step 4) should find the `agy-cli` rows too.
+  option, so `config options` lists them. Modelled on `ClaudeCliOptions`: `command` (default `["agy"]`), `model`,
+  `effort`, `timeout_seconds` and `extra_args`. `effort` is `str | None` and passed through unchecked, as in
+  `ClaudeCliOptions`; `agy` accepts `low`, `medium`, `high`, `xhigh` and `max`.
+- `AGENT_NAME = "ces-guide-writer"` and a function that returns the agent file's text from `SYSTEM_PROMPT`.
+- `run_agy`, the runner, as `run_claude` is for `claude`: `subprocess.run` with the prompt on stdin and `extra_env`
+  added to the current environment. `agy` needs no variable of its own, so `generate` passes `{}`.
+- `AgyCliGenerator`:
+  - Builds the command line above.
+  - In `generate`, writes the agent file into a temporary directory, encodes the prompt as the stream-json line, and
+    calls `run_prompt_command` with `display_name="agy"`, an install hint and `options_table="guide.options.agy-cli"`.
+    That turns a missing command, a timeout, a non-zero exit status and empty output into `GuideError`. A
+    `status: ERROR` result came with exit 1 and an `error: ...` line on stderr, and the changelog puts the
+    `AGY_ERROR: {...}` line of exit 3 on stderr too, so `run_prompt_command`'s message, which prefers stderr,
+    includes `agy`'s reason.
+  - Parses the output: takes the last line whose `event` is `result`, and returns `result.response`. Raises
+    `GuideError` when no line is a `result` event, when a line is not JSON, when `status` is not `SUCCESS` (with
+    `error` in the message), when `finished_reason` is set, or when `response` is blank. The `status` check covers a
+    `status: ERROR` with exit 0, which the runs above did not show.
+- Register it in `generators/__init__.py`: its spec in `GUIDE_GENERATORS`, and its spec type in `AnyGeneratorSpec`
+  (`GeneratorSpec[ClaudeCliOptions] | GeneratorSpec[AgyCliOptions]`).
+- `tests/generators/test_agy_cli.py`, with a fake runner:
+  - The built command line, with and without `model`, `effort` and `extra_args`.
+  - The stdin line, and the agent file the run writes, read by the fake runner while the temporary directory exists.
+  - Options validation.
+  - Each parsing error path above.
+  - Output with `init` and `step_update` events before the `result` event, of which only `result.response` is
+    returned.
+- `tests/generators/test_registry.py`: the unknown-generator message becomes `Available: agy-cli, claude-cli`, so
+  update its `match`, and add an `agy-cli` case to `test_make_guide_generator`.
+- `test_options_needs_no_config` (`tests/cli/test_config_cmd.py`): also assert that `guide.options.agy-cli.model` is
+  in the output.
 
 ## Step 2: docs
 
-- `docs/design.md`: an "agy-cli generator" section next to "claude-cli generator", with the command line it runs, and
-  item 13 of "Build order" marked done.
-- `README.md`: how to choose the generator (`guide.generator = "agy-cli"`) and its options.
+- `docs/design.md`: an "agy-cli generator" section next to "claude-cli generator", with the command line, the agent
+  file and why it is used, and item 13 of "Build order" marked done.
+- `README.md`: how to choose the generator (`guide.generator = "agy-cli"`), its options, and that `agy` keeps every
+  conversation, prompt included, under `~/.gemini/antigravity-cli/`.
