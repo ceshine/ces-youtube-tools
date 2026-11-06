@@ -103,7 +103,7 @@ When writing or modifying Python code, you **MUST** adhere to the PEP-8 style gu
 This project uses `uv` for Python setup and dependency management.
 
 - **Sync Environment:** `uv sync --frozen` (creates/updates virtualenv from lockfile).
-- **Run Scripts/Tools:** Always prefix with `uv run` (e.g., `uv run python main.py`, `uv run pytest`).
+- **Run Scripts/Tools:** Always prefix runtime commands with `uv run` (e.g., `uv run python main.py`, `uv run pytest`).
 - **Add Dependencies:** Use `uv add <package>` or `uv add --dev <package>`.
 - **Linting & Formatting:**
   - `uvx ruff check .` (Linting)
