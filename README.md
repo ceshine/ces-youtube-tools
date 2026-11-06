@@ -83,7 +83,7 @@ ces-youtube-tools browse
 | `config profile` | Choose a different Firefox profile |
 | `config add-channel CHANNEL [--members] [-y]` | Look up a channel and add it |
 | `config remove-channel CHANNEL` | Remove a channel |
-| `config show` | Print the config and whether the profile has YouTube sign-in cookies |
+| `config show` | Print the config, check the guide generator, and say whether the profile has sign-in cookies |
 | `config check` | Check with YouTube that the profile is signed in |
 | `config template [--force]` | Write the built-in prompt template to the configured path, for editing |
 
@@ -187,10 +187,11 @@ model = "gemini-3.8-flash-high"   # optional; default gemini-3.8-flash-medium
 
 `model` must be a Gemini model ID that ends in its effort level, such as `gemini-3.8-flash-low`,
 `gemini-3.8-flash-medium` or `gemini-3.8-flash-high` (`agy models` lists them). There is no `effort` option: the model
-ID names the level, so a family name such as `gemini-3.8-flash` and non-Gemini models are refused. `guide` and
-`browse` check the `agy-cli` options before they write the first guide, and stop with "Invalid settings in
-[guide.options.agy-cli]" if one does not fit. The guide's front matter records the harness and model, and its page
-says, for example, "Written by Antigravity CLI with gemini-3.8-flash-high."
+ID names the level, so a family name such as `gemini-3.8-flash` and non-Gemini models are refused. `guide` checks
+the `agy-cli` options before it fetches anything, and `browse` before its menus; both stop with "Invalid settings in
+[guide.options.agy-cli]" if one does not fit. `config show` checks them too: it prints the error, or "Guides are
+written by Antigravity CLI with gemini-3.8-flash-high." The guide's front matter records the harness and model, and
+its page says, for example, "Written by Antigravity CLI with gemini-3.8-flash-high."
 
 Antigravity CLI keeps every conversation, including the full prompt with the transcript, under
 `~/.gemini/antigravity-cli/`, and has no option to turn this off. If you do not want them kept, delete them yourself.

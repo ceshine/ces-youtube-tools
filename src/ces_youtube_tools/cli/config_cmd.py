@@ -15,7 +15,7 @@ from ..config import AppConfig, dump_config, save_config, describe_options, DEFA
 from ..firefox import is_signed_in, FirefoxProfile, discover_all_profiles
 from ..youtube import verify_login, resolve_channel
 from ..pipeline import make_ytdlp
-from ..generators import GUIDE_GENERATORS
+from ..generators import GUIDE_GENERATORS, make_guide_generator
 
 
 def _choose(prompt: str, count: int, default: int | None = None) -> int:
@@ -230,8 +230,31 @@ def config_remove_channel(
     CONSOLE.print(f"Removed {found.name}.")
 
 
+def _print_generator(config: AppConfig) -> None:
+    """Print which generator writes the guides, or why its `[guide.options.<name>]` settings are invalid.
+
+    Args:
+        config (AppConfig): The configuration.
+
+    Returns:
+        None
+    """
+    try:
+        generator = make_guide_generator(config)
+    except ValueError as exc:
+        CONSOLE.print(f"[red]Guide generator:[/red] {escape(str(exc))}", highlight=False)
+        return
+    text = f"Guides are written by {generator.harness} with {generator.model}"
+    if generator.effort is not None:
+        text += f" ({generator.effort} effort)"
+    CONSOLE.print(f"{text}.", markup=False, highlight=False)
+
+
 def config_show(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
-    """Print the configuration and whether the Firefox profile has YouTube sign-in cookies.
+    """Print the configuration, the guide generator, and whether the Firefox profile has YouTube sign-in cookies.
+
+    The generator is built from its `[guide.options.<name>]` settings, so invalid settings show up without running
+    `guide` or `browse`.
 
     Args:
         config_path (Path): Path of the configuration file.
@@ -242,6 +265,7 @@ def config_show(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     config = load_config_or_exit(config_path)
     CONSOLE.print(f"[bold]{config_path}[/bold]")
     CONSOLE.print(dump_config(config), markup=False, highlight=False)
+    _print_generator(config)
     profile = config.auth.firefox_profile
     if profile is None:
         CONSOLE.print("No Firefox profile configured. Run `ces-youtube-tools config profile`.")

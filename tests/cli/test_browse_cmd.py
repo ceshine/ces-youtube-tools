@@ -398,6 +398,24 @@ def test_browse_errors(config_path: Path) -> None:
     assert "Configured channels: 3Blue1Brown" in result.output
 
 
+def test_browse_checks_the_generator_before_the_menus(
+    pickers: FakePickers, config_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config = AppConfig(channels=[CHANNEL, TYT])
+    config.guide.generator = "agy-cli"
+    config.guide.options["agy-cli"] = {"model": "gemini-3.8-flash"}
+    save_config(config, config_path)
+
+    def no_listing(channel: ChannelConfig, ytdlp: YtDlp, page_size: int) -> FakePager:
+        raise AssertionError("the videos must not be listed")
+
+    monkeypatch.setattr(browse_cmd, "VideoPager", no_listing)
+    result = RUNNER.invoke(APP, ["browse", "--config", str(config_path)], env={"COLUMNS": "200"})
+    assert result.exit_code == 1
+    assert "Invalid settings in [guide.options.agy-cli]" in result.output
+    assert pickers.menus == []
+
+
 def test_browse_needs_a_terminal(config_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     save_config(AppConfig(channels=[CHANNEL]), config_path)
 

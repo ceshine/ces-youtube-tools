@@ -228,8 +228,9 @@ def browse(
         None
 
     Raises:
-        typer.Exit: If no channel is configured, the channel is unknown, there is no terminal for the menus, or a
-            step fails for any selected video. Status 0 when the user quits with Ctrl+C, in a menu or while videos load.
+        typer.Exit: If no channel is configured, the channel is unknown, there is no terminal for the menus, the
+            guide generator or its settings are invalid (checked before the menus), or a step fails for any selected
+            video. Status 0 when the user quits with Ctrl+C, in a menu or while videos load.
     """
     config = load_config_or_exit(config_path)
     if not config.channels:
@@ -244,6 +245,11 @@ def browse(
         require_terminal()
     except NotATerminalError as exc:
         raise fail(f"{exc} For scripts, use `ces-youtube-tools guide VIDEO`.") from exc
+    try:
+        # Before the menus, so a bad generator setting stops the run before any video is picked.
+        tools = make_guide_tools_with_notice(config)
+    except GUIDE_ERRORS as exc:
+        raise fail(str(exc)) from exc
     if found is None:
         if len(config.channels) == 1:
             found = config.channels[0]
@@ -271,10 +277,6 @@ def browse(
         CONSOLE.print("Bye.")
         return
 
-    try:
-        tools = make_guide_tools_with_notice(config)
-    except GUIDE_ERRORS as exc:
-        raise fail(str(exc)) from exc
     target_dir = output_dir or config.guide.output_dir or Path.cwd()
     pending, planned = _plan_guides(tools, selected, target_dir, refresh=refresh)
     outcomes = {**planned, **_write_guides(tools, pending, refresh=refresh)}

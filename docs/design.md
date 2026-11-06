@@ -108,6 +108,9 @@ output_dir = "~/guides-site"   # where `site` writes the site, cleared on each b
   descriptions), including every `[guide.options.<generator>]` table, so it works without a config file and cannot
   drift from the code. A new option needs a `Field(description=...)`, or its description column is blank. Each
   generator's options are listed from its `GeneratorSpec` (see "Pipeline interfaces").
+- `config show` builds the selected generator with `make_guide_generator` and prints its harness, model and effort,
+  or the error for an unknown generator or an invalid `[guide.options.<generator>]` table. Building a generator only
+  validates its options, so this runs nothing; a bad setting shows up without starting `guide` or `browse`.
 
 ## Pipeline interfaces
 
@@ -226,11 +229,12 @@ excludeDefaultComponents: true
   the video's work directory gets no `.agents/` folder, and the file always matches `SYSTEM_PROMPT`.
 - `--model` is always passed, `gemini-3.8-flash-medium` unless `model` is set, and `agy`'s log confirms the model it
   is given is the model used. `model` must be a Gemini model ID that ends in its effort level
-  (`gemini-...-<low|medium|high|xhigh|max>`), checked when the generator is built, before the first guide. A family
-  name such as `gemini-3.8-flash` runs at a level `agy` picks (High in 1.5.1), which the front matter would not
-  record, and Claude models refuse `--effort`. So there is no `effort` option, the generator's `effort` is `None`,
-  and the front matter records `harness: Antigravity CLI` with the model alone. `extra_args` cannot hold `--model`
-  or `--effort` (alone or as `--model=...`), for the same reason as in `claude-cli`.
+  (`gemini-...-<low|medium|high|xhigh|max>`), checked when the generator is built: by `config show`, by `guide`
+  before it fetches anything, and by `browse` before its menus. A family name such as `gemini-3.8-flash` runs at a
+  level `agy` picks (High in 1.5.1), which the front matter would not record, and Claude models refuse `--effort`.
+  So there is no `effort` option, the generator's `effort` is `None`, and the front matter records
+  `harness: Antigravity CLI` with the model alone. `extra_args` cannot hold `--model` or `--effort` (alone or as
+  `--model=...`), for the same reason as in `claude-cli`.
 - `--print-timeout` is not passed. Its default waits until the turn completes, which leaves `timeout_seconds` as
   the only time limit.
 - `agy` 1.5.1 sometimes prints its `result` event and then hangs while shutting down, ignoring SIGTERM too. So the
@@ -359,7 +363,9 @@ Details and recheck commands are in [implementation_notes.md](implementation_not
 `ces-youtube-tools browse [CHANNEL] [-n N] [-o DIR] [--refresh]` is the everyday command:
 
 1. **Terminal**: the menus need one. Without it, `browse` fails after checking the config and before listing any
-   videos, and points to `ces-youtube-tools guide VIDEO` for scripts.
+   videos, and points to `ces-youtube-tools guide VIDEO` for scripts. Then it builds the guide tools, so an unknown
+   generator or invalid `[guide.options.<generator>]` settings fail the command before any menu, not after the
+   videos are picked.
 2. **Channel**: the `CHANNEL` argument (name or ID), else the only configured channel, else an arrow-key menu of the
    configured channels (the name, with "(members-only listed)" where that applies).
 3. **Videos**: a checkbox menu of the channel's videos, `-n` (20) per page, the same listing as `list` (no cookies),

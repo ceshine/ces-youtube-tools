@@ -134,6 +134,29 @@ def test_show(fake_home: Path, config_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert 'channel_id = "UCYO"' in result.output
     assert "has YouTube sign-in cookies" in result.output
+    assert "Guides are written by Claude Code with claude-sonnet-5-5 (high effort)." in result.output
+
+
+@pytest.mark.parametrize(
+    ("generator", "options", "expected"),
+    [
+        (
+            "agy-cli",
+            {"model": "gemini-3.8-flash-high"},
+            "Guides are written by Antigravity CLI with gemini-3.8-flash-high.",
+        ),
+        ("agy-cli", {"model": "gemini-3.8-flash"}, "Invalid settings in [guide.options.agy-cli]"),
+        ("no-such-generator", {}, "Unknown guide generator 'no-such-generator'"),
+    ],
+)
+def test_show_checks_generator(config_path: Path, generator: str, options: dict[str, object], expected: str) -> None:
+    config = AppConfig()
+    config.guide.generator = generator
+    config.guide.options[generator] = options
+    save_config(config, config_path)
+    result = RUNNER.invoke(APP, ["config", "show", "--config", str(config_path)], terminal_width=200)
+    assert result.exit_code == 0, result.output
+    assert expected in result.output
 
 
 def test_options_needs_no_config() -> None:
