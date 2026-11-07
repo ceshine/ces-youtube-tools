@@ -146,6 +146,8 @@ def test_show(fake_home: Path, config_path: Path) -> None:
             "Guides are written by Antigravity CLI with gemini-3.8-flash-high.",
         ),
         ("agy-cli", {"model": "gemini-3.8-flash"}, "Invalid settings in [guide.options.agy-cli]"),
+        ("pi-cli", {}, "Guides are written by Pi with openai/gpt-6.1-terra (high effort)."),
+        ("pi-cli", {"model": "terra"}, "Invalid settings in [guide.options.pi-cli]"),
         ("no-such-generator", {}, "Unknown guide generator 'no-such-generator'"),
     ],
 )
@@ -165,6 +167,7 @@ def test_options_needs_no_config() -> None:
     assert "guide.output_dir" in result.output
     assert "guide.options.claude-cli.model" in result.output
     assert "guide.options.agy-cli.model" in result.output
+    assert "guide.options.pi-cli.model" in result.output
 
 
 @pytest.mark.parametrize(("accepted", "exit_code"), [(True, 0), (False, 1)])
