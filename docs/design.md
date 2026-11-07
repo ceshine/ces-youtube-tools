@@ -25,6 +25,7 @@ provider are surveyed in [asr_options.md](asr_options.md).
    VideoInfo ─► TranscriptProvider ─► Transcript ─► GuideGenerator ─► Markdown file
                  · yt-dlp-subs (v1)                  · claude-cli (v1)
                  · audio transcription (later)       · agy-cli (Antigravity CLI)
+                                                     · pi-cli (Pi coding agent)
                                                      · openai-api, other CLIs (later)
 
  ces-youtube-tools site [DIR]          (static site)
@@ -88,6 +89,11 @@ session_dir = "~/.cache/ces-youtube-tools/claude-sessions"   # optional; unset =
 model = "gemini-3.8-flash-high"   # optional; default: gemini-3.8-flash-medium. A Gemini ID ending in its effort level
 # command = ["agy"], timeout_seconds = 1800, extra_args = []
 
+[guide.options.pi-cli]       # used when generator = "pi-cli"
+model = "openai/gpt-6.1-terra"   # optional; default: openai/gpt-6.1-terra. provider/id, checked after the run
+effort = "high"                  # optional; default: high, passed as --thinking (off, minimal ... xhigh, max)
+# command = ["pi"], timeout_seconds = 1800, extra_args = []
+
 [site]
 output_dir = "~/guides-site"   # where `site` writes the site, cleared on each build; unset = pass `-o`
 ```
@@ -135,13 +141,15 @@ class GuideGenerator(Protocol):
   prompt. Generators only send the prompt and return the reply.
 - `harness`, `model` and `effort` are known before the run, from the generator's module and its options, so
   `write_guide` reads them from the generator for the front matter instead of getting them back from `generate`,
-  which still returns only the Markdown. No tool is asked which model it used: every generator always passes one.
+  which still returns only the Markdown. Every generator always passes a model. `pi-cli` also checks the model and
+  thinking level that ran, and fails the run if they differ from its options, so the front matter still records
+  what ran (see "pi-cli generator").
 - Implementations are chosen by name from a plain dict registry keyed by the config values.
 - Each guide generator is registered as a `GeneratorSpec` in `generators/__init__.py` (`GUIDE_GENERATORS`): its
   name, the Pydantic model of its `[guide.options.<name>]` table, and a function that builds it from validated
   options. `make_guide_generator` validates the table with the spec, and `config options` lists every spec's options,
   so a new generator needs only its module and its spec.
-- Generators that run a command (`claude-cli`, `agy-cli`) send the prompt with `run_prompt_command` in
+- Generators that run a command (`claude-cli`, `agy-cli`, `pi-cli`) send the prompt with `run_prompt_command` in
   `generators/_subprocess.py`, which turns a missing command, a timeout, a non-zero exit status and an empty reply
   into `GuideError`. Each passes its own runner, so it can set its tool's environment variables or, for `agy`, stop
   a process that hangs after replying.
@@ -244,6 +252,55 @@ excludeDefaultComponents: true
 - `agy` keeps every conversation, prompt included, in `~/.gemini/antigravity-cli/` (`conversations/`, `brain/`,
   `log/` and more), and no flag or setting turns this off. Deleting those files would depend on `agy`'s private
   storage layout, so the generator leaves them. There is no `session_dir` option.
+
+### pi-cli generator
+
+`guide.generator = "pi-cli"` writes guides with the Pi coding agent (`pi`) in JSON mode. The tests behind each point
+below are in [the plan](20261107_pi_generator_plan.md), run with `pi` 1.5.0 and `openai/gpt-6.1-terra`.
+
+```
+cd <work dir> && pi --mode json --no-session \
+  --no-tools --no-extensions --no-skills --no-prompt-templates --no-themes \
+  --no-context-files --no-mcp --no-approve --offline \
+  --system-prompt '<short guide-writer prompt>' --model P/M --thinking E [extra_args] <<< '<prompt>'
+```
+
+- The prompt goes in on stdin as it is: with no message argument, `pi` reads stdin as the whole prompt. A 189 KB prompt
+  worked, so the 128 KiB argument limit that shaped `agy-cli` does not apply. The system prompt is `SYSTEM_PROMPT` from
+  `generators/base.py`, as for the other generators.
+- Everything but the model and the system prompt is turned off. `--no-tools` removes every tool. `--no-extensions`,
+  `--no-skills`, `--no-prompt-templates` and `--no-themes` keep the user's `pi` packages, skills and resources out of
+  the run. `--no-context-files` ignores `AGENTS.md` and `CLAUDE.md`, `--no-mcp` starts no MCP server, and `--no-approve`
+  ignores trust-gated project files (`.pi/`) in the work directory and its parents. `--offline` skips the model catalog
+  refresh and the version check at startup, so a model newer than `pi`'s cached catalog needs `pi update --models`
+  first. With a planted `AGENTS.md`, a default run followed it and sent about 2,390 input tokens; the locked run ignored
+  it and sent 97.
+- `--no-session` keeps the session in memory: nothing is written under `~/.pi` or in the work directory, which already
+  keeps `prompt.md` and `guide.md`. There is no `session_dir` option.
+- JSON mode, not text mode, so the run can be checked. `--mode json` prints one event per line, and the reply is the
+  last assistant `message_end` event. A failed reply still exits 0 in JSON mode, so the run fails unless its
+  `stopReason` is `stop` (`length` means the reply hit the model's output limit). A line that is not a JSON object, or
+  no assistant reply, is a `GuideError` too. Lines are split on `\n` only: `pi`'s JSON strings may hold U+2028 and
+  U+2029, which `str.splitlines()` also splits on. The text blocks are joined with newlines, as `pi`'s text mode prints
+  them, and thinking blocks are left out.
+- `--model` and `--thinking` are always passed, and what ran is checked after the run. `--model` matches fuzzily and
+  ignores case, with no warning (`terra` ran openrouter's `openai/gpt-6.1-terra-pro`), and `--thinking` is clamped to
+  what the model supports, also silently (`minimal` ran as `low`). So `model` must be `provider/id`, without whitespace
+  or a `:<level>` suffix (which would set the level too), checked when the generator is built. After the run,
+  `<provider>/<model>` and `thinkingLevel` in the assistant message must equal `model` and `effort`, or the run fails,
+  so the front matter always records what ran. A typo that `pi` fuzzy-matches to another model costs one generation:
+  `config show` runs nothing, so it cannot catch it, and `pi --list-models` is a fuzzy search with a table for people,
+  not a way to look up an exact ID. A typo that matches nothing fails at once with the provider's error. `extra_args`
+  cannot hold `--model`, `--provider`, `--models`, `--thinking` or `--mode`.
+- A run that compacts the context fails. On a context overflow or an early `length` stop, `pi` can replace part of the
+  context with a summary and retry, and the retry would pass every other check; for a guide, the part summarised would
+  be the transcript. Compaction can only be turned off in `pi`'s own `settings.json`, so any `compaction_start` or
+  `compaction_end` event is a `GuideError` that names its `reason` and suggests a model with a larger context window.
+  The 161 KB test prompt used 41,711 of `gpt-6.1-terra`'s 272K tokens.
+- Prompt caching stays on: no flag or documented setting turns it off, so unlike `claude-cli` there is no
+  `prompt_caching` option. The 161 KB prompt was billed as a cache write.
+- `pi` exits by itself after replying (71 seconds for the 161 KB prompt), so the runner (`run_pi`) is `subprocess.run`,
+  not `agy-cli`'s watchdog. Its pipes are UTF-8 whatever the locale, and bytes that are not UTF-8 become U+FFFD.
 
 ## Guide step
 
@@ -537,6 +594,8 @@ commands that `site` has since replaced. What was built:
     [the plan](20261105_guide_provenance_plan.md).
 14. A second guide generator, `agy-cli`, which runs Antigravity CLI, after items 12 and 13. (Done, 2026-11-06.)
     See "agy-cli generator" above, and [the plan](20261104_agy_generator_plan.md).
+15. A third guide generator, `pi-cli`, which runs the Pi coding agent and checks the model and thinking level that
+    ran. (Done, 2026-11-07.) See "pi-cli generator" above, and [the plan](20261107_pi_generator_plan.md).
 
 ## Guide metadata and a private site
 
@@ -597,12 +656,12 @@ effort: high                      # the effort level passed to it; null for a ge
   at midnight in `generated`, which Pydantic reads as that day's date; a number is read as Unix seconds. The tool
   writes neither. `generated` was a date before 2026-10-21; such a guide is still read, as a date.
 - `members_only` has three states. The `site` command treats `null` (unknown) as members-only.
-- `harness`, `model` and `effort` say what wrote the guide, so guides written with different generators or models can
-  be told apart (see [the plan](20261105_guide_provenance_plan.md)). `harness` is a constant in the generator's module
-  (`Claude Code` for `claude-cli`, `Antigravity CLI` for `agy-cli`), with no version. `model` and `effort` are what
-  the generator always passes to the tool, recorded as configured: an alias such as `opus` stays an alias. `agy-cli`
-  has no effort option, since its model ID names the level, so its `effort` is `null`. Guides written before
-  2026-11-05 cannot know them, so they have `null`. Only the guide page shows them (see "Guide pages").
+- `harness`, `model` and `effort` say what wrote the guide, so guides written with different generators or models can be
+  told apart (see [the plan](20261105_guide_provenance_plan.md)). `harness` is a constant in the generator's module
+  (`Claude Code` for `claude-cli`, `Antigravity CLI` for `agy-cli`, `Pi` for `pi-cli`), with no version. `model` and
+  `effort` are what the generator always passes to the tool, recorded as configured: an alias such as `opus` stays an
+  alias. `agy-cli` has no effort option, since its model ID names the level, so its `effort` is `null`. Guides written
+  before 2026-11-05 cannot know them, so they have `null`. Only the guide page shows them (see "Guide pages").
 
 `ces-youtube-tools backfill PATH... [--dry-run] [--refresh]` (`backfill.py`, done) rewrites the front matter of
 every guide from its video's metadata, and renames the guide to the name `guide` would give it now. It added front

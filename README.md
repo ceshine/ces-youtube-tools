@@ -16,7 +16,7 @@ Members-only videos work too, if you are a member of the channel.
 ces-youtube-tools browse
   1. pick a channel from your config
   2. list its videos, a page at a time (yt-dlp, no cookies)  ─► pick one or more
-  3. for each: fetch subtitles  ─►  build a prompt  ─►  `claude` CLI (or `agy`)
+  3. for each: fetch subtitles  ─►  build a prompt  ─►  `claude` CLI (or `agy`, or `pi`)
                ─►  "Watching Guide - <YYYYMMDD> - <title>.md"
 ```
 
@@ -24,8 +24,8 @@ ces-youtube-tools browse
 - **Transcripts** come from the video's own subtitles (human-made first, then automatic captions). Cookies are read
   live from a dedicated Firefox profile, which is only needed for members-only videos.
 - **Guides** are written by the [`claude` CLI](https://docs.claude.com/en/docs/claude-code), or by Antigravity CLI
-  (`agy`) if you choose it. All tools are disabled, so the model only writes text. The prompt template is a file you
-  can edit, `guide_prompt.md`, which `config init` writes next to the config.
+  (`agy`) or the Pi coding agent (`pi`) if you choose one. All tools are disabled, so the model only writes text. The
+  prompt template is a file you can edit, `guide_prompt.md`, which `config init` writes next to the config.
 
 ## Requirements
 
@@ -35,6 +35,8 @@ ces-youtube-tools browse
 - Python 3.13 or newer and [uv](https://docs.astral.sh/uv/)
 - [Claude Code](https://docs.claude.com/en/docs/claude-code) (`claude`), signed in, for the default generator
 - Antigravity CLI (`agy`), signed in, if you choose the `agy-cli` generator
+- The Pi coding agent (`pi`, npm package `@earendil-works/pi-coding-agent`), with a provider set up, if you choose the
+  `pi-cli` generator
 - Firefox, with a profile signed in to YouTube (only for members-only videos)
 - yt-dlp is run through `uvx` by default, so you do not need to install it. `ytdlp_command` in the config changes
   this.
@@ -196,6 +198,43 @@ its page says, for example, "Written by Antigravity CLI with gemini-3.8-flash-hi
 Antigravity CLI keeps every conversation, including the full prompt with the transcript, under
 `~/.gemini/antigravity-cli/`, and has no option to turn this off. If you do not want them kept, delete them yourself.
 
+### Writing guides with the Pi coding agent
+
+To write guides with the Pi coding agent (`pi`), set `generator` in the `[guide]` table and, optionally, add a
+`pi-cli` options table:
+
+```toml
+[guide]
+generator = "pi-cli"   # default: "claude-cli"
+
+[guide.options.pi-cli]
+model = "openrouter/openai/gpt-6.1-terra"   # optional; default openai/gpt-6.1-terra
+effort = "medium"                           # optional; default high (off, minimal, low, medium, high, xhigh or max)
+# timeout_seconds = 1800                    # optional; how long one guide may take
+# command = ["pi"]                          # optional; the command that runs the Pi coding agent
+# extra_args = []                           # optional; added last, but not --model, --provider, --models,
+                                            # --thinking or --mode
+```
+
+`model` must be a provider and a model ID, exactly as `pi --list-models` lists them, such as `openai/gpt-6.1-terra`
+or `openrouter/openai/gpt-6.1-terra`. `effort` is passed as `pi`'s thinking level. `pi` matches a model name loosely
+and changes a thinking level the model does not support, both without a warning, so after each run the generator
+checks that the model and thinking level that ran are the ones configured, and fails the run if not. A typo that `pi`
+matches to another model therefore costs one run, and the error names the model that ran; a typo that matches
+nothing fails at once with the provider's error. `config show`, `guide` and `browse` check the form of the options
+before they start, as for `agy-cli`. The guide's front matter records the harness, model and effort, and
+its page says, for example, "Written by Pi with openai/gpt-6.1-terra (high effort)."
+
+`pi` runs with its tools, extensions, skills, context files (such as `AGENTS.md`), MCP servers and project settings
+turned off. It also runs offline, so it does not refresh its model list at startup: run `pi update --models` before
+you use a model that is newer than that list.
+
+A run fails if `pi` compacts the conversation, that is, if it replaces part of the prompt (the transcript) with a
+summary because the prompt does not fit the model's context window. If that happens, choose a model with a larger
+context window.
+
+`pi` keeps no session on disk, but its prompt caching stays on: `pi` has no option to turn it off.
+
 ## Where files go
 
 - **Guides:** `Watching Guide - <YYYYMMDD> - <title>.md`, named by the day the video was published, in
@@ -219,7 +258,7 @@ uvx ruff check .                       # lint
 uvx ruff format --line-length 120      # format
 ```
 
-Tests mock yt-dlp, the network, the `claude` and `agy` CLIs and Firefox profiles. The only subtitle fixture is a
+Tests mock yt-dlp, the network, the `claude`, `agy` and `pi` CLIs and Firefox profiles. The only subtitle fixture is a
 short synthetic file.
 
 The index script's tests are in `tests/js/` and use Node's test runner. `uv run pytest` runs them when Node 22 or
