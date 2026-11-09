@@ -232,6 +232,8 @@ class PiCliOptions(BaseModel):
             `--model`. `pi` matches a model fuzzily, so the model that ran is checked after the run.
         effort (ThinkingLevel): Thinking level, always passed as `--thinking`, and checked after the run.
         timeout_seconds (float): How long one generation may take.
+        session_dir (Path | None): Folder to run `pi` in with session logging on, so every log lands in one folder
+            under `~/.pi/agent/sessions/`. None passes `--no-session` and keeps no log.
         extra_args (list[str]): More arguments, added last. They cannot hold `--model`, `--provider`, `--models`,
             `--thinking` or `--mode`.
     """
@@ -247,10 +249,26 @@ class PiCliOptions(BaseModel):
         default=DEFAULT_EFFORT, description="Thinking level, always passed as --thinking and checked after the run."
     )
     timeout_seconds: float = Field(default=1800, description="How long one generation may take.")
+    session_dir: Path | None = Field(
+        default=None, description="Run pi here with session logging on. Unset keeps no session log."
+    )
     extra_args: list[str] = Field(
         default=[],
         description="More arguments for pi, added last; not --model, --provider, --models, --thinking or --mode.",
     )
+
+    @field_validator("session_dir")
+    @classmethod
+    def expand_session_dir(cls, value: Path | None) -> Path | None:
+        """Expand a leading `~` in `session_dir`.
+
+        Args:
+            value (Path | None): The configured folder.
+
+        Returns:
+            Path | None: The expanded folder, or None when it is not set.
+        """
+        return value.expanduser() if value is not None else None
 
     @field_validator("model")
     @classmethod
@@ -299,10 +317,11 @@ class PiCliOptions(BaseModel):
 
 
 class PiCliGenerator:
-    """Generates a guide with `pi` in JSON mode, with tools, extensions, context files and sessions turned off.
+    """Generates a guide with `pi` in JSON mode, with tools, extensions and context files turned off.
 
-    The process runs in the video's work directory and keeps no session. `pi`'s prompt caching stays on: no flag or
-    documented setting turns it off.
+    Without `session_dir` the process runs in the video's work directory and keeps no session log. With it, the
+    process runs in `session_dir` and each logged session is named after the video ID. `pi`'s prompt caching stays
+    on: no flag or documented setting turns it off.
 
     Args:
         options (PiCliOptions): Settings.
@@ -328,17 +347,26 @@ class PiCliGenerator:
         """str: The `effort` option, passed as `--thinking`."""
         return self.options.effort
 
-    def build_args(self) -> list[str]:
+    def build_args(self, video_id: str | None = None) -> list[str]:
         """Build the command line.
+
+        Args:
+            video_id (str | None): Name for the logged session. Only used when `session_dir` is set.
 
         Returns:
             list[str]: The command and its arguments.
         """
-        return [
+        args = [
             *self.options.command,
             "--mode",
             "json",
-            "--no-session",
+        ]
+        if self.options.session_dir is None:
+            args.append("--no-session")
+        elif video_id:
+            args += ["--name", video_id]
+        return [
+            *args,
             *LOCKDOWN_FLAGS,
             "--system-prompt",
             SYSTEM_PROMPT,
@@ -354,22 +382,30 @@ class PiCliGenerator:
 
         Args:
             prompt (str): The full prompt.
-            video (VideoInfo): The video. Not used: `pi` keeps no session to name.
-            work_dir (Path): The video's work directory, used as the working directory.
+            video (VideoInfo): The video. Its ID names the logged session.
+            work_dir (Path): The video's work directory. It is the working directory unless `session_dir` is set.
 
         Returns:
             str: The reply.
 
         Raises:
-            GuideError: If the command is missing, times out, fails or prints nothing, or its output holds no
-                complete reply from the configured model and thinking level (see `parse_reply`).
+            GuideError: If `session_dir` is not a folder, or the command is missing, times out, fails or prints
+                nothing, or its output holds no complete reply from the configured model and thinking level (see
+                `parse_reply`).
         """
-        del video
+        args = self.build_args(video.id)
+        cwd = work_dir
+        if self.options.session_dir is not None:
+            cwd = self.options.session_dir
+            try:
+                cwd.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise GuideError(f"Cannot use session_dir {cwd}: {exc}") from exc
         output = run_prompt_command(
             self.runner,
-            self.build_args(),
+            args,
             prompt,
-            work_dir,
+            cwd,
             self.options.timeout_seconds,
             {},
             display_name="pi",

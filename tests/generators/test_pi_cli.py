@@ -125,6 +125,18 @@ def test_build_args_defaults() -> None:
     ]
 
 
+def test_build_args_with_session_dir_names_the_session(tmp_path: Path) -> None:
+    args = PiCliGenerator(PiCliOptions(session_dir=tmp_path)).build_args("abc123")
+    assert "--no-session" not in args
+    assert args[3:5] == ["--name", "abc123"]
+
+
+def test_build_args_with_session_dir_and_no_video_id(tmp_path: Path) -> None:
+    args = PiCliGenerator(PiCliOptions(session_dir=tmp_path)).build_args()
+    assert "--no-session" not in args
+    assert "--name" not in args
+
+
 def test_build_args_with_options() -> None:
     options = PiCliOptions(
         command=["npx", "pi"], model="anthropic/claude-fable-5-1", effort="max", extra_args=["--verbose"]
@@ -140,6 +152,42 @@ def test_generate_sends_the_prompt_unchanged_from_the_work_dir(tmp_path: Path) -
     assert reply == "# Guide\n"
     assert [call[1:] for call in fake.calls] == [("PROMPT\n", tmp_path, 60)]
     assert fake.envs == [{}]
+
+
+def test_generate_runs_in_session_dir_and_creates_it(tmp_path: Path) -> None:
+    work_dir = tmp_path / "work"
+    session_dir = tmp_path / "sessions" / "pi"
+    fake = FakePi()
+    _ = PiCliGenerator(PiCliOptions(session_dir=session_dir), fake).generate("PROMPT", VIDEO, work_dir)
+    args, _, cwd, _ = fake.calls[0]
+    assert cwd == session_dir
+    assert session_dir.is_dir()
+    assert "--no-session" not in args
+    assert args[3:5] == ["--name", "abc123"]
+
+
+def test_generate_without_session_dir_runs_in_the_work_dir(tmp_path: Path) -> None:
+    fake = FakePi()
+    _ = PiCliGenerator(PiCliOptions(), fake).generate("PROMPT", VIDEO, tmp_path)
+    args, _, cwd, _ = fake.calls[0]
+    assert cwd == tmp_path
+    assert "--no-session" in args
+    assert "--name" not in args
+
+
+def test_generate_rejects_a_session_dir_that_is_a_file(tmp_path: Path) -> None:
+    session_dir = tmp_path / "not-a-dir"
+    _ = session_dir.write_text("x", encoding="utf-8")
+    fake = FakePi()
+    with pytest.raises(GuideError, match="Cannot use session_dir"):
+        _ = PiCliGenerator(PiCliOptions(session_dir=session_dir), fake).generate("PROMPT", VIDEO, tmp_path)
+    assert fake.calls == []
+
+
+def test_session_dir_expands_the_home_folder(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    options = PiCliOptions.model_validate({"session_dir": "~/sessions"})
+    assert options.session_dir == tmp_path / "sessions"
 
 
 def test_generate_checks_the_configured_model_and_effort(tmp_path: Path) -> None:

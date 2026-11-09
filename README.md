@@ -210,6 +210,7 @@ generator = "pi-cli"   # default: "claude-cli"
 [guide.options.pi-cli]
 model = "openrouter/openai/gpt-6.1-terra"   # optional; default openai/gpt-6.1-terra
 effort = "medium"                           # optional; default high (off, minimal, low, medium, high, xhigh or max)
+# session_dir = "~/.cache/ces-youtube-tools/pi-sessions"   # optional; unset keeps no session log
 # timeout_seconds = 1800                    # optional; how long one guide may take
 # command = ["pi"]                          # optional; the command that runs the Pi coding agent
 # extra_args = []                           # optional; added last, but not --model, --provider, --models,
@@ -233,7 +234,9 @@ A run fails if `pi` compacts the conversation, that is, if it replaces part of t
 summary because the prompt does not fit the model's context window. If that happens, choose a model with a larger
 context window.
 
-`pi` keeps no session on disk, but its prompt caching stays on: `pi` has no option to turn it off.
+By default `pi` keeps no session on disk (`--no-session`). Set `session_dir` to run `pi` in that folder with session
+logging on (`--name <video id>`), so every session log lands in one folder under `~/.pi/agent/sessions/`. `pi`'s
+prompt caching stays on: `pi` has no option to turn it off.
 
 ## Where files go
 

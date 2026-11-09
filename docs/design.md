@@ -92,6 +92,7 @@ model = "gemini-3.8-flash-high"   # optional; default: gemini-3.8-flash-medium. 
 [guide.options.pi-cli]       # used when generator = "pi-cli"
 model = "openai/gpt-6.1-terra"   # optional; default: openai/gpt-6.1-terra. provider/id, checked after the run
 effort = "high"                  # optional; default: high, passed as --thinking (off, minimal ... xhigh, max)
+session_dir = "~/.cache/ces-youtube-tools/pi-sessions"       # optional; unset = no session log is kept
 # command = ["pi"], timeout_seconds = 1800, extra_args = []
 
 [site]
@@ -259,7 +260,14 @@ excludeDefaultComponents: true
 below are in [the plan](20261107_pi_generator_plan.md), run with `pi` 1.5.0 and `openai/gpt-6.1-terra`.
 
 ```
+# session_dir not set (default): no session log
 cd <work dir> && pi --mode json --no-session \
+  --no-tools --no-extensions --no-skills --no-prompt-templates --no-themes \
+  --no-context-files --no-mcp --no-approve --offline \
+  --system-prompt '<short guide-writer prompt>' --model P/M --thinking E [extra_args] <<< '<prompt>'
+
+# session_dir set: the session log is kept, to track usage
+cd <session_dir> && pi --mode json --name <video id> \
   --no-tools --no-extensions --no-skills --no-prompt-templates --no-themes \
   --no-context-files --no-mcp --no-approve --offline \
   --system-prompt '<short guide-writer prompt>' --model P/M --thinking E [extra_args] <<< '<prompt>'
@@ -275,8 +283,10 @@ cd <work dir> && pi --mode json --no-session \
   refresh and the version check at startup, so a model newer than `pi`'s cached catalog needs `pi update --models`
   first. With a planted `AGENTS.md`, a default run followed it and sent about 2,390 input tokens; the locked run ignored
   it and sent 97.
-- `--no-session` keeps the session in memory: nothing is written under `~/.pi` or in the work directory, which already
-  keeps `prompt.md` and `guide.md`. There is no `session_dir` option.
+- `session_dir` (optional, `~` is expanded) works like `claude-cli`'s `session_dir`. `pi` stores session logs under
+  `~/.pi/agent/sessions/--<working directory, encoded>--/`, so when `session_dir` is set, the process runs in
+  `session_dir` with `--name <video id>` and all logs land in one folder instead of one per video. Without it,
+  `--no-session` keeps the session in memory and nothing is written under `~/.pi`.
 - JSON mode, not text mode, so the run can be checked. `--mode json` prints one event per line, and the reply is the
   last assistant `message_end` event. A failed reply still exits 0 in JSON mode, so the run fails unless its
   `stopReason` is `stop` (`length` means the reply hit the model's output limit). A line that is not a JSON object, or
