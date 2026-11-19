@@ -18,6 +18,8 @@ import {
   filterGuides,
   showGuides,
   emptyMessage,
+  doneExportFilename,
+  formatImportStatus,
   formatDuration,
   initialView,
   saveView,
@@ -314,4 +316,14 @@ test("without working storage the index shows the hash or the default, and only 
   assert.deepEqual(initialView("", null), { view: DEFAULT_VIEW, rewriteHash: false });
   saveView(null, view({ group: "month" }));
   assert.equal(warn.mock.callCount(), 2);
+});
+
+test("doneExportFilename uses the browser's local date", NEEDS_ZONE, () => {
+  assert.equal(doneExportFilename(new Date(EVENING_UTC)), `ces-youtube-tools-done-${DAY_OF_EVENING_UTC}.json`);
+});
+
+test("formatImportStatus summarizes imported, new, and total counts", () => {
+  assert.equal(formatImportStatus(0, { added: 0, total: 3 }), "The file had no done marks.");
+  assert.equal(formatImportStatus(1, { added: 1, total: 4 }), "Imported 1 done mark (1 new, 4 total).");
+  assert.equal(formatImportStatus(5, { added: 2, total: 7 }), "Imported 5 done marks (2 new, 7 total).");
 });

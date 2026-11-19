@@ -122,6 +122,11 @@ def test_render_index_leaves_the_list_to_the_script() -> None:
         assert f'<div class="segmented" id="{name}-choices" role="radiogroup"' in index  # filled by the script
     assert '<div class="choice" id="show-row" hidden>' in index  # shown by the script when it can read done marks
     assert '<button type="button" id="reset">Reset view</button>' in index
+    assert '<div class="done-actions" id="done-actions" hidden>' in index
+    assert '<button type="button" id="export-done">Export done</button>' in index
+    assert '<button type="button" id="import-done">Import done</button>' in index
+    assert '<input type="file" id="import-done-file" accept=".json,application/json" hidden>' in index
+    assert '<p class="done-status" id="done-status" role="status" aria-live="polite" hidden></p>' in index
     assert "<ol" not in index and "<Title>" not in index
     assert guides_block(index) == index_payload(pages)
     assert "$" not in index

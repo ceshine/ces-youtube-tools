@@ -9,7 +9,16 @@
 // turned into a `YYYY-MM-DD` string first (`localDay`); a date-only value (`upload_date`, an old `generated`) is used
 // as it is, never through `Date`, since `new Date("2026-10-01")` is midnight UTC, which is still September west of UTC.
 
-import { DONE_KEY, browserStorage, readDone, setDone, showToggle } from "./site_done.mjs";
+import {
+  DONE_KEY,
+  browserStorage,
+  formatDoneExport,
+  mergeDone,
+  parseDoneExport,
+  readDone,
+  setDone,
+  showToggle,
+} from "./site_done.mjs";
 
 export const DEFAULT_VIEW = Object.freeze({ sort: "published", order: "desc", group: "none", show: "all", q: "" });
 
@@ -387,6 +396,31 @@ export function emptyMessage(view) {
   return isFiltering(view) ? `No guides to do match “${view.q}”.` : "Nothing left to do.";
 }
 
+/**
+ * Build the download filename for an exported done list, using the browser's local date.
+ *
+ * @param {Date} [now] The current time; defaults to now.
+ * @returns {string} Such as `ces-youtube-tools-done-2026-11-19.json`.
+ */
+export function doneExportFilename(now = new Date()) {
+  return `ces-youtube-tools-done-${localDay(now.toISOString())}.json`;
+}
+
+/**
+ * Describe the outcome of merging an imported done list.
+ *
+ * @param {number} importedCount How many unique video IDs were in the imported file.
+ * @param {{added: number, total: number}} result Counts returned by `mergeDone`.
+ * @returns {string} A short status line for the reader.
+ */
+export function formatImportStatus(importedCount, result) {
+  if (importedCount === 0) {
+    return "The file had no done marks.";
+  }
+  const marks = importedCount === 1 ? "1 done mark" : `${importedCount} done marks`;
+  return `Imported ${marks} (${result.added} new, ${result.total} total).`;
+}
+
 // The code below touches the page. The controls are a row of radio buttons per setting (`sort`, `order`, `group`,
 // `show`), named after it and filled into `#<setting>-choices`, and the filter box `#q`.
 // Text from the payload goes in with `textContent` only, never `innerHTML`: titles and channel names come from YouTube.
@@ -547,7 +581,55 @@ function render(guides, view, openGroups, storage) {
   const items = listing(guides, shown, shownView, openGroups, done);
   document.getElementById("count").textContent = describeView(shownView, shown.length, guides.length);
   document.getElementById("show-row").hidden = done === null;
+  document.getElementById("done-actions").hidden = done === null;
   document.getElementById("listing").replaceChildren(...items);
+}
+
+function showDoneStatus(message, isError = false) {
+  const status = document.getElementById("done-status");
+  status.textContent = message;
+  status.classList.toggle("error", isError);
+  status.hidden = false;
+}
+
+function exportDoneList(storage) {
+  const done = readDone(storage);
+  if (done === null) {
+    showDoneStatus("The done list could not be read from storage.", true);
+    return;
+  }
+  const blob = new Blob([formatDoneExport(done)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = element("a");
+  link.href = url;
+  link.download = doneExportFilename();
+  document.body.append(link);
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    // Defer revocation: Firefox and Safari initiate the download asynchronously after `click()`.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  const marks = done.size === 1 ? "1 done mark" : `${done.size} done marks`;
+  showDoneStatus(`Exported ${marks}.`);
+}
+
+async function importDoneFile(storage, file, onImported) {
+  let imported;
+  try {
+    imported = parseDoneExport(await file.text());
+  } catch (error) {
+    showDoneStatus(error instanceof Error ? error.message : "The file could not be imported.", true);
+    return;
+  }
+  const result = mergeDone(storage, imported);
+  if (!result.ok) {
+    showDoneStatus("The imported done marks could not be saved to storage.", true);
+    return;
+  }
+  onImported();
+  showDoneStatus(formatImportStatus(imported.size, result));
 }
 
 // One listener for every row's toggle. The row is changed in place, without a render, so a row marked done under
@@ -678,6 +760,17 @@ function main() {
   // `input` bubbles from the radios too.
   controls.addEventListener("input", guarded(showControls));
   document.getElementById("reset").addEventListener("click", guarded(resetView));
+  const importInput = document.getElementById("import-done-file");
+  document.getElementById("export-done").addEventListener("click", () => exportDoneList(storage));
+  document.getElementById("import-done").addEventListener("click", () => importInput.click());
+  importInput.addEventListener("change", async () => {
+    const file = importInput.files?.[0];
+    // Reset so selecting the same file again still triggers `change`.
+    importInput.value = "";
+    if (file) {
+      await importDoneFile(storage, file, guarded(showMarks));
+    }
+  });
   controls.hidden = false;
 }
 

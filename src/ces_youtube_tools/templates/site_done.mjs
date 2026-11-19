@@ -7,6 +7,8 @@
 
 // The key `localStorage` keeps the marks under. The index keeps its view under `ces-youtube-tools:index-view`.
 export const DONE_KEY = "ces-youtube-tools:done";
+export const EXPORT_FORMAT = "ces-youtube-tools:done";
+export const EXPORT_VERSION = 1;
 
 /**
  * Read the marks from the stored value.
@@ -97,6 +99,77 @@ export function setDone(storage, videoId, done) {
     return false;
   }
   return true;
+}
+
+/**
+ * Format the done marks as a versioned JSON export file.
+ *
+ * @param {Iterable<string>} done The video IDs marked done.
+ * @returns {string} Pretty-printed JSON with sorted video IDs and a trailing newline.
+ */
+export function formatDoneExport(done) {
+  return `${JSON.stringify({ format: EXPORT_FORMAT, version: EXPORT_VERSION, done: [...done].toSorted() }, null, 2)}\n`;
+}
+
+/**
+ * Parse and validate a JSON export file created by `formatDoneExport`.
+ *
+ * @param {string} text The raw file contents.
+ * @returns {Set<string>} The exported video IDs.
+ * @throws {Error} If the text is not valid JSON or does not match the export schema.
+ */
+export function parseDoneExport(text) {
+  let value;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    throw new Error("The file is not valid JSON.");
+  }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("The file is not a done list export.");
+  }
+  if (value.format !== EXPORT_FORMAT) {
+    throw new Error("The file is not a ces-youtube-tools done list export.");
+  }
+  if (value.version !== EXPORT_VERSION) {
+    throw new Error(`Unsupported done list export version: ${value.version}.`);
+  }
+  if (!Array.isArray(value.done) || !value.done.every((item) => typeof item === "string" && item.length > 0)) {
+    throw new Error("The export's done list must be an array of video IDs.");
+  }
+  return new Set(value.done);
+}
+
+/**
+ * Merge imported video IDs into the stored done marks.
+ *
+ * The marks are read again first, so a mark another tab wrote since this page read them is kept.
+ *
+ * @param {Storage | null} storage `localStorage`, or null when the browser does not give it; null does nothing.
+ * @param {Iterable<string>} imported The video IDs to add.
+ * @returns {{ok: boolean, added: number, total: number}} Whether the merge was stored, how many new IDs were added,
+ *     and the resulting total count.
+ */
+export function mergeDone(storage, imported) {
+  const marks = readDone(storage);
+  if (marks === null) {
+    return { ok: false, added: 0, total: 0 };
+  }
+  const before = marks.size;
+  for (const videoId of imported) {
+    marks.add(videoId);
+  }
+  const added = marks.size - before;
+  if (added === 0) {
+    return { ok: true, added: 0, total: marks.size };
+  }
+  try {
+    storage.setItem(DONE_KEY, formatDone(marks));
+  } catch (error) {
+    console.warn("The imported done marks could not be stored.", error);
+    return { ok: false, added: 0, total: 0 };
+  }
+  return { ok: true, added, total: marks.size };
 }
 
 // The code below touches the page.

@@ -62,8 +62,8 @@ h1 {
   color: var(--muted);
 }
 /* `display: flex` above would otherwise win over the browser's `[hidden] { display: none }`. */
-.controls[hidden], .controls .choice[hidden] { display: none; }
-.controls .choice, .controls .filter { display: flex; align-items: center; gap: 6px; }
+.controls[hidden], .controls .choice[hidden], .controls .done-actions[hidden] { display: none; }
+.controls .choice, .controls .filter, .controls .done-actions { display: flex; align-items: center; gap: 6px; }
 .controls .filter { flex: 1 1 16em; }
 .controls input[type="search"], .controls button, .segmented label {
   font: inherit;
@@ -105,6 +105,13 @@ h1 {
   font-size: 14px;
   color: var(--muted);
 }
+.done-status {
+  margin: -0.2em 0 0.8em;
+  font-family: var(--font-ui);
+  font-size: 14px;
+  color: var(--pill-text);
+}
+.done-status.error { color: #a12622; }
 
 .guides {
   list-style: none;
@@ -217,7 +224,13 @@ h1 {
 <div class="segmented" id="show-choices" role="radiogroup" aria-labelledby="show-label"></div></div>
 <label class="filter">Filter <input type="search" id="q" placeholder="Title or channel" autocomplete="off"></label>
 <button type="button" id="reset">Reset view</button>
+<div class="done-actions" id="done-actions" hidden>
+<button type="button" id="export-done">Export done</button>
+<button type="button" id="import-done">Import done</button>
 </div>
+</div>
+<input type="file" id="import-done-file" accept=".json,application/json" hidden>
+<p class="done-status" id="done-status" role="status" aria-live="polite" hidden></p>
 <p class="count" id="count" aria-live="polite">$count.</p>
 <noscript><p class="empty">The list of guides needs JavaScript.</p></noscript>
 <div id="listing"></div>
