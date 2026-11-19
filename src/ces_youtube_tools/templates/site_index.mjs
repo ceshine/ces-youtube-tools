@@ -585,11 +585,26 @@ function render(guides, view, openGroups, storage) {
   document.getElementById("listing").replaceChildren(...items);
 }
 
-function showDoneStatus(message, isError = false) {
+const EXPORT_STATUS_HIDE_MS = 10_000;
+let doneStatusTimer = null;
+
+function showDoneStatus(message, isError = false, autoHideMs = 0) {
+  if (doneStatusTimer !== null) {
+    clearTimeout(doneStatusTimer);
+    doneStatusTimer = null;
+  }
   const status = document.getElementById("done-status");
   status.textContent = message;
   status.classList.toggle("error", isError);
   status.hidden = false;
+  if (autoHideMs > 0) {
+    doneStatusTimer = setTimeout(() => {
+      status.textContent = "";
+      status.classList.remove("error");
+      status.hidden = true;
+      doneStatusTimer = null;
+    }, autoHideMs);
+  }
 }
 
 function exportDoneList(storage) {
@@ -612,7 +627,7 @@ function exportDoneList(storage) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
   const marks = done.size === 1 ? "1 done mark" : `${done.size} done marks`;
-  showDoneStatus(`Exported ${marks}.`);
+  showDoneStatus(`Exported ${marks}.`, false, EXPORT_STATUS_HIDE_MS);
 }
 
 async function importDoneFile(storage, file, onImported) {

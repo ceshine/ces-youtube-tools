@@ -75,7 +75,7 @@ def _pick_profile() -> FirefoxProfile:
     if not signed_in[choice - 1]:
         CONSOLE.print(
             f"[yellow]Warning:[/yellow] {profile.name} is not signed in to YouTube. "
-            "Sign in with that profile, then run `ces-youtube-tools config check`."
+            + "Sign in with that profile, then run `ces-youtube-tools config check`."
         )
     return profile
 
@@ -124,7 +124,7 @@ def _write_default_template(path: Path, force: bool) -> bool:
     if path.exists() and not force:
         return False
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(default_template(), encoding="utf-8")
+    _ = path.write_text(default_template(), encoding="utf-8")
     return True
 
 
@@ -313,6 +313,6 @@ def config_check(config_path: ConfigPathOption = DEFAULT_CONFIG_PATH) -> None:
     if not verify_login(make_ytdlp(config, with_cookies=True)):
         raise fail(
             "YouTube did not accept the cookies. Sign in with the Firefox profile "
-            f"{config.auth.firefox_profile}, or choose another with `ces-youtube-tools config profile`."
+            + f"{config.auth.firefox_profile}, or choose another with `ces-youtube-tools config profile`."
         )
     CONSOLE.print("[green]Signed in:[/green] YouTube accepted the profile's cookies.")
